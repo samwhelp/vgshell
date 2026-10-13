@@ -930,6 +930,8 @@ mutations=(
   "a locked control's reason opens under it, over its row|controls/DisabledReason.qml|            side: \"clear\"|            side: \"below\"|tst_reasontip.qml"
   "a reason covers a Tab stop to cover less text|overlay/Tooltip.qml|scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0|0|tst_reasontip.qml"
   "an unlock mark's reason opens under it, over the hint|controls/UnlockMark.qml|        tooltipSide: \"clear\"|        tooltipSide: \"below\"|tst_reasontip.qml"
+  "an unlock mark's reason covers the toggle it explains|overlay/Tooltip.qml|const owner = holders.find(item => item.activeFocusOnTab === true);|const owner = undefined;|tst_reasontip.qml"
+  "a reason covers an icon|overlay/Tooltip.qml|if (Array.isArray(item.painted) && item.stroke !== undefined) return \"image\";|if (false) return \"image\";|tst_reasontip.qml"
   "a reason grows past its window's content|overlay/Tooltip.qml|Math.min(root.maxWidth + 2 * Theme.tooltip.paddingX, root.clearWidth)|root.maxWidth + 2 * Theme.tooltip.paddingX|tst_reasontip.qml"
   "the slider fill ignores the value|controls/Slider.qml|width: root.position * parent.width|width: parent.width|tst_slider.qml"
   "the mirrored slider fills from the left|controls/Slider.qml|x: root.mirrored ? parent.width - width : 0|x: 0|tst_slider.qml"

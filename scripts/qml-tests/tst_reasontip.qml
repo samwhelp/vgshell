@@ -6,9 +6,11 @@ import qs.Ui
 import qs.Unit
 
 // A disabled control's reason (DisabledReason, Tooltip's "clear" side)
-// opens where it covers no text and no Tab stop of its window, inside the
-// box the window's content spans, and is no wider than that box. Where no
-// place is free, it takes the place that covers the least and no Tab stop.
+// opens where it covers no text, icon or Tab stop of its window, inside
+// the box the window's content spans, and is no wider than that box. An
+// unlock mark's reason covers its toggle neither. Where no place is free,
+// it takes the place that covers the least, one that covers no Tab stop
+// first.
 // Every visible item of this window is an obstacle, so each test shows
 // one fixture. The stand-in popup positions nothing: the box a tooltip
 // takes is read from the anchor the popup is handed, as the compositor
@@ -68,8 +70,11 @@ Item {
         }
     }
 
-    // A flyout with a locked switch whose step is one click, so its unlock
-    // mark shows the same reason to the keyboard, and a hint under it.
+    // A pane header: a title on the start edge and a locked switch with no
+    // text on the end edge, whose step is one click, so its unlock mark
+    // shows the switch's reason to the keyboard. A line above the row and
+    // a hint under the switch leave the room before the switch, over its
+    // track, as the one free place round the mark alone.
     Item {
         id: marked
         visible: false
@@ -79,19 +84,57 @@ Item {
         readonly property rect content: Qt.rect(root.inset, root.inset, width - 2 * root.inset, height - 2 * root.inset)
 
         Label { id: markedHeading; x: root.inset; y: root.inset; width: marked.content.width; role: "subheading"; text: "VPN profiles" }
-        Switch { id: markedSwitch; x: root.inset; y: 110; text: "VPN"; disabledReason: root.reason; unlock: ({ label: "Sign in", run: () => {} }) }
+        Label {
+            id: markedAbove
+            x: root.inset
+            y: markedSwitch.y - Theme.tooltip.gap - height
+            width: marked.content.width
+            elide: Text.ElideRight
+            text: "Turn on the VPN to route your traffic through your provider and keep it private"
+        }
+        Label { id: markedTitle; x: root.inset; y: markedSwitch.y; text: "VPN" }
+        Switch {
+            id: markedSwitch
+            x: marked.width - root.inset - width
+            y: 110
+            disabledReason: "Sign in first"
+            unlock: ({ label: "Sign in", run: () => {} })
+        }
         Label {
             id: markedHint
             x: root.inset
             y: markedSwitch.y + markedSwitch.height + Theme.tooltip.gap
             width: marked.content.width
             role: "hint"
+            horizontalAlignment: Text.AlignRight
             text: "Routes your traffic through the VPN"
         }
         Button {
             id: markedClose
             x: marked.width - root.inset - width
             y: marked.height - root.inset - height
+            text: "Close"
+            variant: "secondary"
+        }
+    }
+
+    // A locked button with an icon under its start edge and room after
+    // it: the places under the button cover the icon.
+    Item {
+        id: iconed
+        visible: false
+        width: 320
+        height: 216
+
+        readonly property rect content: Qt.rect(root.inset, root.inset, width - 2 * root.inset, height - 2 * root.inset)
+
+        Label { id: iconedHeading; x: root.inset; y: root.inset; role: "subheading"; text: "VPN profiles" }
+        Button { id: iconLocked; x: root.inset; y: 60; text: "Sign in"; disabledReason: "Sign in first" }
+        Icon { id: shield; x: root.inset; y: iconLocked.y + iconLocked.height + 2 * Theme.tooltip.gap; name: "shield" }
+        Button {
+            id: iconedClose
+            x: iconed.width - root.inset - width
+            y: iconed.height - root.inset - height
             text: "Close"
             variant: "secondary"
         }
@@ -164,7 +207,7 @@ Item {
         }
 
         function cleanup() {
-            for (const control of [locked, crowded]) {
+            for (const control of [locked, crowded, iconLocked]) {
                 const tip = reasonTip(control);
                 if (tip === null) continue;
                 tip.shown = false;
@@ -177,6 +220,7 @@ Item {
             }
             narrow.visible = false;
             marked.visible = false;
+            iconed.visible = false;
             packed.visible = false;
         }
 
@@ -298,15 +342,32 @@ Item {
             const tip = markTip();
             verify(tip !== null, "the mark holds its tooltip");
             tryCompare(tip, "opened", true);
-            compare(tip.text, root.reason);
+            compare(tip.text, markedSwitch.disabledReason);
             const place = placedBox(tip);
             const faults = [];
             if (overlap(place, words(markedHint)) > 0) faults.push("covers the hint");
             if (overlap(place, words(markedHeading)) > 0) faults.push("covers the heading");
+            if (overlap(place, words(markedAbove)) > 0) faults.push("covers the line above");
+            if (overlap(place, words(markedTitle)) > 0) faults.push("covers the title");
+            if (overlap(place, box(markedSwitch)) > 0) faults.push("covers its switch");
             if (overlap(place, box(markedClose)) > 0) faults.push("covers Close");
             if (overlap(place, box(mark)) > 0) faults.push("covers its mark");
             if (!inside(place, surfaceBox(marked))) faults.push("leaves the content box");
             compare(faults, [], "the mark's reason's place " + JSON.stringify(place));
+        }
+
+        // An icon is an image the reason never covers.
+        function test_a_reason_covers_no_icon() {
+            iconed.visible = true;
+            const tip = openReason(iconLocked);
+            const place = placedBox(tip);
+            const faults = [];
+            if (overlap(place, box(shield)) > 0) faults.push("covers the icon");
+            if (overlap(place, words(iconedHeading)) > 0) faults.push("covers the heading");
+            if (overlap(place, box(iconedClose)) > 0) faults.push("covers Close");
+            if (overlap(place, box(iconLocked)) > 0) faults.push("covers its control");
+            if (!inside(place, surfaceBox(iconed))) faults.push("leaves the content box");
+            compare(faults, [], "the reason's place " + JSON.stringify(place));
         }
 
         // The places a model of the rule tries: below, above, right and

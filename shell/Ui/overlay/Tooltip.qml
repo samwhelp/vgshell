@@ -222,8 +222,9 @@ Item {
     }
 
     // What a drawn item is to a "clear" tooltip: a Tab stop is a
-    // "control", a Text, TextInput or TextEdit a "text", an Image an
-    // "image"; anything else draws no obstacle of its own. A Qt Quick
+    // "control", a Text, TextInput or TextEdit a "text", an Image or an
+    // Icon of this module an "image"; anything else, another Shape such as
+    // a card's background too, draws no obstacle of its own. A Qt Quick
     // Controls control sets activeFocusOnTab from its focusPolicy: a
     // qml-unit run of tst_reasontip.qml read it true on Button and
     // IconButton (2026-10-13).
@@ -231,13 +232,19 @@ Item {
         if (item.activeFocusOnTab === true) return "control";
         if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return "text";
         if (item.sourceSize !== undefined) return "image";
+        if (Array.isArray(item.painted) && item.stroke !== undefined) return "image";
         return "";
     }
 
     // The box `item` draws in `view`'s coordinates: a text's words where
-    // its alignment puts them, since the room after them is free, else
-    // the item's box.
+    // its alignment puts them, since the room after them is free, an
+    // Icon's ink (`painted`, [left, top, right, bottom]), else the item's
+    // box.
     function drawnBox(item, kind, view) {
+        if (kind === "image" && Array.isArray(item.painted)) {
+            const ink = item.painted;
+            return item.mapToItem(view, ink[0], ink[1], ink[2] - ink[0], ink[3] - ink[1]);
+        }
         if (kind !== "text") return item.mapToItem(view, 0, 0, item.width, item.height);
         const roomX = item.width - item.leftPadding - item.rightPadding;
         const roomY = item.height - item.topPadding - item.bottomPadding;
@@ -251,9 +258,11 @@ Item {
     // What the item's window draws, in its content item's coordinates:
     // `obstacles`, { x, y, width, height, control } for each drawn text,
     // image and Tab stop, cut by every clipping item that holds it;
-    // `anchor`, the item's `box`; `origin`, the item's own corner; and
-    // `content`, the box the obstacles and the item span inside the
-    // window, on whole pixels. The item and all it holds, an unlock mark
+    // `anchor`, the box the places keep clear of, the item's `box` and,
+    // for an item that lies in a control as an unlock mark lies in its
+    // toggle, the nearest such control, which the tooltip explains too;
+    // `origin`, the item's own corner; and `content`, the box the
+    // obstacles and that anchor span inside the window, on whole pixels. The item and all it holds, an unlock mark
     // too, are no obstacle, and an item that holds the item, a Tab stop
     // too, is read into. It walks the tree once, here, as the tooltip opens.
     function survey() {
@@ -277,7 +286,13 @@ Item {
         const whole = { x: 0, y: 0, width: view.width, height: view.height };
         walk(view, whole);
         const mapped = anchorItem.mapToItem(view, box.x, box.y, box.width, box.height);
-        const anchor = { x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height };
+        const owner = holders.find(item => item.activeFocusOnTab === true);
+        const owned = owner === undefined ? mapped : owner.mapToItem(view, 0, 0, owner.width, owner.height);
+        const anchor = {
+            x: Math.min(mapped.x, owned.x), y: Math.min(mapped.y, owned.y),
+            width: Math.max(mapped.x + mapped.width, owned.x + owned.width) - Math.min(mapped.x, owned.x),
+            height: Math.max(mapped.y + mapped.height, owned.y + owned.height) - Math.min(mapped.y, owned.y)
+        };
         const span = obstacles.concat([anchor]).reduce((all, each) => ({
             x: Math.min(all.x, each.x), y: Math.min(all.y, each.y),
             right: Math.max(all.right, each.x + each.width), bottom: Math.max(all.bottom, each.y + each.height)
@@ -299,8 +314,8 @@ Item {
     // each centred on the item, then on its start and on its end edge,
     // held inside `content`; none overlaps the item. The first place by
     // [outside content, covers a Tab stop, the obstacle area it covers]
-    // wins: the first free place, else the one that covers the least and
-    // no Tab stop, inside the content.
+    // wins: the first free place, else the place that covers the least,
+    // one that stays inside the content and covers no Tab stop first.
     function clearPlace(scene, width, height, gap) {
         const a = scene.anchor, room = scene.content;
         const w = Math.ceil(width), h = Math.ceil(height);
