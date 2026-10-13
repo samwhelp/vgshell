@@ -97,18 +97,20 @@ Item {
     }
 
     // A label's explainer beside a short control, beside a control that
-    // fills the value column, and too tall for the room beside a short one.
+    // fills the value column, and too tall for the room past a short one.
     // The switch fills the column, as a Settings editor's Loader sizes it.
     FormRow { id: explainedSwitch; y: 1060; width: 420; label: "Click to select"; labelTooltip: "A click takes the window under it."; Switch { id: explainedToggle; width: parent.width; size: "sm" } }
     FormRow { id: explainedWide; y: 1120; width: 420; label: "Format"; labelTooltip: "The clock's format."; Select { id: wideChoice; width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
+    // Two lines over the value column, three in the room past the switch.
     FormRow {
         id: explainedTall
         y: 1180
-        width: 420
+        width: 700
         label: "Pointer"
-        labelTooltip: "Draws the pointer into every screenshot and recording, where it stands at the moment the capture starts, and over every window."
-        Switch { size: "sm" }
+        labelTooltip: "Draws the pointer into each screenshot and recording, where it stands when the capture starts."
+        Switch { width: parent.width; size: "sm" }
     }
+    FormRow { id: belowTall; y: 1180 + explainedTall.height; width: 700; label: "Camera"; Select { width: parent.width; model: ["None"] } }
 
     TestCase {
         name: "formrow"
@@ -155,10 +157,42 @@ Item {
             const control = labelOf(row).children.find(child => child.visualFocus !== undefined);
             return control.data.find(child => String(child).indexOf("Tooltip") === 0);
         }
-        function explainerOf(row) { return row.children.find(child => child.objectName === "labelExplainer"); }
 
-        // The stand-in window positions nothing; the anchor it is handed is
-        // what the compositor places the tooltip by.
+        // Where the tooltip opens, in the row's coordinates: its start and
+        // the centre of the box it opens beside. The stand-in window
+        // positions nothing; the anchor it is handed is what the compositor
+        // places the tooltip by.
+        function tipStart(row, tip) {
+            const anchor = tip.tracker.popup.anchor;
+            compare(anchor.edges, Edges.Right);
+            compare(anchor.gravity, Edges.Right);
+            return tip.anchorItem.mapToItem(row, anchor.rect.x + anchor.rect.width - anchor.margins.right, anchor.rect.y + anchor.rect.height / 2);
+        }
+
+        // Showing the tooltip moves no row: the rows keep their heights and
+        // the row under it keeps its place.
+        function showStill(row, tip, check) {
+            const height = row.height;
+            const below = belowTall.y;
+            tip.shown = true;
+            try {
+                verify(tip.opened, "the tooltip opens its own surface");
+                check(tip.tracker.popup);
+                compare(row.height, height, "the row keeps its height");
+                compare(belowTall.y, below, "the row under it stays put");
+            } finally {
+                tip.shown = false;
+            }
+        }
+
+        // It stays inside its own row: it ends on the row's end edge and
+        // reaches no further than the row gap above or below the label box.
+        function insideRow(row, popup, start) {
+            verify(popup.implicitWidth <= row.width - start.x, "the tooltip ends inside the row: " + popup.implicitWidth);
+            fuzzyCompare(start.y, row.labelBox / 2, 1, "the tooltip centres on the label's box");
+            verify(popup.implicitHeight <= row.labelBox + 2 * Theme.stack.row, "the tooltip covers no other row: " + popup.implicitHeight);
+        }
+
         function test_a_label_tooltip_opens_past_its_control_data() {
             return [
                 { tag: "switch", row: explainedSwitch, end: () => explainedToggle.indicator.mapToItem(explainedSwitch, explainedToggle.indicator.width, 0).x },
@@ -167,53 +201,28 @@ Item {
         }
         function test_a_label_tooltip_opens_past_its_control(data) {
             const tip = tipOf(data.row);
-            tip.shown = true;
-            try {
-                verify(tip.opened, "the tooltip opens its own surface");
-                const popup = tip.tracker.popup;
-                const anchor = popup.anchor;
-                compare(anchor.edges, Edges.Right);
-                compare(anchor.gravity, Edges.Right);
-                const start = tip.anchorItem.mapToItem(data.row, anchor.rect.x + anchor.rect.width - anchor.margins.right, anchor.rect.y + anchor.rect.height / 2);
+            showStill(data.row, tip, popup => {
+                const start = tipStart(data.row, tip);
                 fuzzyCompare(start.x, data.end() + Theme.tooltip.gap, 1, "the tooltip starts a gap past the control's drawn end");
-                fuzzyCompare(start.y, data.row.labelBox / 2, 1, "the tooltip centres on the label's box");
-                verify(popup.implicitWidth <= data.row.width - start.x, "the tooltip ends inside the row: " + popup.implicitWidth);
-                verify(popup.implicitHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip stops short of the rows beside it: " + popup.implicitHeight);
-                compare(explainerOf(data.row).visible, false);
-            } finally {
-                tip.shown = false;
-            }
+                insideRow(data.row, popup, start);
+            });
         }
 
-        // Where the room past the control cannot hold it, the row draws the
-        // explainer under its box and grows, and the control stays put.
-        function test_a_label_tooltip_without_room_beside_draws_under_the_row_data() {
+        // Where the room past the control cannot hold it, the tooltip opens
+        // over the row's own control, wrapped to the value column.
+        function test_a_label_tooltip_without_room_past_its_control_covers_only_that_control_data() {
             return [
                 { tag: "full-width control", row: explainedWide },
-                { tag: "too tall beside", row: explainedTall }
+                { tag: "too tall past the control", row: explainedTall }
             ];
         }
-        function test_a_label_tooltip_without_room_beside_draws_under_the_row(data) {
+        function test_a_label_tooltip_without_room_past_its_control_covers_only_that_control(data) {
             const tip = tipOf(data.row);
-            const explainer = explainerOf(data.row);
-            const control = data.row.children.find(child => child.x === data.row.valueX && child !== explainer).children[0];
-            const height = data.row.height;
-            const controlBottom = control.mapToItem(data.row, 0, control.height).y;
-            const controlCentre = centreIn(control, data.row);
-            tip.shown = true;
-            try {
-                compare(tip.opened, false, "no tooltip surface opens over the rows");
-                verify(explainer.visible, "the row draws the explainer");
-                compare(explainer.x, data.row.valueX);
-                verify(explainer.y >= controlBottom, "the explainer starts under the control: " + explainer.y + " < " + controlBottom);
-                verify(explainer.x + explainer.width <= data.row.width, "the explainer ends inside the row");
-                compare(data.row.height, height + Theme.field.gap + explainer.height, "the row grows by the explainer's room");
-                compare(centreIn(control, data.row), controlCentre, "the control stays put");
-            } finally {
-                tip.shown = false;
-            }
-            compare(explainer.visible, false);
-            compare(data.row.height, height);
+            showStill(data.row, tip, popup => {
+                const start = tipStart(data.row, tip);
+                fuzzyCompare(start.x, data.row.valueX, 1, "the tooltip starts on the value column's start edge");
+                insideRow(data.row, popup, start);
+            });
         }
 
         function test_a_row_is_the_row_height_with_a_label_column() {

@@ -263,15 +263,15 @@ Item {
             verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0));
             compare(tip.text, "Open the window.");
             mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "shown", true);
+            tryCompare(tip, "opened", true);
             mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "shown", false);
+            tryCompare(tip, "opened", false);
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
             wait(0);
             const focused = [];
-            const record = () => { if (tip.shown) focused.push(tip.text); };
-            tip.shownChanged.connect(record);
+            const record = () => { if (tip.opened) focused.push(tip.text); };
+            tip.openedChanged.connect(record);
             try {
                 const control = label.children.find(item => item.visualFocus !== undefined);
                 control.forceActiveFocus(Qt.OtherFocusReason);
@@ -283,11 +283,11 @@ Item {
                 compare(root.Window.window.active, true);
                 compare(control.activeFocus, true);
             } finally {
-                tip.shownChanged.disconnect(record);
+                tip.openedChanged.disconnect(record);
             }
             compare(focused[0], tip.text);
             elsewhere.forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "shown", false);
+            tryCompare(tip, "opened", false);
             field.destroy();
         }
 
