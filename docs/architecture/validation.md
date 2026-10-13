@@ -69,7 +69,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 
 - Do name the tool and the run that produced every figure in a docstring, comment or document. A budget without its measurement is a blocker. Review holds it.
 - Do record beside a ceiling the machine and the CPU pressure its readings ran under. Review holds it.
-- Do fail a reading over its ceiling at any CPU pressure, unless the row's header names the pressure above which a reading is not measured. Review holds it.
+- Do fail a reading over its ceiling at any CPU pressure, unless the row's header names the CPU pressure, or the 1-minute load average per physical core, above which a reading is not measured; harness.sh's `latency_load_limit` holds the load limit, 1.00. Review holds it.
 - Do make a budget's control exceed the ceiling on every pass, and never set a ceiling of zero: Qt reports CPU time in whole milliseconds. Review holds it.
 - Never substitute a presentation interval for a missing GPU timestamp, and never measure a shader on a software device. `scripts/test-measure-shader.py` holds both.
 

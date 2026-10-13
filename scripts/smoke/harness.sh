@@ -1106,6 +1106,51 @@ latency_pressure_check() { # ROW READING MS CPU_SOME_PCT BUDGET_MS
     *) fail "$reading verdict invalid: $result" ;;
   esac
 }
+# The host's physical cores: the distinct sibling lists of its CPUs. Empty
+# or 0 when the topology is unreadable.
+latency_cores="$(sort -u /sys/devices/system/cpu/cpu[0-9]*/topology/core_cpus_list 2>/dev/null | wc -l)" || latency_cores=""
+# load_per_core LOAD: a 1-minute load average as /proc/loadavg writes it
+# over latency_cores, floored to two decimals; `unmeasured` when either
+# is unreadable.
+load_per_core() {
+  local load="$1" hundredths
+  if [[ ! $load =~ ^[0-9]+\.[0-9]{2}$ || ! $latency_cores =~ ^[0-9]+$ ]] || ((10#$latency_cores == 0)); then
+    echo unmeasured
+    return
+  fi
+  hundredths=$(((10#${load%.*} * 100 + 10#${load#*.}) / 10#$latency_cores))
+  printf '%d.%02d\n' "$((hundredths / 100))" "$((hundredths % 100))"
+}
+# The host-load limit comes from the VGS-1527 theme-latency readings on
+# cachy (16 physical cores, 32 threads): measured medians 110.5 and
+# 122.5 ms at 1-minute load 12 to 15.9 were within the 150 ms bound,
+# 154.5 and 164.5 ms at load 19.1 to 36 were over (main batch
+# 20261013T001445Z), cpu_some_pct 0.4 to 2.4 in all (VGS-1527 completion
+# summary). Above one runnable task per physical core, SMT siblings share
+# a core's execution units, so each task runs slower without waiting in
+# the run queue that CPU pressure counts.
+latency_load_limit=1.00
+latency_load_verdict() { # MS CPU_SOME_PCT LOAD_PER_CORE BUDGET_MS
+  local per_core="$3" result per_core_hundredths limit_hundredths
+  result="$(latency_pressure_verdict "$1" "$2" "$4")"
+  if [[ $result == unread || ! $per_core =~ ^[0-9]+\.[0-9]{2}$ ]]; then
+    echo unread
+    return
+  fi
+  per_core_hundredths=$((10#${per_core%.*} * 100 + 10#${per_core#*.}))
+  limit_hundredths=$((10#${latency_load_limit%.*} * 100 + 10#${latency_load_limit#*.}))
+  if ((per_core_hundredths > limit_hundredths)); then echo unmeasured
+  else echo "$result"
+  fi
+}
+# latency_busy_reason CPU_SOME_PCT LOAD_PER_CORE: the not-measured reason,
+# each reading over its limit, joined by -and-.
+latency_busy_reason() {
+  local reason=""
+  [[ $(latency_pressure_verdict 0 "$1" 0) != unmeasured ]] || reason="cpu_some_pct=$1-above-$latency_pressure_limit"
+  [[ $(latency_load_verdict 0 0.0 "$2" 0) != unmeasured ]] || reason="${reason:+$reason-and-}load_per_core=$2-above-$latency_load_limit"
+  printf '%s\n' "$reason"
+}
 # click X Y: one left click at that layout position on the nested seat.
 # click_centre HOST_KEY ID: the same on the centre of a built instance.
 # hover X Y: the pointer moved there with no press. right_click X Y and

@@ -5,10 +5,11 @@
 # readings (112, 120, 97, 98, 88, 97 ms) on cachy, 2026-10-04, load 11.95,
 # CPU pressure 0.3 to 1.4%, compositor logs on. The owner allowed this
 # measured bound after the original 100 ms target failed. Every reading
-# above harness.sh's shared CPU pressure limit is unmeasured (exit 77),
-# including fast readings. Missing pressure is unread. Theme summaries
-# exclude busy samples and still fail measured median or single-reading
-# misses. Every raw reading remains in the output.
+# above harness.sh's shared CPU pressure limit or its 1-minute load
+# average per physical core limit, latency_load_limit, is unmeasured
+# (exit 77), including fast readings. Missing pressure or load is unread.
+# Theme summaries exclude busy samples and still fail measured median or
+# single-reading misses. Every raw reading remains in the output.
 # Theme change:
 # six readings, median <=150 ms and every reading <=292 ms. Owner ruling
 # ask 1791136884-3060298-761, 2026-10-04: the median holds the desk target;
@@ -237,10 +238,11 @@ latency_contention() {
   printf '{}\n' | py_reply 'import json,re,sys
 values=[float(x) if re.fullmatch(r"[0-9]+\.[0-9]",x) else None for x in sys.argv[1:4]]
 load=float(sys.argv[5]) if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?",sys.argv[5]) else None
-print(json.dumps(dict(zip(["cpu_some_pct","memory_some_pct","io_some_pct"],values)) | {"window_ms":int(sys.argv[4]),"load_average":load,"scope":"host"}))' "$@"
+per_core=float(sys.argv[6]) if re.fullmatch(r"[0-9]+\.[0-9]{2}",sys.argv[6]) else None
+print(json.dumps(dict(zip(["cpu_some_pct","memory_some_pct","io_some_pct"],values)) | {"window_ms":int(sys.argv[4]),"load_average":load,"load_per_core":per_core,"scope":"host"}))' "$@"
 }
-expect "contention keeps measured zero and nonzero pressure" '{"cpu_some_pct": 0.0, "memory_some_pct": 1.2, "io_some_pct": 2.3, "window_ms": 100, "load_average": 6.25, "scope": "host"}' latency_contention 0.0 1.2 2.3 100 6.25
-expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pct": null, "memory_some_pct": null, "io_some_pct": 0.0, "window_ms": 100, "load_average": null, "scope": "host"}' latency_contention unmeasured unmeasured 0.0 100 unmeasured
+expect "contention keeps measured zero and nonzero pressure" '{"cpu_some_pct": 0.0, "memory_some_pct": 1.2, "io_some_pct": 2.3, "window_ms": 100, "load_average": 6.25, "load_per_core": 0.39, "scope": "host"}' latency_contention 0.0 1.2 2.3 100 6.25 0.39
+expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pct": null, "memory_some_pct": null, "io_some_pct": 0.0, "window_ms": 100, "load_average": null, "load_per_core": null, "scope": "host"}' latency_contention unmeasured unmeasured 0.0 100 unmeasured unmeasured
 
 # A theme reading with its apply process's stamps from STAMPS, the last
 # line the stand-in started after the reading did, as ms from its start,
@@ -319,7 +321,7 @@ latency_report() {
   pressure="$(cpu_some_pct "$latency_cpu_start" "$cpu_end" "$((end_ms - latency_window_start))")"
   memory_pressure="$(cpu_some_pct "$latency_memory_start" "${resources[0]}" "$((end_ms - latency_window_start))")"
   io_pressure="$(cpu_some_pct "$latency_io_start" "${resources[1]}" "$((end_ms - latency_window_start))")"
-  contention="$(latency_contention "$pressure" "$memory_pressure" "$io_pressure" "$((end_ms - latency_window_start))" "$latency_load")" || return 1
+  contention="$(latency_contention "$pressure" "$memory_pressure" "$io_pressure" "$((end_ms - latency_window_start))" "$latency_load" "$latency_load_per_core")" || return 1
   value="$(printf '%s' "$value" | py_reply 'import json,sys; value=json.load(sys.stdin); value["contention"]=json.loads(sys.argv[1]); print(json.dumps(value))' "$contention")" || return 1
   [[ $1 != theme ]] || value="$(latency_split "$value")" || return 1
   [[ $1 != theme ]] || expect "the browser's window hides before its plugin unloads" window-first latency_hide_order "$value"
@@ -334,22 +336,23 @@ latency_report() {
     [[ $1 != theme ]] || latency_theme_readings+=("$value")
     if [[ $verdict == unmeasured ]]; then
       drawn="$(printf '%s' "$value" | py_reply 'import json,sys; print(json.load(sys.stdin).get("drawn"))')" || drawn=unread
-      not_measured theme-latency "${reading}=${drawn}ms-at-cpu_some_pct=${pressure}-above-${latency_pressure_limit}"
+      not_measured theme-latency "${reading}=${drawn}ms-at-$(latency_busy_reason "$pressure" "$latency_load_per_core")"
     elif [[ $1 != theme ]]; then
       expect "$1 meets its $bound ms bound" within latency_verdict "$value" "$bound"
     fi
     # A theme reading's own bound is the ceiling, which reads `stamped`.
     [[ $1 == theme ]] && { bound=292; field=stamped; }
-    planted="$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); x[sys.argv[3]]=int(sys.argv[1])+1; x["contention"]["cpu_some_pct"]=float(sys.argv[2]); print(json.dumps(x))' "$bound" "$latency_pressure_limit" "$field")" || planted=unread
+    planted="$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); x[sys.argv[3]]=int(sys.argv[1])+1; x["contention"]["cpu_some_pct"]=float(sys.argv[2]); x["contention"]["load_per_core"]=float(sys.argv[4]); print(json.dumps(x))' "$bound" "$latency_pressure_limit" "$field" "$latency_load_limit")" || planted=unread
     expect "$1 rejects a reading over its bound" over latency_verdict "$planted" "$bound" "$field"
   fi
   printf 'theme-latency: reading=%s value=%s\n' "$1" "$value"
   [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(latency_split_line "$value")"
-  printf 'theme-latency: load=%s cpu_some_pct=%s pressure_window_ms=%s\n' "$latency_load" "$pressure" "$((end_ms - latency_window_start))"
+  printf 'theme-latency: load=%s load_per_core=%s cpu_some_pct=%s pressure_window_ms=%s\n' "$latency_load" "$latency_load_per_core" "$pressure" "$((end_ms - latency_window_start))"
 }
 latency_pressure_start() {
   local resources
   latency_load="$(cut -d ' ' -f 1 /proc/loadavg)"
+  latency_load_per_core="$(load_per_core "$latency_load")"
   latency_window_start="$(now_ms)"
   latency_cpu_start="$(cpu_some_us)"
   mapfile -t resources < <(latency_memory_io_us)
@@ -364,11 +367,13 @@ x=json.load(sys.stdin)
 value=x.get(sys.argv[1]) if isinstance(x,dict) else None
 contention=x.get("contention") if isinstance(x,dict) else None
 pressure=contention.get("cpu_some_pct") if isinstance(contention,dict) else None
+per_core=contention.get("load_per_core") if isinstance(contention,dict) else None
 print(value if type(value) is int and value>=0 else "unmeasured")
-print(pressure if type(pressure) in (int,float) else "unmeasured")' "${3-drawn}")" || { echo unread; return; }
+print(pressure if type(pressure) in (int,float) else "unmeasured")
+print(f"{per_core:.2f}" if type(per_core) in (int,float) else "unmeasured")' "${3-drawn}")" || { echo unread; return; }
   local -a values
   mapfile -t values <<<"$fields"
-  latency_pressure_verdict "${values[0]:-}" "${values[1]:-}" "$2"
+  latency_load_verdict "${values[0]:-}" "${values[1]:-}" "${values[2]:-}" "$2"
 }
 latency_theme_readings=()
 # The six-reading rule: the median of `drawn` over the readings measured at
@@ -400,27 +405,37 @@ print(json.dumps({"readings_ms":values,"stamped_ms":stamped,"median_ms":median,"
 }
 latency_theme_bound() { latency_theme_summary "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)["result"])'; }
 # Each control violates only one part of the six-reading rule.
-expect "theme median over 150 ms fails below the single-reading ceiling" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}}]'
-expect "theme stamp over 292 ms fails with drawn and the median within" over latency_theme_bound '[{"drawn":100,"stamped":293,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}}]'
-expect "theme median at 150 ms and every stamp at 292 ms pass" within latency_theme_bound '[{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0}}]'
-expect "theme reading without its stamp is unread" unread latency_theme_bound '[{"drawn":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}}]'
+expect "theme median over 150 ms fails below the single-reading ceiling" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
+expect "theme stamp over 292 ms fails with drawn and the median within" over latency_theme_bound '[{"drawn":100,"stamped":293,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
+expect "theme median at 150 ms and every stamp at 292 ms pass" within latency_theme_bound '[{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":150,"stamped":292,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
+expect "theme reading without its stamp is unread" unread latency_theme_bound '[{"drawn":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
 for latency_control_bound in 150 240 292; do
   latency_control_slow="$((latency_control_bound + 1))"
-  expect "slow reading at low pressure fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":1.0}}" "$latency_control_bound"
-  expect "slow reading at threshold fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":2.8}}" "$latency_control_bound"
-  expect "slow reading above threshold is not measured: $latency_control_bound" unmeasured latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":2.9}}" "$latency_control_bound"
-  expect "fast reading above threshold is not measured: $latency_control_bound" unmeasured latency_verdict "{\"drawn\":$latency_control_bound,\"contention\":{\"cpu_some_pct\":30.0}}" "$latency_control_bound"
+  expect "slow reading at low pressure fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":1.0,\"load_per_core\":0.50}}" "$latency_control_bound"
+  expect "slow reading at threshold fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":2.8,\"load_per_core\":0.50}}" "$latency_control_bound"
+  expect "slow reading above threshold is not measured: $latency_control_bound" unmeasured latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":2.9,\"load_per_core\":0.50}}" "$latency_control_bound"
+  expect "fast reading above threshold is not measured: $latency_control_bound" unmeasured latency_verdict "{\"drawn\":$latency_control_bound,\"contention\":{\"cpu_some_pct\":30.0,\"load_per_core\":0.50}}" "$latency_control_bound"
   expect "slow reading with missing pressure is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow}" "$latency_control_bound"
-  expect "slow reading with unreadable pressure is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":null}}" "$latency_control_bound"
-  expect "slow reading with text pressure is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":\"30.0\"}}" "$latency_control_bound"
-  expect "missing reading above threshold is unread: $latency_control_bound" unread latency_verdict '{"contention":{"cpu_some_pct":30.0}}' "$latency_control_bound"
+  expect "slow reading with unreadable pressure is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":null,\"load_per_core\":0.50}}" "$latency_control_bound"
+  expect "slow reading with text pressure is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":\"30.0\",\"load_per_core\":0.50}}" "$latency_control_bound"
+  expect "missing reading above threshold is unread: $latency_control_bound" unread latency_verdict '{"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}}' "$latency_control_bound"
+  # The load-per-core gate: the limit itself is measured, one hundredth over is not.
+  expect "slow reading at the load limit fails: $latency_control_bound" over latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":0.0,\"load_per_core\":1.00}}" "$latency_control_bound"
+  expect "slow reading above the load limit is not measured: $latency_control_bound" unmeasured latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":0.0,\"load_per_core\":1.01}}" "$latency_control_bound"
+  expect "slow reading with missing load is unread: $latency_control_bound" unread latency_verdict "{\"drawn\":$latency_control_slow,\"contention\":{\"cpu_some_pct\":0.0}}" "$latency_control_bound"
 done
 # Keep pressure attached to each sample. A busy sample excludes only itself.
-expect "slow busy theme makes the batch not measured" unmeasured latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0}}]'
-expect "fast busy themes cannot lower a measured failing median" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0}}]'
-expect "busy theme cannot hide a failing single low-pressure reading" over latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":1.0}},{"drawn":500,"stamped":500,"contention":{"cpu_some_pct":30.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0}}]'
-expect "busy theme cannot hide a failing low-pressure median" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0}},{"drawn":500,"stamped":500,"contention":{"cpu_some_pct":30.0}}]'
-expect "fast busy themes are not measured" unmeasured latency_theme_bound '[{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0}}]'
+expect "slow busy theme makes the batch not measured" unmeasured latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
+expect "fast busy themes cannot lower a measured failing median" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":1.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}}]'
+expect "busy theme cannot hide a failing single low-pressure reading" over latency_theme_bound '[{"drawn":293,"stamped":293,"contention":{"cpu_some_pct":1.0,"load_per_core":0.50}},{"drawn":500,"stamped":500,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":0,"stamped":0,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}}]'
+expect "busy theme cannot hide a failing low-pressure median" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.50}},{"drawn":500,"stamped":500,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}}]'
+expect "fast busy themes are not measured" unmeasured latency_theme_bound '[{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}},{"drawn":100,"stamped":100,"contention":{"cpu_some_pct":30.0,"load_per_core":0.50}}]'
+# Main batch 20261013T001445Z, measured over at a 154.5 ms median under the CPU-only gate, at load 34.17 to 36.64 over 16 cores.
+expect "theme batch at host load over one task per core is not measured" unmeasured latency_theme_bound '[{"drawn":213,"stamped":243,"contention":{"cpu_some_pct":7.4,"load_per_core":2.24}},{"drawn":162,"stamped":182,"contention":{"cpu_some_pct":1.9,"load_per_core":2.24}},{"drawn":147,"stamped":170,"contention":{"cpu_some_pct":1.9,"load_per_core":2.13}},{"drawn":249,"stamped":279,"contention":{"cpu_some_pct":25.3,"load_per_core":2.13}},{"drawn":229,"stamped":262,"contention":{"cpu_some_pct":29.4,"load_per_core":2.29}},{"drawn":229,"stamped":260,"contention":{"cpu_some_pct":24.0,"load_per_core":2.29}}]'
+# VGS-1527 run 1, within at load 14.8 to 15.4 over 16 cores; stamped is drawn + 20 ms.
+expect "theme batch under one task per core is measured" within latency_theme_bound '[{"drawn":176,"stamped":196,"contention":{"cpu_some_pct":0.6,"load_per_core":0.92}},{"drawn":126,"stamped":146,"contention":{"cpu_some_pct":0.8,"load_per_core":0.93}},{"drawn":124,"stamped":144,"contention":{"cpu_some_pct":1.1,"load_per_core":0.94}},{"drawn":128,"stamped":148,"contention":{"cpu_some_pct":0.9,"load_per_core":0.96}},{"drawn":108,"stamped":128,"contention":{"cpu_some_pct":0.7,"load_per_core":0.95}},{"drawn":110,"stamped":130,"contention":{"cpu_some_pct":1.0,"load_per_core":0.96}}]'
+# A quiet host under both limits still fails a median 1 ms over its bound.
+expect "theme median over 150 ms fails under the load limit" over latency_theme_bound '[{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.99}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.99}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.99}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.99}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.99}},{"drawn":151,"stamped":151,"contention":{"cpu_some_pct":0.0,"load_per_core":0.99}}]'
 expect "theme summary refuses missing pressure" unread latency_theme_bound '[{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100},{"drawn":100,"stamped":100}]'
 latency_theme_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 latency_steps() { latency_read | py_reply 'import json,sys; x=json.load(sys.stdin); print("ready" if x.get("steps",0)>2 and x.get("late",0)==0 else "steps=%s late=%s" % (x.get("steps",0),x.get("late",0)))'; }
