@@ -111,7 +111,7 @@ Item {
                 const field = createTemporaryObject(rowComponent, root, { bind: { shortcut: row.shortcut, key: null, default: null, description: row.label, info: row.info } });
                 const labels = descendants(field).filter(child => child instanceof Text && child.visible && child.text === row.label);
                 compare(labels.length, 1, row.id + ":" + row.shortcut + " draws its label once");
-                if (labels[0].truncated) cut.push(row.id + ":" + row.shortcut + " " + JSON.stringify(row.label));
+                if (labels[0].truncated || labels[0].lineCount > 2) cut.push(row.id + ":" + row.shortcut + " " + JSON.stringify(row.label));
             }
             compare(JSON.stringify(cut), "[]", "every Keys label shows whole");
         }

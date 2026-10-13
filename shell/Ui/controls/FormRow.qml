@@ -7,9 +7,11 @@ import qs.Ui
 // control slot, `field.labelGap` after the column, bounded by
 // `control.maxWidth`. The control stays on the value column's start edge. The row box is `row.height` tall unless its label wraps or its
 // control is taller, so every key/value row of a page shares one height. A
-// one-line label is placed by capital height, a two-line label is centred,
-// and the control is centred by its box. A label too long for its column
-// wraps to a second line before it elides. `warning` is the row's message:
+// one-line label is placed by capital height, a label of more lines is
+// centred, and the control is centred by its box. A label too long for its
+// column wraps onto as many lines as it needs and never elides; the row
+// grows to hold them. `labelTooltip`, when set, is the label's tooltip on
+// hover and keyboard focus. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -116,8 +118,6 @@ Item {
         visible: root.labelColumn
         width: Theme.field.labelWidth - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
         wrapMode: Text.Wrap
-        maximumLineCount: 2
-        elide: Text.ElideRight
         y: lineCount > 1 ? Math.round((root.boxHeight - implicitHeight) / 2) : topForCapCenter(root.boxHeight)
     }
 

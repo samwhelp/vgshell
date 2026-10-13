@@ -324,6 +324,8 @@ A plugin's script that sends a desktop notification, such as `notify-send` from 
 
 A `schema` entry or drawn `status` entry may declare `info`, one printable explanation. The Settings page draws an info icon beside that row and opens the explanation in a dialog.
 
+A flat `schema` entry's `label` fits two lines of the Settings label column at the default theme, beside the info icon when it has one; the judge refuses a longer label. A label that needs more words declares `tooltip`, one short printable sentence, which the label shows on hover and keyboard focus.
+
 ### Settings schema
 
 The Settings window draws one field per entry in key order, ungrouped entries first, then each `group` in the order its first entry appears. A boolean uses a switch. An enum's `options` are `{ value, label }` rows: the configuration stores `value` and the page draws `label`, and the judge refuses a plain string. An enum with at most three options uses a segmented control, and a larger enum a select. A string with `optionsFrom`, or a string or number with `presets`, uses a select, which adds Custom… when `allowCustom` is true. A bounded number uses a slider. A `unit` of `seconds`, `minutes`, `hours` or `days` shows the largest whole unit; `%` and `×` are drawn after the number. `format: "datetime"` previews a Qt date and time format. A `list` has its own section; when it names a group that exists, that section follows the group, else it stays after the grouped fields. `shell/Core/Pads.js` judges its items.

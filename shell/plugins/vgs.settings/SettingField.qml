@@ -27,7 +27,8 @@ import "Steps.js" as Steps
 // an error line takes the room a Field takes under it, as its own last row
 // is last in this column and takes none. A description's `link`, which
 // the manager judged (PluginLogic.linkError), draws as a link in it and
-// asks the page to open it through `openLink`.
+// asks the page to open it through `openLink`. A `tooltip` shows on hover
+// and keyboard focus of the label.
 Column {
     id: root
 
@@ -55,6 +56,7 @@ Column {
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: Steps.settingHint(spec, status)
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
+    readonly property string tooltipText: spec.tooltip !== undefined ? String(spec.tooltip) : ""
     readonly property string linkText: spec.link !== undefined ? spec.link.text : ""
     // What the configuration holds, as a text editor shows it.
     readonly property string heldText: value === undefined ? "" : String(value)
@@ -168,6 +170,7 @@ Column {
         width: root.width
         label: root.labelText
         info: root.infoText
+        labelTooltip: root.tooltipText
         hint: root.customVisible ? "" : root.hintText
         hintLink: root.customVisible ? "" : root.linkText
         inline: true

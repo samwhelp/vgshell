@@ -51,10 +51,11 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // "", which then means nothing is chosen; `hideEmpty` leaves an
 // `optionsFrom` field off the page while nothing is offered for it; `link`
 // makes part of the description open an https address or another plugin's
-// page. Pads.js judges a
+// page; `tooltip` is the few words a label that is not plain needs, shown
+// on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "tooltip", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var OPTION_KEYS = ["value", "label"];
@@ -157,6 +158,17 @@ var STATUS_HINT_MAX = 200;
 var STATUS_TEXT_MAX = 200;
 // An info dialog is the longer help a row keeps out of the page.
 var INFO_MAX = 400;
+// A label's tooltip is one short sentence: longer help goes in `info`.
+var TOOLTIP_MAX = 120;
+// A setting's label draws in the label column in the `label` role and wraps
+// there, never elided (FormRow). At the default theme a line of that column
+// holds LABEL_LINE_CHARACTERS characters, and INFO_LABEL_LINE_CHARACTERS
+// beside an info mark, which takes an `sm` icon button and `space.xs` of
+// it; a label holds at most LABEL_LINES lines. tst_settingfield.qml holds
+// both counts and labelLines to the drawn label.
+var LABEL_LINE_CHARACTERS = 17;
+var INFO_LABEL_LINE_CHARACTERS = 13;
+var LABEL_LINES = 2;
 // The ceiling on one plugin's published values: the UTF-8 bytes of their
 // JSON. A write that would pass it is refused and the values stay.
 var STATUS_MAX_BYTES = 65536;
@@ -551,6 +563,17 @@ function schemaError(schema, settings, status) {
         var schemaInfo = infoError(entry.info, at);
         if (schemaInfo !== "")
             return schemaInfo;
+        // A list's label is its section's title, which draws no tooltip and
+        // has the page's width.
+        if (entry.tooltip !== undefined) {
+            if (entry.type === "list")
+                return at + ".tooltip needs a flat setting";
+            if (!isPrintableLine(entry.tooltip, TOOLTIP_MAX))
+                return at + ".tooltip must be a printable line of 1 to " + TOOLTIP_MAX + " characters when present";
+        }
+        var lineCharacters = entry.info === undefined ? LABEL_LINE_CHARACTERS : INFO_LABEL_LINE_CHARACTERS;
+        if (entry.type !== "list" && labelLines(entry.label, lineCharacters) > LABEL_LINES)
+            return at + ".label must fit " + LABEL_LINES + " lines of " + lineCharacters + " characters";
         var schemaLink = linkError(entry, at, "description");
         if (schemaLink !== "")
             return schemaLink;
@@ -686,6 +709,29 @@ function schemaError(schema, settings, status) {
 // separator, so a page draws it on one line and a log line holds it whole.
 function isPrintableLine(text, max) {
     return typeof text === "string" && text.length > 0 && text.length <= max && !SettingValues.CONTROL_OR_SEPARATOR.test(text);
+}
+
+// How many lines of `perLine` characters `text` wraps to, or Infinity when
+// a word is longer than a line. Like Qt's line breaking (Unicode UAX #14),
+// a line breaks after a run of spaces, which takes no room at the line's
+// end, and after a hyphen no digit follows (rule LB25 keeps "-1" whole);
+// each line holds as many words as fit. tst_settingfield.qml holds the
+// count to the drawn label.
+function labelLines(text, perLine) {
+    var segments = text.match(/(?:[^ -]|-(?=[0-9]))*(?:-| +|$)/g).filter(function (segment) { return segment !== ""; });
+    var lines = 1;
+    var used = 0;
+    for (var i = 0; i < segments.length; i++) {
+        var ink = segments[i].replace(/ +$/, "").length;
+        if (ink > perLine)
+            return Infinity;
+        if (used > 0 && used + ink > perLine) {
+            lines += 1;
+            used = 0;
+        }
+        used += segments[i].length;
+    }
+    return lines;
 }
 
 function infoError(info, at) {

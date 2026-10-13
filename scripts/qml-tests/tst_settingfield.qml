@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.settings"
@@ -8,7 +9,7 @@ import "../../shell/plugins/vgs.settings"
 Item {
     id: root
     width: 960
-    height: 720
+    height: 960
 
     property var applied: []
     // The private opener: the addresses the fields' description links
@@ -160,6 +161,20 @@ Item {
             }
             Item { width: parent.width; height: 400 }
         }
+    }
+
+    // A label that needs more words carries a tooltip; a label wraps and
+    // never elides; `probe` takes the labels whose drawn lines the
+    // manifest judge's line count must match.
+    Column {
+        id: labelRows
+        y: 700
+        width: 420
+        spacing: Theme.stack.row
+        SettingField { id: explained; key: "smart"; spec: ({ type: "boolean", label: "Click to select", tooltip: "A click takes the window under it." }); value: true }
+        SettingField { id: unexplained; key: "cursor"; spec: ({ type: "boolean", label: "Include pointer" }); value: true }
+        SettingField { id: longLabel; key: "long"; spec: ({ type: "boolean", label: "A label that is far too long for two lines of its column" }); value: true }
+        SettingField { id: probe; key: "probe"; spec: ({ type: "boolean", label: "Probe" }); value: true }
     }
 
     TestCase {
@@ -398,6 +413,85 @@ Item {
             wait(0);
             compare(page.contentY, 120, "an editor the view already shows scrolls nothing");
             verify(customBottomInView() < page.height, "the editor shows");
+        }
+
+        function labelOf(owner) {
+            return descendants(owner).find(child => child.objectName === "fieldLabel" && child.visible);
+        }
+
+        function test_a_label_tooltip_opens_on_hover_and_keyboard_focus() {
+            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+            const label = labelOf(explained);
+            const tip = descendants(label).find(child => String(child).indexOf("Tooltip") === 0);
+            compare(tip.text, explained.spec.tooltip, "the label's tooltip reads the schema's tooltip");
+            mouseMove(root, root.width - 1, root.height - 1);
+            mouseMove(label, label.width / 2, label.height / 2);
+            tryCompare(tip, "opened", true, 2000, "hover opens the tooltip");
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tip, "opened", false);
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            const labelControl = label.children.find(child => child.visualFocus !== undefined);
+            verify(labelControl.activeFocusOnTab, "the label is a Tab stop");
+            const shown = [];
+            const record = () => { if (tip.opened) shown.push(tip.text); };
+            tip.openedChanged.connect(record);
+            try {
+                labelControl.forceActiveFocus(Qt.TabFocusReason);
+                tryVerify(() => shown.length > 0, 2000, "keyboard focus opens the tooltip");
+            } finally {
+                tip.openedChanged.disconnect(record);
+            }
+            compare(shown[0], explained.spec.tooltip);
+            const plain = labelOf(unexplained).children.find(child => child.visualFocus !== undefined);
+            verify(!plain.activeFocusOnTab, "a label without a tooltip is no Tab stop");
+        }
+
+        function test_a_long_label_wraps_and_never_elides() {
+            const label = labelOf(longLabel);
+            verify(label.lineCount > 2, "the label wraps past two lines");
+            compare(label.truncated, false, "the label elides");
+            verify(longLabel.height >= label.implicitHeight, "the row holds every line");
+        }
+
+        // The manifest judge's characters a line, with and without an info
+        // mark, are the drawn label's at the default theme: that many of the
+        // widest capital fill one line, and one more wraps.
+        function test_the_judge_line_counts_fill_one_drawn_line_data() {
+            return [
+                { tag: "plain", info: false, characters: PluginLogic.LABEL_LINE_CHARACTERS },
+                { tag: "beside an info mark", info: true, characters: PluginLogic.INFO_LABEL_LINE_CHARACTERS }
+            ];
+        }
+
+        function test_the_judge_line_counts_fill_one_drawn_line(data) {
+            for (const [characters, lines] of [[data.characters, 1], [data.characters + 1, 2]]) {
+                const spec = { type: "boolean", label: "M".repeat(characters) };
+                if (data.info) spec.info = "Why it matters.";
+                probe.spec = spec;
+                tryCompare(labelOf(probe), "lineCount", lines, 2000, characters + " characters");
+            }
+        }
+
+        // The judge's line count of a label is the drawn one: a line breaks
+        // after a space or after a hyphen no digit follows.
+        function test_the_judge_counts_the_drawn_lines_data() {
+            return [
+                { tag: "one line", label: "Include pointer" },
+                { tag: "a space break", label: "Click to select a window or display" },
+                { tag: "a hyphen break", label: "Review third-party packages" },
+                { tag: "a hyphen break beside an info mark", label: "Use third-party keys", info: true },
+                { tag: "a hyphen before a digit keeps its word", label: "Aaaa bbbbbbbbbbb-10 ccccccccccccc" },
+                { tag: "three lines", label: "Trim and level finished recordings" }
+            ];
+        }
+
+        function test_the_judge_counts_the_drawn_lines(data) {
+            const spec = { type: "boolean", label: data.label };
+            if (data.info === true) spec.info = "Why it matters.";
+            probe.spec = spec;
+            const characters = data.info === true ? PluginLogic.INFO_LABEL_LINE_CHARACTERS : PluginLogic.LABEL_LINE_CHARACTERS;
+            tryCompare(labelOf(probe), "lineCount", PluginLogic.labelLines(data.label, characters), 2000);
         }
 
         function test_a_status_choice_without_custom_reads_unavailable() {
