@@ -217,6 +217,42 @@ apps_dir() { # BIN
   kill -KILL "$shell" "$runner" 2>/dev/null || true
   wait "$runner" 2>/dev/null || true
 }
+snapshot_cleanup() { # BIN
+  new_rt
+  "${base_env[@]}" XDG_RUNTIME_DIR="$rt" STUB_RECORD="$rt/record" STUB_LOCK="$rt/vgshell.lock" STUB_HYPR_LOG="$rt/hyprctl.log" \
+    python3 - "$1" "$rt" <<'PY'
+import fcntl, os, pathlib, subprocess, sys, time
+binary, rt = sys.argv[1:]
+root = pathlib.Path(rt) / "vgshell-sources-1"
+root.mkdir()
+fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+fcntl.flock(fd, fcntl.LOCK_EX)
+identity = os.fstat(fd)
+lock_key = f"{os.major(identity.st_dev):02x}:{os.minor(identity.st_dev):02x}:{identity.st_ino}"
+proc = subprocess.Popen([binary, "run"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=dict(os.environ))
+blocked = False
+try:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and proc.poll() is None:
+        with open("/proc/locks") as locks:
+            blocked = any(" -> " in line and f" {lock_key} " in line for line in locks)
+        if blocked:
+            break
+        time.sleep(0.01)
+    # Publication still holds the lock. Cleanup must not remove its root.
+    kept = root.exists()
+    if kept:
+        (root / "last-write").write_text("snapshot")
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    proc.communicate(timeout=5)
+    print(f"blocked={str(blocked).lower()} kept={str(kept).lower()} removed={str(not root.exists()).lower()} status={proc.returncode} shell={str((pathlib.Path(rt) / 'record').exists()).lower()}")
+finally:
+    if proc.poll() is None:
+        proc.kill()
+        proc.wait(timeout=5)
+    os.close(fd)
+PY
+}
 # SIGNAL to the runner of a shell that exits at once on TERM: the runner's
 # status and the shell's state once the runner ended.
 signalled() { # BIN SIGNAL
@@ -519,6 +555,7 @@ tree_with restart-wait "$repo/bin/vgshell" 'flock -w 10 "$lock" true' 'flock -w 
 gave_up_want="status=3 launches=6 delays=0.1,0.2,0.3,0.4,0.5 gave_up=[vgshell: shell=gave-up exits=6 status=3] notices=[notify 3 600000 0] text=yes notice_failed=[] file=empty"
 # rows: name | verdict function and its arguments after BIN | the verdict | BIN
 rows=(
+  "snapshot cleanup waits for the scanner's final publication before starting the shell|snapshot_cleanup|blocked=true kept=true removed=true status=0 shell=true|$repo/bin/vgshell"
   "the lock file and VGSHELL_RUNNER_PID name the shell, the runner's child, which holds no descriptor on the held lock|identity|lock=shell env=shell parent=runner lockfds=0 lock=held|$repo/bin/vgshell"
   "the user's applications directory exists when the shell starts, so the desktop entry index watches it|apps_dir|apps=yes|$repo/bin/vgshell"
   "TERM to the runner stops the shell and the runner exits with its status|signalled TERM|status=143 shell=ended lock=free|$repo/bin/vgshell"
@@ -577,6 +614,8 @@ control() {
   got="$(verdict_of "$copy" "$4")"
   if [[ $got != "$5" ]]; then ok "control $1: $got"; else fail "control $1 still holds: $got"; fi
 }
+control source-cleanup-unlocked 'flock -x 8; rm -rf --' ':; rm -rf --' \
+  snapshot_cleanup "$(row_want snapshot_cleanup)"
 control pid-from-runner "printf '%s\\n' \"\$BASHPID\" >&9" "printf '%s\\n' \"\$\$\" >&9" \
   identity "lock=shell env=shell parent=runner lockfds=0 lock=held"
 control no-applications-dir '"$rt_dir/vgshell/tui" "$data_home/applications" 9>&-' '"$rt_dir/vgshell/tui" 9>&-' \

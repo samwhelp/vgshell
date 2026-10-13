@@ -751,6 +751,7 @@ def read_versions(commands):
 
 
 def main(argv):
+    parent_pid = os.getppid()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--require-base", action="store_true")
     parser.add_argument("--core")
@@ -771,17 +772,40 @@ def main(argv):
         return watch_core(args.watch_core)
     if args.retain and not args.snapshot_dir:
         parser.error("--retain needs --snapshot-dir")
-    out = []
-    probed = {}
-    bus_cache = {}
-    if args.core:
-        scan_core(args.core, out, probed, bus_cache)
-    for base in args.bases:
-        scan_base(base, out, args.require_base, args.snapshot_dir, probed, bus_cache)
-    if args.snapshot_dir and not any("error" in entry for entry in out):
-        prune_snapshots(args.snapshot_dir, set(args.retain) | {entry["revision"] for entry in out if "revision" in entry}, out)
-    json.dump(out, sys.stdout)
-    return 0
+    snapshot_fd = None
+    try:
+        if args.snapshot_dir:
+            import ctypes
+            import fcntl
+
+            libc = ctypes.CDLL(None, use_errno=True)
+            if not set_parent_death_signal(libc, ctypes, parent_pid):
+                return 0
+            os.makedirs(args.snapshot_dir, mode=0o700, exist_ok=True)
+            snapshot_fd = os.open(args.snapshot_dir, os.O_RDONLY | os.O_DIRECTORY)
+            # The runner takes this same directory lock before cleanup.
+            # Hold it through publication and pruning, including syscall exit.
+            fcntl.flock(snapshot_fd, fcntl.LOCK_EX)
+            if not os.path.samestat(os.fstat(snapshot_fd), os.stat(args.snapshot_dir)):
+                raise FileNotFoundError(2, "snapshot root replaced", args.snapshot_dir)
+        out = []
+        probed = {}
+        bus_cache = {}
+        if args.core:
+            scan_core(args.core, out, probed, bus_cache)
+        for base in args.bases:
+            scan_base(base, out, args.require_base, args.snapshot_dir, probed, bus_cache)
+        if args.snapshot_dir and not any("error" in entry for entry in out):
+            prune_snapshots(args.snapshot_dir, set(args.retain) | {entry["revision"] for entry in out if "revision" in entry}, out)
+        json.dump(out, sys.stdout)
+        return 0
+    except OSError as exc:
+        json.dump([{"dir": args.snapshot_dir, "path": exc.filename or args.snapshot_dir,
+                    "error": f"cannot acquire sources: {exc.strerror}"}], sys.stdout)
+        return 0
+    finally:
+        if snapshot_fd is not None:
+            os.close(snapshot_fd)
 
 
 if __name__ == "__main__":

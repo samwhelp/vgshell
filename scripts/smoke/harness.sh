@@ -3168,10 +3168,15 @@ source "$repo/scripts/smoke/leaks.sh"
 # included, the reading scripts/smoke/rows.secs is refreshed from.
 smoke_row_drain_s=5
 smoke_row() { # NAME [DIR]
-  local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line
+  local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line smoke_row_pong
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
+  if ! smoke_row_pong="$(ipc shell ping 2>/dev/null)" || [[ $smoke_row_pong != ok ]]; then
+    fail "$smoke_row_name: shell=not-answering before the row"
+    printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+    return 0
+  fi
   # Every row starts with the pointer at rest, wherever the row before it
   # left it, so a scoped run and the full run start it alike. A row run
   # inside another row starts where that row left it, in both runs.

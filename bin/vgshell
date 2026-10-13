@@ -2310,11 +2310,15 @@ shell_launch() {
   # the user's applications directory made after that is never listed.
   mkdir -p -- "$config_home/vgshell" "$state_home/vgshell" "$rt_dir/vgshell/tui" "$data_home/applications" 9>&-
   truncate -s 0 -- "$lock" 9>&-
-  # The lock proves no runner-started shell is alive, so every source
-  # snapshot root under the runtime dir belongs to a dead shell.
+  # The instance lock proves no shell is alive. Its scanner can still be
+  # exiting, so take the snapshot lock before removing its last writes.
   for stale in "$rt_dir"/vgshell-sources-*; do
     [[ -e $stale || -L $stale ]] || continue
-    rm -rf -- "${stale:?}" 9>&-
+    if [[ -d $stale && ! -L $stale ]]; then
+      (flock -x 8; rm -rf -- "${stale:?}") 8<"$stale" 9>&-
+    else
+      rm -rf -- "${stale:?}" 9>&-
+    fi
   done
   # Quickshell 0.3.1's Pipewire connects once, when a plugin first reads
   # it, and logs a failed first connection as an error and never tries

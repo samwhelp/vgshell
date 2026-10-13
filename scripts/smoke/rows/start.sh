@@ -15,6 +15,7 @@ set -euo pipefail
 # reading carries at most 100 ms of polling. Twice the highest of six
 # readings, two per run of `scripts/qml-smoke.sh --rows start` on host
 # cachy on 2026-10-06 at load average 16 to 17: 273 to 353 ms.
+# Readings above the harness's shared CPU pressure limit are unmeasured.
 start_budget_ms=706
 
 start_log="$home/.local/state/vgshell/run.log"
@@ -38,18 +39,22 @@ start_ok() { # TREE
   out="$(vgshell_start_no_signature "$1")"
   [[ $start_status == 0 && $out =~ ^ok\ pid=[0-9]+$ ]] && echo ok || echo "exit=$start_status out=$out err=$(cat "$start_err" 2>/dev/null || :)"
 }
+start_return_check() { # LABEL STATUS REPLY MS CPU_SOME_PCT
+  if [[ $2 == 0 && $3 =~ ^ok\ pid=[0-9]+$ ]]; then
+    ok "$1"
+    latency_pressure_check start start "$4" "$5" "$start_budget_ms"
+  else
+    fail "$1: exit=$2 reply=$3 err=$(cat "$start_err" 2>/dev/null || :)"
+  fi
+}
 start_and_check() { # LABEL TREE
-  local label="$1" tree="$2" started elapsed
+  local label="$1" tree="$2" started elapsed cpu_before pressure
+  cpu_before="$(cpu_some_us)"
   started="$(now_ms)"
   vgshell_start_no_signature "$tree" >/dev/null
   elapsed=$(( $(now_ms) - started ))
-  if [[ $start_status == 0 && $start_reply =~ ^ok\ pid=[0-9]+$ && $elapsed -le $start_budget_ms ]]; then
-    printf '  latency_start_ms=%d ceiling_ms=%d\n' "$elapsed" "$start_budget_ms"
-    ok "$label"
-  else
-    printf '  latency_start_ms=%s ceiling_ms=%d\n' "$elapsed" "$start_budget_ms"
-    fail "$label: exit=$start_status reply=$start_reply err=$(cat "$start_err" 2>/dev/null || :)"
-  fi
+  pressure="$(cpu_some_pct "$cpu_before" "$(cpu_some_us)" "$elapsed")"
+  start_return_check "$label" "$start_status" "$start_reply" "$elapsed" "$pressure"
 }
 running_start() { # TREE
   local out
@@ -82,6 +87,19 @@ file_exists() { [[ -f $1 ]] && echo true || echo false; }
 welcome_found=absent
 [[ -e $welcome_seen ]] && welcome_found=present
 notice_found="$(consent_title)"
+start_slow_control() {
+  (failures=0 behaviour_failures=0
+   start_return_check control 0 'ok pid=1' "$((start_budget_ms + 1))" 0.0 >"$sandbox/start-slow-control.log"
+   echo "$failures")
+}
+expect "control: a slow start at low pressure fails its return ceiling" 1 start_slow_control
+start_restore() {
+  rm -f -- "${welcome_seen:?}"
+  [[ $welcome_found == absent ]] || : >"$welcome_seen"
+  stop_shell || return 1
+  start_shell "$repo" "$sandbox/start-qs.log" || return 1
+  expect_poll "the restored shell shows the notice the row found" "$notice_found" consent_title
+}
 stop_shell || :
 rm -f -- "${welcome_seen:?}" "$start_log"
 start_and_check "start returns after the guarded shell answers" "$repo"
@@ -111,6 +129,9 @@ if copy_tree foreground && edit_tree foreground bin/vgshell \
   control_status=$?
   set -e
   if [[ $control_status == 124 ]]; then ok "control: a foreground start misses the return ceiling"; else fail "control: foreground start returned exit=$control_status out=$control_out"; fi
+  if start_restore; then
+    expect "control: a start that missed the ceiling leaves an answering shell" ok ipc shell ping
+  fi
 fi
 
 if copy_tree skip-running && edit_tree skip-running bin/vgshell \
@@ -129,10 +150,15 @@ if copy_tree skip-running && edit_tree skip-running bin/vgshell \
   if [[ $skipped != ok\ running* ]]; then ok "control: skipping the running check does not answer ok running"; else fail "control: skipping the running check answered $skipped"; fi
 fi
 
-# The welcome-seen marker as the row found it, so the next row meets the
-# same notice.
-rm -f -- "${welcome_seen:?}"
-[[ $welcome_found == absent ]] || : >"$welcome_seen"
+# A missing shell stops a row before any dependent check runs.
 stop_shell || :
-start_shell "$repo" "$sandbox/start-qs.log" || fail "the start row leaves a harness-tracked shell"
-expect_poll "the restored shell shows the notice the row found" "$notice_found" consent_title
+mkdir -p -- "$sandbox/start-row-control"
+printf '%s\n' ': >"$sandbox/start-row-entered"' >"$sandbox/start-row-control/start-missing.sh"
+start_missing_control() {
+  (failures=0 behaviour_failures=0
+   smoke_row start-missing "$sandbox/start-row-control" >"$sandbox/start-missing-control.log"
+   echo "$failures")
+}
+expect "control: a row with no answering shell fails once" 1 start_missing_control
+expect "control: no dependent check runs without the shell" false file_exists "$sandbox/start-row-entered"
+start_restore || :

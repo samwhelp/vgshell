@@ -27,10 +27,12 @@ permissions bind; under euid 0 the script reports status=not-measured and
 exits 77 instead of passing vacuously."""
 import importlib.machinery
 import importlib.util
+import fcntl
 import json
 import os
 import pathlib
 import select
+import signal
 import shutil
 import socket
 import subprocess
@@ -720,6 +722,102 @@ def version_controls():
     ]
 
 
+SNAPSHOT_BARRIER = r'''
+import os, runpy, signal, sys
+namespace = runpy.run_path(sys.argv[1])
+main = namespace["main"]
+mode, root, base = sys.argv[2:]
+if mode == "removed":
+    original = os.open
+    def opened(path, flags, *args, **kwargs):
+        fd = original(path, flags, *args, **kwargs)
+        if path == root:
+            print("ready", file=sys.stderr, flush=True)
+            sys.stdin.buffer.read(1)
+        return fd
+    os.open = opened
+else:
+    original = main.__globals__["publish_source"]
+    def publishing(*args):
+        print("ready", file=sys.stderr, flush=True)
+        if mode == "owner":
+            signal.pause()
+        else:
+            sys.stdin.buffer.read(1)
+        return original(*args)
+    main.__globals__["publish_source"] = publishing
+sys.exit(main([sys.argv[1], "--snapshot-dir", root, base]))
+'''
+
+
+def snapshot_lifetime_rows(script=SCAN, quiet=False):
+    results = []
+    for mode in ("writing", "removed", "owner"):
+        with tempfile.TemporaryDirectory() as tmp:
+            plant(tmp, {"plugins/a/manifest.json": MANIFEST})
+            root = os.path.join(tmp, "sources")
+            os.mkdir(root)
+            fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            command = [sys.executable, "-I", "-c", SNAPSHOT_BARRIER, script, mode, root, os.path.join(tmp, "plugins")]
+            owner_fd = None
+            if mode == "removed":
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            if mode == "owner":
+                supervisor = 'import subprocess,sys; p=subprocess.Popen(sys.argv[1:],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL); print(p.pid,file=sys.stderr,flush=True); sys.stdin.buffer.read(1)'
+                command = [sys.executable, "-I", "-c", supervisor, *command]
+            proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV, bufsize=0)
+            try:
+                ready = select.select([proc.stderr], [], [], 5)[0]
+                line = proc.stderr.readline() if ready else b""
+                if mode == "owner" and line.strip().isdigit():
+                    owner_fd = os.pidfd_open(int(line))
+                    ready = select.select([proc.stderr], [], [], 5)[0]
+                    line = proc.stderr.readline() if ready else b""
+                good = line == b"ready\n"
+                if good and mode == "writing":
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        good = False
+                    except BlockingIOError:
+                        pass
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                elif good and mode == "removed":
+                    shutil.rmtree(root)
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                elif good and mode == "owner":
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                    good = bool(select.select([owner_fd], [], [], 5)[0])
+                    if good:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        good = os.listdir(root) == []
+                if mode != "owner":
+                    stdout, stderr = proc.communicate(b"x", timeout=5)
+                    if mode == "removed":
+                        entries = json.loads(stdout)
+                        good = good and not os.path.exists(root) and len(entries) == 1 and "error" in entries[0]
+                    else:
+                        good = good and proc.returncode == 0 and bool(json.loads(stdout)[0].get("loadUrl"))
+                results.append(good if quiet else report(f"snapshot lifetime: {mode}", good))
+            finally:
+                kill_process(proc)
+                if owner_fd is not None:
+                    if not select.select([owner_fd], [], [], 0)[0]:
+                        signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+                        select.select([owner_fd], [], [], 5)
+                    os.close(owner_fd)
+                os.close(fd)
+    return results
+
+
+def snapshot_lifetime_controls():
+    return [
+        mutant_control("snapshot writers must hold their root lock", "fcntl.flock(snapshot_fd, fcntl.LOCK_EX)", "pass", snapshot_lifetime_rows),
+        mutant_control("a queued scan cannot recreate a removed root", "not os.path.samestat(os.fstat(snapshot_fd), os.stat(args.snapshot_dir))", "False", snapshot_lifetime_rows),
+        mutant_control("a snapshot writer stops with its parent", "libc = ctypes.CDLL(None, use_errno=True)\n            if not set_parent_death_signal(libc, ctypes, parent_pid):", "libc = ctypes.CDLL(None, use_errno=True)\n            if False:", snapshot_lifetime_rows),
+    ]
+
+
 def main():
     if os.geteuid() == 0:
         print("status=not-measured reason=euid-0")
@@ -739,6 +837,8 @@ def main():
     results += watch_controls()
     results += version_rows()
     results += version_controls()
+    results += snapshot_lifetime_rows()
+    results += snapshot_lifetime_controls()
     results += url_spelling_rows()
     results += url_import_rows()
     results.append(url_quote_control())
