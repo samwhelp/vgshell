@@ -667,15 +667,15 @@ function localVoiceStep(value, provider, voice) {
 // ENTRY is the reader's manifest status entry, whose setup action the hint
 // names: its one action, or its named setup action. A timeout is no step
 // to do: the daemon judges setup without the check, so the row is not
-// open under a Ready summary, offers no setup and says what the Ready
-// summary says (CAUTION); it draws no keyed cause, which the reader logs
-// (LocalRuntime.qml).
+// open under a Ready summary and offers no setup. It says what holds under
+// any summary, while the Ready summary's caution (CAUTION) says Jarvis
+// answers. It draws no keyed cause, which the reader logs (LocalRuntime.qml).
 var CHECK_FAILURES = {
     failed: { text: "Setup check failed", reason: "Jarvis could not check this setup." },
     unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check." }
 };
 function checkFailure(kind, entry) {
-    if (kind === "timeout") return { tone: "info", text: "Check did not finish", hint: CAUTION["setup=probe-timeout"], action: false };
+    if (kind === "timeout") return { tone: "info", text: "Check did not finish", hint: "Jarvis does not need this check to answer and runs it again after the next setup.", action: false };
     if (!Object.prototype.hasOwnProperty.call(CHECK_FAILURES, kind)) throw new Error("jarvis-setup: check-failure=" + kind + " unexpected");
     var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;
     return { tone: "warning", text: CHECK_FAILURES[kind].text,

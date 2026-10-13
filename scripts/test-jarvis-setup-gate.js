@@ -1495,9 +1495,9 @@ const CONTROLS = [
     ["Local voice says where its setup is while it runs", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[VOICE_STEP_SETS_UP]", "setting up: its line count"],
     ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "one row offers Set up local voice"],
     ["a timed-out check is an open step", 'if (kind === "timeout") return { tone: "info",', 'if (kind === "timeout") return { tone: "warning",', "timeout: the row is no open step"],
-    ["a timed-out check offers setup", 'hint: CAUTION["setup=probe-timeout"], action: false };', 'hint: CAUTION["setup=probe-timeout"], action: true };',
+    ["a timed-out check offers setup", 'runs it again after the next setup.", action: false };', 'runs it again after the next setup.", action: true };',
         "the row offers its setup only while setup mends it"],
-    ["a timed-out check draws its keyed cause", 'hint: CAUTION["setup=probe-timeout"], action: false };', 'hint: "setup=probe-timeout", action: false };',
+    ["a timed-out check draws its keyed cause", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup.", action: false };', 'hint: "setup=probe-timeout", action: false };',
         "timeout: the row draws no keyed cause"],
     ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "the Local voice row names no Voice step setup"],
@@ -1589,8 +1589,8 @@ const CONTROLS = [
     ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
     ["a caution turns its step to do", 'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
         'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = answer.causes;\n        var out'],
-    ["the timed-out Local voice row asks for a restart", 'hint: CAUTION["setup=probe-timeout"], action: false };', "hint: START_RESTART, action: false };",
-        "probe timeout: the Local voice row reads the summary's judgement"],
+    ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup.", action: false };',
+        "hint: START_RESTART, action: false };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish."',
         '"setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis."', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
@@ -2120,12 +2120,12 @@ function verifyCheckFailures(gate) {
         }
     }
     // Jarvis takes a request while its setup check has timed out, so the
-    // summary is Ready, and the Local voice row and the caution say what
-    // that means: no restart beside Ready (VGS-1520's one judgement).
+    // summary is Ready, and neither its caution nor the Local voice row
+    // asks for a restart beside it (VGS-1520's one judgement).
     const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] })).setup;
     const timedOutRow = plain(gate.localVoiceStep(gate.checkFailure("timeout", manifest.status.localRuntime), "local", voiceDone));
     assert.deepEqual([probeTimeout.tone, probeTimeout.text], ["ok", "Ready"], "probe timeout: the summary is Ready");
-    assert.equal(timedOutRow.hint, probeTimeout.hint, "probe timeout: the Local voice row reads the summary's judgement");
+    assert.equal(timedOutRow.hint.includes(gate.START_RESTART), false, "probe timeout: the Local voice row asks for no restart beside Ready");
     assert.equal(probeTimeout.hint.includes(gate.START_RESTART), false, "probe timeout: the caution asks for no restart beside Ready");
     assert.throws(() => gate.checkFailure("lost", manifest.status.localRuntime), /^Error: jarvis-setup: check-failure=lost unexpected/);
 }
