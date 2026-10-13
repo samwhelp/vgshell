@@ -699,10 +699,11 @@ FocusScope {
                                         // chip in its tone, or its text
                                         // while it has no tone, so the
                                         // label sits level with the chip,
-                                        // and a step's offered action
-                                        // beside it, the chip no wider than
-                                        // the value column less that
-                                        // action, eliding a long state,
+                                        // and a step's offered action and
+                                        // offered aside beside it, the chip
+                                        // no wider than the value column
+                                        // less those actions, eliding a
+                                        // long state,
                                         // and its entry's info beside the
                                         // label;
                                         // then its lines and its hint under
@@ -710,13 +711,14 @@ FocusScope {
                                         // the words of the hint its entry's
                                         // `link` names opening that
                                         // address, and the last refusal of
-                                        // its step.
+                                        // its step, else of its aside.
                                         Component {
                                             id: stepRow
                                             Field {
                                                 id: stepState
                                                 readonly property var view: Steps.statusView(statusItem.modelData.entry, ms => Timestamp.text(ms, Time.now.getTime()))
                                                 readonly property var button: statusItem.modelData.button
+                                                readonly property var aside: statusItem.modelData.aside
                                                 label: statusItem.modelData.label
                                                 info: view.info
                                                 inline: true
@@ -726,10 +728,13 @@ FocusScope {
                                                 onHintLinkActivated: page.panel.openLink(page.row.id, view.link)
                                                 onHintPageActivated: (id, tab) => page.panel.openPage(id, tab)
                                                 // The last refusal of the route its
-                                                // press takes.
-                                                error: page.row === null || page.panel === null ? ""
+                                                // press takes, else of the
+                                                // screen its aside opens.
+                                                readonly property string stepError: page.row === null || page.panel === null ? ""
                                                     : button !== null && button.name !== "" ? page.panel.replyOf(page.row.id, page.panel.tuiKey(button.name))
                                                     : page.panel.replyOf(page.row.id, statusItem.modelData.key)
+                                                error: stepError !== "" || aside === null || page.row === null || page.panel === null ? stepError
+                                                    : page.panel.replyOf(page.row.id, page.panel.tuiKey(aside.name))
 
                                                 function press() {
                                                     if (button.name !== "") page.panel.openTui(page.row.id, button.name);
@@ -751,8 +756,10 @@ FocusScope {
                                                 Row {
                                                     id: stepValue
                                                     spacing: Theme.stack.inline
-                                                    readonly property real actionWidth: primaryStep.visible ? primaryStep.implicitWidth + spacing : plainStep.visible ? plainStep.implicitWidth + spacing : 0
-                                                    height: Math.max(stepChip.visible ? stepChip.implicitHeight : 0, stepText.visible ? stepText.implicitHeight : 0, stepState.button !== null ? plainStep.implicitHeight : 0)
+                                                    readonly property real actionWidth: (primaryStep.visible ? primaryStep.implicitWidth + spacing : 0)
+                                                        + (stepActions.visible ? stepActions.implicitWidth + spacing : 0)
+                                                    height: Math.max(stepChip.visible ? stepChip.implicitHeight : 0, stepText.visible ? stepText.implicitHeight : 0,
+                                                        stepState.button !== null || stepState.aside !== null ? plainStep.implicitHeight : 0)
                                                     Badge {
                                                         id: stepChip
                                                         anchors.verticalCenter: parent.verticalCenter
@@ -778,14 +785,32 @@ FocusScope {
                                                         enabled: page.editable
                                                         onClicked: stepState.press()
                                                     }
-                                                    RowAction {
-                                                        id: plainStep
+                                                    // The step's own action
+                                                    // when it is no Button,
+                                                    // then its aside, which
+                                                    // opens its listed screen;
+                                                    // a danger tone leads with
+                                                    // the trash mark.
+                                                    RowActions {
+                                                        id: stepActions
                                                         anchors.verticalCenter: parent.verticalCenter
-                                                        visible: stepState.button !== null && !stepState.button.primary
-                                                        text: visible ? stepState.button.label : ""
-                                                        tone: stepState.button !== null && stepState.button.tone === "danger" ? "danger" : "accent"
-                                                        enabled: page.editable
-                                                        onClicked: stepState.press()
+                                                        visible: (stepState.button !== null && !stepState.button.primary) || stepState.aside !== null
+                                                        RowAction {
+                                                            id: plainStep
+                                                            visible: stepState.button !== null && !stepState.button.primary
+                                                            text: visible ? stepState.button.label : ""
+                                                            tone: stepState.button !== null && stepState.button.tone === "danger" ? "danger" : "accent"
+                                                            enabled: page.editable
+                                                            onClicked: stepState.press()
+                                                        }
+                                                        RowAction {
+                                                            id: asideStep
+                                                            visible: stepState.aside !== null
+                                                            text: visible ? stepState.aside.label : ""
+                                                            tone: stepState.aside !== null && stepState.aside.tone === "danger" ? "danger" : "accent"
+                                                            enabled: page.editable
+                                                            onClicked: page.panel.openTui(page.row.id, stepState.aside.name)
+                                                        }
                                                     }
                                                 }
                                             }

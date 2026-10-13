@@ -216,11 +216,12 @@ function inKeyedGroup(entry, keyed) {
 //   entries that declare a step, in manifest order, each but a key list a
 //   step row.
 // A section with no item and no button is left out. Each item is { key,
-// slot, keys, entry, label, step, button }: `key` the entry's, `slot` the
+// slot, keys, entry, label, step, button, aside }: `key` the entry's, `slot` the
 // key the page matches its drawn row by, the entry's key and, for a step of
 // the Setup section, its stepRank, so a step that moves to another rank is
 // a new row; `keys` whether it draws as a key list, `step` whether its
-// offered action draws beside it, `button` that action (stepButton) or null. The page's one primary action
+// offered action draws beside it, `button` that action (stepButton) or null,
+// `aside` the step's offered aside (asideButton) or null. The page's one primary action
 // belongs to the first open required step in that order, while its action
 // is offered and not danger; an optional row action takes it only while
 // no required step is open, which a step that asks nothing (stepAsks) is
@@ -229,10 +230,11 @@ function setupSections(tuis, status) {
     var keyed = keyedGroups(status);
     var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
     function row(entry, step, slot) {
-        return { key: entry.key, slot: slot, keys: false, entry: entry, label: entry.label, step: step, button: step ? stepButton(tuis, entry) : null };
+        return { key: entry.key, slot: slot, keys: false, entry: entry, label: entry.label, step: step,
+            button: step ? stepButton(tuis, entry) : null, aside: step ? asideButton(entry) : null };
     }
     function keys(entry) {
-        return { key: entry.key, slot: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null };
+        return { key: entry.key, slot: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null, aside: null };
     }
     var steps = setup.slice(1).concat(status.filter(function (entry) { return entry.group === "" && declaresStep(entry); }));
     var setupItems = [0, 1, 2].map(function (rank) { return steps.filter(function (entry) { return stepRank(entry) === rank; }); })
@@ -326,6 +328,16 @@ function stepButton(tuis, entry) {
     var tui = entry.action.tui === "" ? undefined : tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
     var name = tui === undefined ? "" : tui.name;
     return { key: entry.key + " " + entry.action.label, name: name, label: entry.action.label, tone: entry.action.tone, primary: false };
+}
+
+// The second action beside step ENTRY, its declared `aside`, or null while
+// its value does not offer it (PluginLogic.statusRowAside): { name, label,
+// tone }, `name` the listed TUI its press opens through the
+// manager's openTui, `tone` "" or "danger". It never holds the page's
+// primary action.
+function asideButton(entry) {
+    if (entry.aside === null || !entry.aside.offered) return null;
+    return { name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone };
 }
 
 // The Setup section's actions for TUIS and STATUS, in drawn order: first

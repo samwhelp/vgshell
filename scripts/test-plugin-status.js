@@ -376,7 +376,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", tone: "", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -391,7 +391,7 @@ function suite(ctx, check) {
     const withheldHint = ctx.statusRows(guidedTui, guidance, ["acme-sync"]).find(r => r.key === "check").hint;
     check("statusRows: missing TUI requirements name their command", withheldHint.includes("acme-sync"), true);
     check("statusRows: missing TUI requirements override state guidance", withheldHint.includes("Try again."), false);
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, aside: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
@@ -615,6 +615,29 @@ function suite(ctx, check) {
     check("statusRows: a danger action carries its tone, a plain one none, a withheld one none",
         [toneOf("drive", { tone: "ok", text: "t", action: "signOut" }, []), toneOf("drive", { tone: "warning", text: "t", action: "signIn" }, []), toneOf("plain", { tone: "ok", text: "t" }, []), toneOf("drive", { tone: "ok", text: "t", action: "signOut" }, ["acme-sync"])],
         ["danger", "", "danger", ""]);
+    // An aside: one more listed screen a state step's row draws beside its
+    // step while its value carries `aside: true` (Jarvis's Remove key).
+    const mAside = ctx.validateManifest({ schemaVersion: 1, id: "acme.keys", name: "K", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"],
+        requirements: [{ command: "acme-sync", purpose: "p" }, { command: "acme-vault", purpose: "p" }],
+        tui: { add: { script: "tui/add.sh", title: "Add", requires: ["acme-sync"] }, remove: { script: "tui/remove.sh", title: "Remove", requires: ["acme-vault"], entry: { label: "Remove key", icon: "trash", group: "Acme" } } },
+        status: { keys: { type: "state", label: "Keys", action: { label: "Add key", tui: "add" }, aside: { label: "Remove key", tui: "remove", tone: "danger" } }, plain: { type: "state", label: "Plain", action: { label: "Add key", tui: "add" } } } }, "/p").manifest;
+    const asideWrite = (key, value) => { const r = ctx.statusWrite(mAside, {}, key, value); return r.ok ? "ok" : r.error; };
+    for (const [name, key, value, want] of [
+        ["an aside the entry declares", "keys", { tone: "ok", text: "t", action: true, aside: true }, "ok"],
+        ["an aside that does not apply", "keys", { tone: "ok", text: "t", action: true, aside: false }, "ok"],
+        ["an aside that is a name", "keys", { tone: "ok", text: "t", action: true, aside: "remove" }, "refused: status=keys reason=type"],
+        ["an aside for an entry that declares none", "plain", { tone: "ok", text: "t", action: true, aside: true }, "refused: status=plain reason=type"],
+        ["no aside for an entry that declares none", "plain", { tone: "ok", text: "t", action: true }, "ok"],
+    ]) check("statusWrite: " + name, asideWrite(key, value), want);
+    const asideOf = (value, missing) => ctx.statusRows(mAside, value === null ? {} : ctx.statusWrite(mAside, {}, "keys", value).values, missing)[0].aside;
+    const asideRow = offered => ({ label: "Remove key", tone: "danger", tui: "remove", offered: offered });
+    check("statusRows: an aside is offered while its value says so, and not while unreported, while it says no or while its screen lacks a requirement",
+        [asideOf({ tone: "ok", text: "t", action: true, aside: true }, []), asideOf(null, []), asideOf({ tone: "ok", text: "t", action: true, aside: false }, []),
+            asideOf({ tone: "ok", text: "t", action: true }, []), asideOf({ tone: "ok", text: "t", action: true, aside: true }, ["acme-vault"])],
+        [asideRow(true), asideRow(false), asideRow(false), asideRow(false), asideRow(false)]);
+    check("statusRows: an aside stays offered while the step's own screen lacks a requirement", asideOf({ tone: "ok", text: "t", action: true, aside: true }, ["acme-sync"]), asideRow(true));
+    check("statusRows: an entry without an aside carries none", ctx.statusRows(mAside, {}, [])[1].aside, null);
+    check("statusRows: an aside's screen is one the entry declares", ctx.statusRows(mAside, {}, [])[0].declaredTuis, ["add", "remove"]);
     check("statusActionRequest: a named TUI action opens it", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("remove"), "agent"), { ok: true, kind: "tui", name: "remove" });
     check("statusActionRequest: a named system action applies its step", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("get"), "agent"), { ok: true, kind: "system", args: ["apply", "i2c-dev"] });
     check("statusActionRequest: named actions none of which applies are refused", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues(null), "agent"), { ok: false, answer: "refused: action=agent reason=not-offered" });
@@ -779,7 +802,13 @@ const CONTROLS = [
     ["a state's further lines are at most the list ceiling", " && value.lines.length <= STATUS_LIST_MAX", ""],
     ["a state's further lines are a list of one or more", "(Array.isArray(value.lines) && value.lines.length > 0 && ", "(value.lines.length > 0 && "],
     ["an item account needs declared secrets", "return manifest.secrets !== undefined || value.every(", "return true || value.every("],
-    ["a state action is a boolean or a name", "&& (value.action === undefined || typeof value.action === \"boolean\" || typeof value.action === \"string\");", ";"],
+    ["a state action is a boolean or a name", "\n            && (value.action === undefined || typeof value.action === \"boolean\" || typeof value.action === \"string\")", ""],
+    ["a state aside is a boolean", "\n            && (value.aside === undefined || typeof value.aside === \"boolean\")", ""],
+    ["a state aside needs a declared aside", "if (value.aside !== undefined && entry.aside === undefined) return false;", ""],
+    ["a row offers its aside while its value says so", "var offered = value !== null && value.aside === true && ", "var offered = value !== null && "],
+    ["a row withholds its aside while its screen lacks a requirement", " && tuiMissingRequirements(manifest, entry.aside.tui, missing).length === 0;", ";"],
+    ["a row carries its aside", "            aside: aside,\n", "            aside: null,\n"],
+    ["an aside's screen is declared", "    if (entry.aside !== undefined) actions.push(entry.aside);\n", ""],
     ["an item account matches its pattern", "(typeof item.secret === \"string\" && SECRET_ACCOUNT_PATTERN.test(item.secret))", "true"],
     ["a row item carries its secret", "secret: item.secret === undefined ? \"\" : item.secret,", "secret: \"\","],
     ["a row item's access follows its presence", "access: item.secret === undefined ? \"\" : SECRET_ACCESS[item.value]", "access: item.secret === undefined ? \"\" : \"connect\""],

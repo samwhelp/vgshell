@@ -151,7 +151,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // Settings window draws every other type unless the entry is `hidden`;
 // `choices` feeds a setting's Select instead of a Status row.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -191,8 +191,10 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // draws under `text`, at most STATUS_LIST_MAX. `hint` is bounded plain
 // guidance for this state; without it, the declaration's hint applies.
 // A value of `hidden: true` alone (statusStateHidden) keeps the entry's
-// row off the page while its writer finds nothing to show.
-var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action"];
+// row off the page while its writer finds nothing to show. `aside` is its
+// writer's too: true when the entry's declared `aside` applies to this
+// value.
+var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside"];
 // A `presenceList` value is a list of at most STATUS_LIST_MAX items, each
 // carrying these keys: a printable `label` and a `presence` value, with an
 // optional printable `hint` and an optional `secret`, the account of the
@@ -222,7 +224,11 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
 // identifier, of which a value names at most one. An action that removes
 // what the user set up, such as a sign-out, carries `tone`, one of
-// STATUS_ACTION_TONES, and a page draws it in the danger style.
+// STATUS_ACTION_TONES, and a page draws it in the danger style. A `state`
+// entry with a step may declare `aside`, one more action its row draws
+// beside the step, such as Remove key beside Add key: an action of route
+// `tui` whose script has an `entry`, since the page opens it as a listed
+// screen, offered while its value carries `aside: true`.
 var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];
 var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
@@ -601,9 +607,10 @@ function linkError(entry, at, field) {
 // and `hint`, an optional `link` linkError admits, words of the hint that
 // open an https address, an optional `action` statusActionError admits, and
 // an optional boolean `hidden`. A `state` entry may declare `actions` in
-// place of `action`: an object of two or more named actions. A `data`
+// place of `action`: an object of two or more named actions; with either
+// it may declare `aside`, a `tui` action of a listed screen. A `data`
 // entry is never drawn, so it carries none of `group`, `hint`, `link`,
-// `hidden`, `action` or `actions`. A plugin publishes status
+// `hidden`, `action`, `actions` or `aside`. A plugin publishes status
 // only through its `status` capability, so the key needs the capability,
 // and the capability needs at least one entry. TUI is the manifest's `tui`
 // key or undefined, SYSTEM its judged `systemSteps` or undefined.
@@ -661,12 +668,15 @@ function statusError(status, capabilities, tui, system) {
                 return badAction;
         }
         if (entry.type === "data" || entry.type === "launcherRows") {
-            var drawn = ["group", "hint", "info", "link", "hidden", "action", "actions"];
+            var drawn = ["group", "hint", "info", "link", "hidden", "action", "actions", "aside"];
             for (var d = 0; d < drawn.length; d++) {
                 if (entry[drawn[d]] !== undefined)
                     return at + "." + drawn[d] + " needs a type Settings draws; " + entry.type + " is never drawn";
             }
         }
+        var badAside = statusAsideError(entry, at, tui, system, capabilities);
+        if (badAside !== "")
+            return badAside;
     }
     return "";
 }
@@ -682,6 +692,27 @@ function statusEntryActions(entry) {
     return Object.keys(entry.actions).map(function (name) {
         return { name: name, at: ".actions." + name, action: entry.actions[name] };
     });
+}
+
+// The first defect of status entry ENTRY's `aside`, AT the entry's path, or
+// "": absent, or on a `state` entry that declares `action` or `actions`, an
+// action statusActionError admits whose route is `tui`, naming a script
+// with an `entry`, which the page opens as a listed screen.
+function statusAsideError(entry, at, tui, system, capabilities) {
+    if (entry.aside === undefined)
+        return "";
+    if (entry.type !== "state")
+        return at + ".aside needs type state, whose value says when it applies";
+    if (entry.action === undefined && entry.actions === undefined)
+        return at + ".aside needs the entry's action or actions, beside which the page draws it";
+    var badAction = statusActionError(entry.type, entry.aside, at + ".aside", tui, system, capabilities);
+    if (badAction !== "")
+        return badAction;
+    if (entry.aside.tui === undefined)
+        return at + ".aside must name a tui; the page opens it as a listed screen";
+    if (!isPlainObject(tui[entry.aside.tui].entry))
+        return at + ".aside.tui must name a script with an entry, got " + JSON.stringify(entry.aside.tui);
+    return "";
 }
 
 // The first defect of ACTION, one action of a status entry of type TYPE,
@@ -1009,8 +1040,8 @@ function isPlainJson(value) {
 // Whether `value` fits a status entry of type `type`: `presence` a key of
 // STATUS_PRESENCE_TONES; `presenceList` a list statusListItemFits admits
 // item by item, at most STATUS_LIST_MAX long; `state` { tone, text, action? }
-// with a tone of STATUS_STATE_TONES, a printable text and a boolean
-// `action` when present; `text` a printable line; `count`
+// with a tone of STATUS_STATE_TONES, a printable text, a boolean or named
+// `action` and a boolean `aside` when present; `text` a printable line; `count`
 // a whole number from 0; `time` a whole number of milliseconds since the
 // Unix epoch, from 0; `data` plain JSON; `choices` a bounded list of labeled,
 // distinct, non-empty string ids.
@@ -1061,7 +1092,8 @@ function statusValueFits(type, value) {
             && (value.lines === undefined || (Array.isArray(value.lines) && value.lines.length > 0 && value.lines.length <= STATUS_LIST_MAX
                 && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })))
             && (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))
-            && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string");
+            && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string")
+            && (value.aside === undefined || typeof value.aside === "boolean");
     }
     if (type === "text") return isPrintableLine(value, STATUS_TEXT_MAX);
     if (type === "count" || type === "time") return typeof value === "number" && isFinite(value) && value >= 0 && Math.floor(value) === value && value <= Number.MAX_SAFE_INTEGER;
@@ -1161,11 +1193,13 @@ function statusWrite(manifest, values, key, value) {
 
 // Whether VALUE, which statusValueFits admitted for ENTRY's type, also fits
 // what MANIFEST declares: a `state` value carries a boolean `action` only
-// for an entry that declares an action and a name only for an entry whose
-// `actions` hold it, and a `presenceList` item carries `secret` only for a
-// manifest that declares `secrets`.
+// for an entry that declares an action, a name only for an entry whose
+// `actions` hold it and `aside` only for an entry that declares one, and a
+// `presenceList` item carries `secret` only for a manifest that declares
+// `secrets`.
 function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
+        if (value.aside !== undefined && entry.aside === undefined) return false;
         if (value.action === undefined) return true;
         if (typeof value.action === "string") return entry.actions !== undefined && hasOwn(entry.actions, value.action);
         return entry.action !== undefined;
@@ -1272,19 +1306,32 @@ function statusRowAction(entry, value, lacking) {
     return { label: entry.action === undefined ? "" : entry.action.label, tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
 }
 
-// The declared TUI screens a status entry may open, in manifest order and
-// without duplicates.
+// The declared TUI screens a status entry may open, its `aside`'s last, in
+// manifest order and without duplicates.
 function statusDeclaredTuis(entry) {
     var seen = Object.create(null);
     var out = [];
-    statusEntryActions(entry).forEach(function (declared) {
-        var tui = declared.action.tui;
+    var actions = statusEntryActions(entry).map(function (declared) { return declared.action; });
+    if (entry.aside !== undefined) actions.push(entry.aside);
+    actions.forEach(function (action) {
+        var tui = action.tui;
         if (typeof tui === "string" && !seen[tui]) {
             seen[tui] = true;
             out.push(tui);
         }
     });
     return out;
+}
+
+// What a Status row carries of ENTRY's `aside` for its published VALUE, null
+// while unreported: null for an entry that declares none, else { label,
+// tone, tui, offered }, `offered` while VALUE carries `aside: true` and the
+// aside's TUI lacks none of MISSING's requirements, since the page's
+// Requirements section holds the one install action.
+function statusRowAside(manifest, entry, value, missing) {
+    if (entry.aside === undefined) return null;
+    var offered = value !== null && value.aside === true && tuiMissingRequirements(manifest, entry.aside.tui, missing).length === 0;
+    return { label: entry.aside.label, tone: statusActionTone(entry.aside), tui: entry.aside.tui, offered: offered };
 }
 
 // The tone a page draws declared ACTION in: its `tone`, else "".
@@ -1329,15 +1376,15 @@ function tuiWithheldReason(lacking) {
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
-// group, hint, info, link, secrets, declaredTuis, action, report, value,
-// tone }. `group`, `hint` and `info` are "" when the manifest omits them,
+// group, hint, info, link, secrets, declaredTuis, action, aside, report,
+// value, tone }. `group`, `hint` and `info` are "" when the manifest omits them,
 // and `link`, the words of the declared hint that open an https address,
 // null. `secrets` holds for the entry that lists the plugin's stored keys,
 // a `presenceList` of a manifest that declares `secrets`, which a page
 // draws with its setup. `declaredTuis` is each TUI the entry's actions may
 // open, in declaration order. `action` is
 // statusRowAction's: null for an entry without one, else { label, tone, offered, tui },
-// `offered` false while unreported. `report` is `reported` with the published `value`
+// `offered` false while unreported, and `aside` statusRowAside's. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
 // `tone` "" while `values` holds nothing for the key. While the offered
 // action's TUI lacks a command MISSING holds, `hint` is statusWithheldHint's
@@ -1352,6 +1399,7 @@ function statusRows(manifest, values, missing) {
         var reported = hasOwn(values, key);
         var value = reported ? values[key] : null;
         var lacking = statusActionLacking(manifest, entry, value, missing);
+        var aside = statusRowAside(manifest, entry, value, missing);
         var hint = entry.type === "state" && value !== null && value.hint !== undefined
             ? value.hint : entry.hint === undefined ? "" : entry.hint;
         if (lacking.length > 0) {
@@ -1369,6 +1417,7 @@ function statusRows(manifest, values, missing) {
             secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
             declaredTuis: statusDeclaredTuis(entry),
             action: statusRowAction(entry, value, lacking),
+            aside: aside,
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, value) : null,
             tone: reported ? statusTone(entry.type, value) : ""

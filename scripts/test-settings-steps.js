@@ -471,6 +471,22 @@ const NEEDS = [
     ["a plugin whose listed screens are no setup screens has no Setup tab", PLAIN, MIXED.slice(1), {}, [], {}, true, { open: false, optional: 0 }, false]
 ];
 
+// A step that declares an aside, a listed screen its row draws beside the
+// step while its value offers it, here one marked as a setup screen, which
+// the Flow draws only while no entry declares it.
+const ASIDE = {
+    requirements: [],
+    tui: {
+        add: { script: "tui/add.sh", title: "Add key", size: "default", presentation: "full", entry: { label: "Add key", icon: "key-round", group: "Acme" }, requires: null },
+        remove: { script: "tui/remove.sh", title: "Remove key", size: "default", presentation: "full", entry: { label: "Remove key", icon: "trash", group: "Acme", setup: true }, requires: null }
+    },
+    status: { keyStore: { type: "state", label: "API keys", group: "AI model", action: { label: "Add key", tui: "add" }, aside: { label: "Remove key", tui: "remove", tone: "danger" } } }
+};
+const ASIDE_TUIS = [
+    { name: "add", label: "Add key", icon: "key-round", setup: false, withheld: "" },
+    { name: "remove", label: "Remove key", icon: "trash", setup: true, withheld: "" }
+];
+
 // The Flow of the Setup section setupSections draws for TUIS and STATUS.
 function flowOf(logic, tuis, status) {
     const setup = logic.setupSections(tuis, status).find(section => section.title === "Setup");
@@ -683,6 +699,15 @@ function verify(logic) {
     // requirementPrimary: the Requirements action is the page's primary
     // only for a required tool while no step holds the primary; an
     // optional install never is.
+    // An aside reaches its row's item while its value offers it, in its
+    // tone, and never the Flow.
+    for (const [label, aside, want] of [
+        ["an offered aside draws beside its step", true, { name: "remove", label: "Remove key", tone: "danger" }],
+        ["an aside its value does not offer draws nowhere", false, null]]) {
+        const sections = logic.setupSections(ASIDE_TUIS, producer.statusRows(ASIDE, { keyStore: { tone: "ok", text: "1 key", action: true, aside } }, []));
+        same([sections.flatMap(section => section.items).map(item => [item.key, item.button === null ? null : item.button.label, item.aside]), sections.flatMap(section => section.buttons)],
+            [[["keyStore", "Add key", want]], []], "aside: " + label);
+    }
     const holding = logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, { summary: WARN, model: KEY, browser: DONE }, []));
     const free = logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, { summary: READY, model: NO_STEP, browser: DONE }, []));
     const required = logic.requirementStep([state("acme-tool", "present"), state("acme-other", "missing")]);
@@ -725,6 +750,9 @@ const CONTROLS = [
     ["a withheld screen gives no reason", "reason: enabled ? \"\" : tui.withheld", "reason: \"\""],
     ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""],
     ["a step drops its button", "button: step ? stepButton(tuis, entry) : null", "button: null"],
+    ["a step drops its aside", "aside: step ? asideButton(entry) : null", "aside: null"],
+    ["an aside its value does not offer draws", "if (entry.aside === null || !entry.aside.offered) return null;", "if (entry.aside === null) return null;"],
+    ["an aside drops its tone", "label: entry.aside.label, tone: entry.aside.tone };", "label: entry.aside.label, tone: \"\" };"],
     ["a step's action that opens no listed screen draws no button", 'var name = tui === undefined ? "" : tui.name;', 'if (tui === undefined) return null;\n    var name = tui.name;'],
     ["a step drops its tone", "tone: entry.action.tone, primary: false };", "tone: \"\", primary: false };"],
     ["a step draws an action its value does not offer", "if (entry.action === null || !entry.action.offered) return null;", "if (entry.action === null) return null;"],
