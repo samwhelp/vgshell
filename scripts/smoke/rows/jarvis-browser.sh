@@ -35,7 +35,7 @@ expected={"absent":({"tone":"info","text":"Browser needs setup","action":True},F
           "withheld":({"tone":"info","text":"Needs agent-browser","action":False},False)}[sys.argv[1]]
 v=r["value"]
 fields,reasoned=expected
-ok=set(v)<=set(fields)|{"hint"} and {k:v.get(k) for k in fields}==fields
+ok=isinstance(v,dict) and set(v)<=set(fields)|{"hint"} and {k:v.get(k) for k in fields}==fields
 ok=ok and ("hint" in v)==reasoned and (not reasoned or label in v["hint"])
 print("matched" if ok and r["action"]["offered"]==fields["action"] else "pending")
 ' "$1" "$repo/shell/plugins/vgs.jarvis/manifest.json"

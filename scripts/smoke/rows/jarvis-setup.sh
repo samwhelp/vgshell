@@ -83,7 +83,7 @@ expected={"absent-under-voice":({"tone":"info","text":"Not set up","action":Fals
           "invalid-open":({"tone":"warning","text":"Setup check returned invalid status","action":True},True,0)}[sys.argv[1]]
 v=r["value"]
 fields,reasoned,lines=expected
-ok=set(v)<=set(fields)|{"hint","lines"} and {k:v.get(k) for k in fields}==fields
+ok=isinstance(v,dict) and set(v)<=set(fields)|{"hint","lines"} and {k:v.get(k) for k in fields}==fields
 ok=ok and ("hint" in v)==reasoned and (not reasoned or label in v["hint"]) and len(v.get("lines",[]))==lines
 print("matched" if ok and r["action"]["offered"]==fields["action"] else "pending")
 ' "$1" "$repo/shell/plugins/vgs.jarvis/manifest.json"
