@@ -5386,9 +5386,11 @@ bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply
 scene_power() { # MODE
   devices_ready power-shot || return 0
   power_start_mocks shots-power balanced
+  tree_rescan "the Power shots' fake daemon is scanned"
   expect "the power shot starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery 64.0 7200
   power_discharging 64.0 7200
   expect "Power enables for its shot" ok ipc shell setPluginEnabled vgs.power true
+  expect "Power's requirement notice is absent" null notice_shown
   expect "Power's widget is placed for its shot" ok ipc shell setPluginPlaced vgs.power true
   expect_poll "Power's service reads the fake battery" 64 power_shot_level
   park_pointer
@@ -5398,6 +5400,15 @@ scene_power() { # MODE
   park_pointer
   take "power-$1-panel"
   expect "Power's panel hides" ok ipc shell hide panel vgs.power
+  notes_on "Power notice shots"
+  power_discharging 19.0 1800
+  expect_poll "Power sends its low battery notice" 1 notes_on_screen
+  take "power-$1-notice-low"
+  notes_clear "Power low notice shot"
+  power_discharging 9.0 600
+  expect_poll "Power sends its critical battery notice" 1 notes_on_screen
+  take "power-$1-notice-critical"
+  notes_off "Power notice shots"
   expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks

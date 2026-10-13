@@ -1195,6 +1195,60 @@ else
   fail "control: the ImageMagick check could not be planted"
 fi
 
+# Drive the Power scene's setup order without starting a sandbox. The
+# plugin check must read a scan made after the fake daemon owns its name.
+power_scene="$tmp/power-scene.sh"
+catalog_extract scene_power "$power_scene"
+power_scene_case() {
+  env -i PATH="$PATH" "$BASH" -c '
+    set -euo pipefail
+    source "$1"
+    devices_ready() { :; }
+    power_start_mocks() { daemon=up; }
+    tree_rescan() { [[ ${daemon:-} == up ]] && scanned=yes; }
+    ipc() {
+      if [[ $* == "shell setPluginEnabled vgs.power true" ]]; then
+        [[ ${daemon:-} == up && ${scanned:-} == yes ]] || return 1
+      fi
+      echo ok
+    }
+    expect() { local label="$1" want="$2" got; shift 2; got="$("$@")"; [[ $got == "$want" ]]; }
+    expect_poll() { :; }
+    power_add_battery() { echo /org/freedesktop/UPower/devices/mock_BAT0; }
+    notice_shown() { echo null; }
+    power_discharging() { :; }
+    park_pointer() { :; }
+    click_centre() { :; }
+    bar_key() { echo bar; }
+    notes_on() { :; }
+    notes_clear() { :; }
+    notes_off() { :; }
+    power_stop_mocks() { :; }
+    fail() { exit 1; }
+    take() { printf "%s\n" "$1"; }
+    scene_power dark
+  ' _ "$1" >"$tmp/power-scene.out" &&
+    [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-notice-low\npower-dark-notice-critical' ]]
+}
+if power_scene_case "$power_scene"; then ok "Power scans its fake daemon before enable and captures both notices"; else fail "Power scene order or captures failed"; fi
+power_mutant="$tmp/power-scene-mutant.sh"
+for defect in no-scan late-daemon; do
+  python3 - "$power_scene" "$power_mutant" "$defect" <<'PYCONTROL'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+needle = '  tree_rescan "the Power shots\' fake daemon is scanned"\n' if sys.argv[3] == 'no-scan' else '  power_start_mocks shots-power balanced\n'
+assert text.count(needle) == 1
+changed = text.replace(needle, '')
+if sys.argv[3] == 'late-daemon':
+    at = '  expect "Power enables for its shot" ok ipc shell setPluginEnabled vgs.power true\n'
+    assert changed.count(at) == 1
+    changed = changed.replace(at, at + needle)
+assert changed != text
+pathlib.Path(sys.argv[2]).write_text(changed)
+PYCONTROL
+  if power_scene_case "$power_mutant"; then fail "control: Power $defect stayed green"; else ok "control: Power $defect fails"; fi
+done
+
 if [[ $failures -gt 0 ]]; then
   echo "test-sandbox-shots: failed=$failures"
   exit 1
