@@ -2449,6 +2449,26 @@ scene_notifications() { # MODE
   done
   expect "the history clears" ok notes clear-history
   expect_poll "no toast is left" 0 on_screen
+  # Icons: a card whose icon the theme lacks, sent as notify-send --icon
+  # sends it, and two VGS plugin notices with no icon of their own, one
+  # line and two, with the hints the core's shell.notify.send adds; then
+  # the same cards in the inbox.
+  ids=()
+  ids+=("$(notify smoke-power "Battery caution" "15% left, plug in soon" '[]' '{"image-path": <"vgs-smoke-themeless">}')")
+  ids+=("$(notify Power "Charging resumed" "" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"success">, "x-vgs-click": <"none">}')")
+  ids+=("$(notify Power "Battery saver is on" "Background sync pauses until you plug in" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-tone": <"warning">, "x-vgs-click": <"none">}')")
+  expect_poll "three icon toasts are on screen" 3 on_screen
+  take "notifications-$1-icons"
+  expect "the inbox opens on the icon cards" ok notes inbox
+  expect_poll "the panel is the inbox for the icon cards" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
+  take "notifications-$1-icons-inbox"
+  expect "the inbox closes after the icon cards" ok notes close
+  for id in "${ids[@]}"; do
+    "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing notification $id failed"
+  done
+  expect "the history clears" ok notes clear-history
+  expect_poll "no toast is left" 0 on_screen
 }
 
 # hover_widget LABEL ID: the pointer on the centre of bar widget ID,

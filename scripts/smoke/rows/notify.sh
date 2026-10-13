@@ -3,7 +3,8 @@
 # vgs.notifications draws, its saved History, the fixture's own
 # notification subscription and the shell log. A card names the fixture's
 # manifest name as its sender and carries the tone, icon and urgency it
-# was sent with and a click that only dismisses; its message arrives with
+# was sent with, the bell for a message sent with neither tone nor icon,
+# and a click that only dismisses; its message arrives with
 # `&`, `<` and `>` escaped, since the server reads a body as markup. A
 # transient message's card leaves a History entry as a lasting one's
 # does. Under Silence a critical message still draws its card, as the
@@ -59,7 +60,7 @@ notes_first_card "the critical card"
 expect "a transient low message is sent" ok notify_send '{"title": "Probe passing", "tone": "info", "icon": "bell", "urgency": "low", "transient": true}'
 expect_poll "its card carries low urgency" '["", 0, "info", "bell", "none"]' probe_card "Probe passing"
 expect "a message with a title alone is sent" ok notify_send '{"title": "Probe plain"}'
-expect_poll "its card is normal urgency with no tone or icon" '["", 1, "", "", "none"]' probe_card "Probe plain"
+expect_poll "its card is normal urgency with no tone and the bell icon" '["", 1, "", "bell", "none"]' probe_card "Probe plain"
 # Control: a card from the same sender that did not come through the
 # core's route carries none of its hints, and the reader tells it apart.
 "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
@@ -88,10 +89,10 @@ expect "a burst past the run ceiling ends in busy" busy-last burst_shape "$burst
 # already followed the transient card's leaving.
 notes_clear "notify"
 expect "a transient message is sent" ok notify_send '{"title": "Probe quiet", "transient": true}'
-expect_poll "the transient card shows" '["", 1, "", "", "none"]' probe_card "Probe quiet"
+expect_poll "the transient card shows" '["", 1, "", "bell", "none"]' probe_card "Probe quiet"
 notes_clear "notify: the transient card"
 expect "a lasting message is sent" ok notify_send '{"title": "Probe kept"}'
-expect_poll "the lasting card shows" '["", 1, "", "", "none"]' probe_card "Probe kept"
+expect_poll "the lasting card shows" '["", 1, "", "bell", "none"]' probe_card "Probe kept"
 notes_clear "notify: the lasting card"
 expect_poll "the dismissed lasting card went to History" True in_probe_history "Probe kept"
 expect "the dismissed transient card went to History" True in_probe_history "Probe quiet"
@@ -105,7 +106,7 @@ expected_errors+=('WARN qml: notifications: app sounds: rule=not-loaded ')
 expect "Silence turns on" on ipc vgs.notifications invoke silence on
 expect "a normal message is sent under Silence" ok notify_send '{"title": "Probe hushed"}'
 expect "a critical message is sent under Silence" ok notify_send '{"title": "Probe urgent", "urgency": "critical"}'
-expect_poll "the critical message draws its card under Silence" '["", 2, "", "", "none"]' probe_card "Probe urgent"
+expect_poll "the critical message draws its card under Silence" '["", 2, "", "bell", "none"]' probe_card "Probe urgent"
 expect_poll "the normal message went to History under Silence" True in_probe_history "Probe hushed"
 expect "the normal message draws no card under Silence" '"none"' probe_card "Probe hushed"
 expect "Silence turns off" off ipc vgs.notifications invoke silence off

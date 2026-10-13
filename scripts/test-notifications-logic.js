@@ -620,6 +620,33 @@ function verify(logic) {
         assert.equal(logic.localImageFile(value), want, "local file of " + JSON.stringify(value));
     same(logic.drawnImage("image://icon//tmp/a.png"), "file:///tmp/a.png");
     same(logic.drawnImage("firefox"), "firefox");
+    // A themed name in the image hint, as notify-send --icon sends it, or
+    // in the app icon: [app icon, image, the entry's app icon and image].
+    for (const [appIcon, image, want] of [["", "image://icon/battery-caution", ["battery-caution", ""]], ["chat", "image://icon/battery-caution", ["chat", ""]], ["", "image://icon//tmp/a.png", ["", "file:///tmp/a.png"]], ["", "image://qsimage/3", ["", "image://qsimage/3"]], ["image://icon/battery-caution", "", ["battery-caution", ""]]]) {
+        const made = logic.entryOf({ id: 1, appIcon: appIcon, image: image }, 5, null);
+        same([made.appIcon, made.image], want, "themed image " + JSON.stringify([appIcon, image]));
+    }
+    // A VGS plugin's notice with no icon of its own: [hints, app icon, image,
+    // hintIcon]. Another sender's card keeps its own icon or none.
+    const lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
+    const PLUGIN = { "x-vgs-plugin": "vgs.power" };
+    for (const [hints, appIcon, image, want] of [
+        [PLUGIN, "", "", "bell"],
+        [{ ...PLUGIN, "x-vgs-tone": "success" }, "", "", "circle-check"],
+        [{ ...PLUGIN, "x-vgs-tone": "warning" }, "", "", "triangle-alert"],
+        [{ ...PLUGIN, "x-vgs-tone": "danger" }, "", "", "circle-x"],
+        [{ ...PLUGIN, "x-vgs-tone": "info" }, "", "", "info"],
+        [{ ...PLUGIN, "x-vgs-tone": "danger", "x-vgs-icon": "battery-low" }, "", "", "battery-low"],
+        [{ ...PLUGIN, "x-vgs-tone": "warning" }, "vgs", "", ""],
+        [{ ...PLUGIN, "x-vgs-tone": "warning" }, "", "image://icon/battery-caution", ""],
+        [{ ...PLUGIN, "x-vgs-tone": "warning" }, "", "/tmp/a.png", ""],
+        [{ "x-vgs-tone": "warning" }, "", "", ""],
+        [{}, "", "", ""]
+    ]) {
+        const made = logic.entryOf({ id: 1, appIcon: appIcon, image: image, hints: hints }, 5, null);
+        same(made.hintIcon, want, "notice icon " + JSON.stringify([hints, appIcon, image]));
+        if (want !== "") assert.ok(Object.prototype.hasOwnProperty.call(lucide.ICONS, want), "icon " + want + " is shipped");
+    }
     const entry = stored(1000, 7, { appIcon: "file:///usr/share/icons/chat.png", image: "image://qsimage/3" });
     same(logic.persistable(entry, IMAGES), {
         entry: stored(1000, 7, { appIcon: "file://" + IMAGES + "/1000-7-appIcon", image: "" }),
@@ -1377,7 +1404,14 @@ const CONTROLS = [
     ["a hint path is absolute and fits the TUI argument", "return value === \"\" || (value.charAt(0) === \"/\" && value.length <= HINT_OPEN_MAX && !/[\\u0000-\\u001f\\u007f]/.test(value));", "return true;"],
     ["a hint click is open or none", "return value === \"\" || HINT_CLICKS.indexOf(value) !== -1;", "return true;"],
     ["an open click needs a file", "if (roles.hintClick === \"open\" && roles.hintOpen === \"\") {", "if (false) {"],
-    ["an entry keeps its hints", "hintIcon: hints.hintIcon,", "hintIcon: \"\","],
+    ["an entry keeps its hints", "hintIcon: hintIcon,", "hintIcon: \"\","],
+    ["a themed image name is no image", "var image = themed ? \"\" : drawnImage(f.image);", "var image = drawnImage(f.image);"],
+    ["a themed image name is the icon", "drawnImage(f.appIcon) || themed;", "drawnImage(f.appIcon);"],
+    ["a themed app icon is a name", "var appIcon = themedIcon(f.appIcon) || ", "var appIcon = "],
+    ["a themed name is no file", "&& localImageFile(s) === \"\" ?", "?"],
+    ["a plugin notice with no icon draws its tone's", "!appIcon && !image ? TONE_ICONS[hints.hintTone] : \"\");", "!appIcon && !image ? \"\" : \"\");"],
+    ["only a plugin notice takes a tone icon", "(fromPlugin(f.hints) && !appIcon", "(!appIcon"],
+    ["a notice with its own icon keeps it", " && !appIcon && !image ? TONE_ICONS", " ? TONE_ICONS"],
     ["a click opens the hinted file", "if (row.hintClick === \"open\" && row.hintOpen !== \"\") return \"open\";", "if (false) return \"open\";"],
     ["a none click only dismisses", "if (row.hintClick === \"none\") return \"dismiss\";", "if (false) return \"dismiss\";"],
     ["only an open reads the click hints", "if (choice !== \"open\") return \"default\";", ""],

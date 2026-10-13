@@ -27,8 +27,9 @@ Item {
     property string body: ""
     property string image: ""
     property string desktopEntry: ""
-    // The VGS hint roles (NotificationLogic.readHints): a Lucide name and a
-    // status tone, or "".
+    // The VGS hint roles (NotificationLogic.entryOf): a Lucide name, for a
+    // VGS plugin's notice that names none its tone's, and a status tone, or
+    // "".
     property string hintIcon: ""
     property string hintTone: ""
     // The workspace the card belongs to: the one `enrichment` names, or the

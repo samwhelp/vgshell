@@ -423,6 +423,29 @@ expect "a click on a none card opens nothing" absent recorded
 notify smoke-app 0 "Bad hints" "" '[]' '{"x-vgs-tone": <"red">, "x-vgs-click": <"open">}' 0 >/dev/null
 expect_poll "refused hints leave no role" '["", "", "", ""]' hint_roles "Bad hints"
 expected_errors+=('notifications: hints refused: app="smoke-app" names=x-vgs-tone,x-vgs-click')
+# Icons: notify-send --icon sends its name as an image-path hint, which
+# Quickshell hands on as an image://icon/ URL whose provider draws a
+# placeholder for a name the theme lacks. The card resolves that name
+# through the icon theme and draws no media. A VGS plugin's notice with no
+# icon of its own, sent with the hints the core's shell.notify.send adds,
+# draws its tone's Lucide icon; another sender's draws none.
+icon_roles() { ipc smoke modelRows vgs.notifications rows summary,appIcon,image | py_reply 'import json,sys; print(json.dumps(next((r[1:] for r in json.load(sys.stdin) if r[0] == sys.argv[1]), None)))' "$1"; }
+card_media() { ipc smoke layerItems vgs.notifications NotificationCard summary,mediaKind,showsSlot | py_reply 'import json,sys; print(json.dumps(sorted({(v["mediaKind"], v["showsSlot"]) for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]})))' "$1"; }
+icon_ids=("$(notify smoke-app 0 "Themeless icon" "Battery at 15%" '[]' '{"image-path": <"vgs-smoke-themeless">}' 0)")
+expect_poll "a themeless image hint is the card's icon name, not its image" '["vgs-smoke-themeless", ""]' icon_roles "Themeless icon"
+expect_poll "the card with a themeless icon draws no media" '[["", false]]' card_media "Themeless icon"
+icon_ids+=("$(notify Power 0 "Plugin notice" "" '[]' '{"x-vgs-plugin": <"acme.notice">, "x-vgs-tone": <"warning">, "x-vgs-click": <"none">}' 0)")
+expect_poll "a VGS notice with no icon takes its tone's icon" '["triangle-alert", "warning", "", "none"]' hint_roles "Plugin notice"
+expect_poll "the VGS notice's card draws that icon" '[["glyph", true]]' card_media "Plugin notice"
+icon_ids+=("$(notify smoke-app 0 "Other notice" "" '[]' '{"x-vgs-tone": <"warning">}' 0)")
+expect_poll "another sender's notice with no icon draws none" '[["", false]]' card_media "Other notice"
+panel_media() { printf '[%s, %s]\n' "$(ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "$1" mediaKind)" "$(ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "$1" showsSlot)"; }
+expect "the inbox opens over the icon cards" ok notes inbox
+expect_poll "the inbox card with a themeless icon draws no media" '["", false]' panel_media "Themeless icon"
+expect_poll "the inbox card of the VGS notice draws its tone's icon" '["glyph", true]' panel_media "Plugin notice"
+expect "the inbox closes after the icon cards" ok notes close
+for id in "${icon_ids[@]}"; do close_note "$id"; done
+for summary in "Themeless icon" "Plugin notice" "Other notice"; do expect_poll "the icon card $summary leaves" none key_of "$summary"; done
 
 # A toast expires on its own; the pointer on it pauses its clock.
 notify smoke-app 0 "Brief" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null

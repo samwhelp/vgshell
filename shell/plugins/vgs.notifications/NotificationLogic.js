@@ -875,6 +875,12 @@ function receiveMessage(recent, message, onScreen) {
 function bypassesSilence(appName, urgency, hints) {
     if (urgency !== URGENCY.critical) return false;
     if (String(appName || "") === "notify-send") return true;
+    return fromPlugin(hints);
+}
+
+// Whether a notification came from a VGS plugin: its hints carry the
+// core's x-vgs-plugin hint.
+function fromPlugin(hints) {
     return isPlainObject(hints) && typeof hints["x-vgs-plugin"] === "string" && hints["x-vgs-plugin"] !== "";
 }
 
@@ -1220,6 +1226,9 @@ var HINTS = { "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": 
 // before a sender could add hints has none, and reads back with each "".
 var HINT_ROLES = ["hintIcon", "hintTone", "hintOpen", "hintClick"];
 var HINT_TONES = ["success", "warning", "danger", "info"];
+// The Lucide icon a VGS plugin's notice draws when it names none, by its
+// x-vgs-tone hint, "" for a notice with no tone.
+var TONE_ICONS = { "": "bell", success: "circle-check", warning: "triangle-alert", danger: "circle-x", info: "info" };
 var HINT_CLICKS = ["open", "none"];
 // A Lucide name's grammar; a name the shipped set lacks is drawn as no icon
 // by `Icon`, which logs it.
@@ -1330,19 +1339,25 @@ function entryOf(fields, timestamp, taken) {
     var urgency = Number(f.urgency);
     if (urgency !== URGENCY.low && urgency !== URGENCY.critical) urgency = URGENCY.normal;
     var hints = readHints(f.hints).roles;
+    // A themed name is an icon, which the card resolves through the icon
+    // theme, so a name the theme lacks draws nothing.
+    var themed = themedIcon(f.image);
+    var appIcon = themedIcon(f.appIcon) || drawnImage(f.appIcon) || themed;
+    var image = themed ? "" : drawnImage(f.image);
+    var hintIcon = hints.hintIcon || (fromPlugin(f.hints) && !appIcon && !image ? TONE_ICONS[hints.hintTone] : "");
     return {
         key: keyOf(at, id),
         originalId: id,
         app: clip(f.appName, SUMMARY_MAX),
-        appIcon: drawnImage(f.appIcon),
+        appIcon: appIcon,
         summary: clip(f.summary, SUMMARY_MAX),
         body: clip(f.body, BODY_MAX),
-        image: drawnImage(f.image),
+        image: image,
         desktopEntry: String(f.desktopEntry || ""),
         urgency: urgency,
         expireTimeout: expire,
         timestamp: at,
-        hintIcon: hints.hintIcon,
+        hintIcon: hintIcon,
         hintTone: hints.hintTone,
         hintOpen: hints.hintOpen,
         hintClick: hints.hintClick
@@ -1381,6 +1396,16 @@ function localImageFile(value) {
         try { s = decodeURIComponent(s); } catch (e) { return ""; }
     }
     return s.charAt(0) === "/" ? s : "";
+}
+
+// The icon theme name behind an image value, or "". Quickshell hands an
+// image-path hint that is no file as an unchecked image://icon/ URL, whose
+// provider draws a placeholder for a name the theme lacks; libnotify's
+// notify-send sends its --icon as that hint (read from libnotify 0.8.8's
+// D-Bus call on 2026-10-12).
+function themedIcon(value) {
+    var s = String(value || "");
+    return s.indexOf(ICON_PROVIDER) === 0 && localImageFile(s) === "" ? s.slice(ICON_PROVIDER.length) : "";
 }
 
 // An image value as the card draws it: a sender's file as a file URL, so a
