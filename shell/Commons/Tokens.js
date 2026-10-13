@@ -962,18 +962,19 @@ var TOKENS = {
     // dropped `sliceName.shadowOffset` pixels down and right on screen,
     // the same in every mode. Text beside the rail, the browser's tabs
     // included, sits on the scrim over any wallpaper, not on a resting
-    // surface, and a black wallpaper leaves the darkest backdrop: the
-    // scrim's colour moved toward black by one minus its 0.6 opacity,
-    // made opaque. A chosen word or an open tab draws
+    // surface, and a black wallpaper leaves the darkest backdrop,
+    // `backdrop`: the scrim's colour moved toward black by one minus its
+    // 0.6 opacity, made opaque. A chosen word or an open tab draws
     // `hintActive`, the white or black that contrasts more with that
     // backdrop, 4.58:1 or more on any colour; other text draws `hint`,
     // that colour moved 0.06 toward the theme's text, at least 4.66:1 in
     // every catalog theme, where the theme's own text read 1.80:1 in
     // rose-pine (ThemeLogic.contrastRatio on the resolved catalog themes,
-    // node, 2026-10-13). A failure line draws `hintDanger`, that colour
-    // moved 0.06 toward the theme's danger, at least 4.63:1 in every
-    // catalog theme, where the theme's own danger read 1.36:1 in rose-pine
-    // (the same reading).
+    // node, 2026-10-13). A failure line draws `hintDanger` behind a danger
+    // mark: the theme's danger where it reads 4.5:1 on that backdrop, as
+    // in each of the 74 dark catalog themes, 5.17:1 or more, and
+    // `hintActive` where it does not, as in the 7 light ones, 1.36:1 in
+    // rose-pine to 3.81:1 in white (the same reading).
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -988,8 +989,9 @@ var TOKENS = {
         decodeCap: length(2048),
         duration: duration("{motion.duration.normal}"),
         hint: color("mix({carousel.hintActive}, {color.text}, 0.06)"),
-        hintActive: color("contrast(alpha(mix({color.scrim}, #000000, 0.4), 1))"),
-        hintDanger: color("mix({carousel.hintActive}, {color.danger}, 0.06)"),
+        backdrop: color("alpha(mix({color.scrim}, #000000, 0.4), 1)"),
+        hintActive: color("contrast({carousel.backdrop})"),
+        hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})"),
         sliceName: {
             role: textRole("h2"),
             inset: length("{space.xxl}"),

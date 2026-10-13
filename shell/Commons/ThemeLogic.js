@@ -53,6 +53,7 @@ var FUNCTIONS = {
     mix: { args: ["color", "color", "number"], result: "color" },
     alpha: { args: ["color", "number"], result: "color" },
     contrast: { args: ["color"], result: "color" },
+    readable: { args: ["color", "color", "color"], result: "color" },
     mul: { args: ["same", "number"], result: "same" }
 };
 
@@ -566,6 +567,13 @@ function resolve(tokens, overrides) {
             if (args[0].a < 1)
                 return fail("contrast-translucent", token, "colour=" + formatColor(args[0]));
             return contrastColor(args[0]);
+        case "readable":
+            // The first colour where it reads as text on the opaque second
+            // one, else the third; a translucent text colour has no ratio
+            // and does not read.
+            if (args[1].a < 1)
+                return fail("contrast-translucent", token, "colour=" + formatColor(args[1]));
+            return args[0].a === 1 && contrastRatio(args[0], args[1]) >= READABILITY_FLOOR ? args[0] : args[2];
         case "mul":
             return args[0] * args[1];
         }

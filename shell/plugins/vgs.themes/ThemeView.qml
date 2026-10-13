@@ -457,14 +457,30 @@ FocusScope {
                         root.catalogReason === "" ? "" : "The catalog is unavailable. " + BrowserLogic.reasonText(root.catalogReason),
                         root.imagesReason === "" ? "" : "The image list is unavailable. " + BrowserLogic.reasonText(root.imagesReason)
                     ].filter(line => line !== "")
-                    Label {
+                    // A failure reads by its mark, not by its colour:
+                    // `hintDanger` is the theme's danger only where that
+                    // reads on the backdrop.
+                    Row {
+                        id: failure
                         required property string modelData
-                        role: "body"
-                        width: caption.width
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.Wrap
-                        color: Theme.carousel.hintDanger
-                        text: modelData
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: Theme.stack.inline
+
+                        Icon {
+                            id: failureMark
+                            y: Math.round((failureText.lineBox - height) / 2)
+                            name: "circle-alert"
+                            size: Theme.icon.size.md
+                            color: failureText.color
+                        }
+                        Label {
+                            id: failureText
+                            role: "body"
+                            width: Math.min(implicitWidth, caption.width - failureMark.width - failure.spacing)
+                            wrapMode: Text.Wrap
+                            color: Theme.carousel.hintDanger
+                            text: failure.modelData
+                        }
                     }
                 }
             }

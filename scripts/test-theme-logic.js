@@ -361,6 +361,12 @@ const DEFAULTS = [
     ["carousel.band", 2],
     ["carousel.decodeCap", 2048],
     ["carousel.duration", 150],
+    // The scrim, #000000 at 0.6, over a black wallpaper is black; white
+    // contrasts with it, and the danger #f43f5e reads 5.72:1 on it:
+    // luminance 0.236, (0.236 + 0.05) / 0.05.
+    ["carousel.backdrop", "#000000ff"],
+    ["carousel.hintActive", "#ffffffff"],
+    ["carousel.hintDanger", "#f43f5eff"],
     // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
     // white over black at full opacity blurred 4 pixels, dropped 2 pixels.
     ["carousel.sliceName.role", "h2"],
@@ -492,6 +498,7 @@ const REFUSED = [
     // The default text on a fill derives from the fill, so a translucent
     // fill alone is refused where that default is evaluated.
     { tokens: { bar: { active: "#ff5a3680" } }, reason: "contrast-translucent", token: "bar.onActive" },
+    { tokens: { carousel: { hintDanger: "readable({color.danger}, {color.scrim}, {carousel.hintActive})" } }, reason: "contrast-translucent", token: "carousel.hintDanger" },
     { tokens: { motion: { easing: { standard: "bouncy" } } }, reason: "option", token: "motion.easing.standard" },
     { tokens: { scheme: { mode: "dim" } }, reason: "option", token: "scheme.mode" },
     { tokens: { dialog: { titleRole: "shout" } }, reason: "option", token: "dialog.titleRole" },
@@ -759,6 +766,10 @@ function verify(judge) {
     // the floor on that backdrop.
     assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })),
         [["carousel.hintDanger", "color.scrim over #000000", 4.5]]);
+    // A translucent danger has no ratio, so the line takes the fallback.
+    const faintDanger = judge.accept(TOKENS, document({ carousel: { hintDanger: "readable(alpha(#ffffff, 0.5), {carousel.backdrop}, {carousel.hintActive})" } }));
+    assert.equal(faintDanger.ok, true, faintDanger.ok ? "" : judge.refusalLine(faintDanger));
+    assert.equal(faintDanger.values.carousel.hintDanger, "#ffffffff");
     // A segmented control's text the colour of the fill it sits on falls
     // under the 4.5:1 floor, and a chosen segment's mark the colour of its
     // segment or of the track under the 3:1 floor.
@@ -1400,6 +1411,41 @@ function verifyBarScroll(table) {
 }
 verifyBarScroll(TOKENS);
 
+// A failure line beside the rail draws the theme's danger where it reads
+// 4.5:1 on the backdrop and carousel.hintActive where it does not, by the
+// ratio and never by the theme's mode. catppuccin-latte's backdrop is its
+// background #eff1f5 moved 0.14 toward black at 0.6 over black, each
+// channel times 0.516: #7b7c7e, luminance 0.20, so black contrasts with
+// it. Its danger, #d20f39 moved 0.03 toward black, reads 1.37:1 there and
+// the line draws black; the dark red #1a0000, luminance 0.002, reads
+// 4.8:1, (0.20 + 0.05) / (0.002 + 0.05), and the line draws it.
+function verifyFailureLine(table) {
+    const judge = load(judgeFile);
+    const latte = danger => {
+        const accepted = judge.accept(table, document({ scheme: { mode: "light" }, palette: { background: "#eff1f5", foreground: "#4c4f69", danger: "#d20f39" }, color: { danger: danger } }));
+        assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
+        return accepted.values.carousel.hintDanger;
+    };
+    assert.equal(judge.defaults(table).values.carousel.hintDanger, "#f43f5eff", "a dark theme whose danger reads keeps it");
+    assert.equal(latte("mix({palette.danger}, contrast({palette.background}), 0.03)"), "#000000ff", "catppuccin-latte draws the high-contrast colour");
+    assert.equal(latte("#1a0000"), "#1a0000ff", "a light theme whose danger reads keeps it");
+}
+verifyFailureLine(TOKENS);
+
+// The failure line of each browser view leads with the danger mark, so
+// the state does not rest on the line's colour. This reads the view's
+// source: it holds that the mark is declared before the line in one row,
+// and the rendered line is the theme sheets' to show. The control is the
+// same source without the mark.
+const FAILURE_LINE = /Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
+const FAILURE_MARK = /Icon \{[^{}]*name: "circle-alert"[^{}]*\}/;
+for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
+    const viewSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.themes", view), "utf8");
+    assert.equal(viewSource.split("Theme.carousel.hintDanger").length, 2, `${view} draws one failure line`);
+    assert.match(viewSource, FAILURE_LINE, `${view} leads its failure line with the danger mark`);
+    assert.doesNotMatch(viewSource.replace(FAILURE_MARK, ""), FAILURE_LINE, `control: ${view} without the mark must fail the check`);
+}
+
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.
 const tokenSource = fs.readFileSync(path.join(repo, "shell/Commons/Tokens.js"), "utf8");
@@ -1417,7 +1463,9 @@ const TOKEN_CONTROLS = [
     ["stacked icon past its line", 'icon: length("{bar.stacked.size}")', 'icon: length("{bar.item.height}")', verifyBarStacked],
     ["stacked text at the bar size", 'size: length("mul({bar.item.height}, 0.4)")', 'size: length("{text.bar.size}")', verifyBarStacked],
     ["bar scroll fade end", 'clear: color("alpha({bar.background}, 0)")', 'clear: color("alpha({bar.foreground}, 0)")', verifyBarScroll],
-    ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll]
+    ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll],
+    ["failure line danger forced", 'hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})")', 'hintDanger: color("{color.danger}")', verifyFailureLine],
+    ["failure line without its danger", 'hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})")', 'hintDanger: color("{carousel.hintActive}")', verifyFailureLine]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
 const tokenControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "token-control-"));
@@ -1484,6 +1532,10 @@ const CONTROLS = [
     ["trailing text", "if (at !== text.length)", "if (false)"],
     ["unknown function", "if (!hasOwn(FUNCTIONS, tree.name))", "if (false)"],
     ["arity", "if (tree.args.length !== signature.args.length)", "if (false)"],
+    ["readable holds the floor", "contrastRatio(args[0], args[1]) >= READABILITY_FLOOR ? args[0] : args[2];", "contrastRatio(args[0], args[1]) >= 1 ? args[0] : args[2];"],
+    ["readable keeps a colour that reads", "contrastRatio(args[0], args[1]) >= READABILITY_FLOOR ? args[0] : args[2];", "contrastRatio(args[0], args[1]) >= 21 ? args[0] : args[2];"],
+    ["readable refuses a translucent text colour", "return args[0].a === 1 && contrastRatio(", "return contrastRatio("],
+    ["readable refuses a translucent backdrop", "if (args[1].a < 1)\n                return fail(\"contrast-translucent\"", "if (false)\n                return fail(\"contrast-translucent\""],
     ["unknown reference", "if (target === undefined)", "if (false)"],
     ["reference type", "if (target.type !== want)", "if (false)"],
     ["colour literal type", 'if (want !== "color")', "if (false)"],
