@@ -9,7 +9,6 @@ import json
 import ctypes
 import os
 from pathlib import Path
-import re
 import signal
 import select
 import shutil
@@ -91,34 +90,85 @@ console.log(JSON.stringify([
 
 
 def delay_choice():
-    """The window keeps the screenshot delay; Settings draws no field for it or a time limit."""
+    """The window keeps the screenshot delay; Settings draws no field for it or a time limit.
+
+    The Delay row's handler, the service's `launch` and its `setFromRequest`
+    run in node against stand-ins. A control is a source copy that drops the
+    behaviour and keeps the text around it.
+    """
     plugin = HELPER.parent.parent
     manifest = json.loads((plugin / "manifest.json").read_text())
     panel = (plugin / "Panel.qml").read_text()
     service = (plugin / "Service.qml").read_text()
 
+    def run(program, payload):
+        result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
     def fields(manifest):
         # The Settings page draws one field per schema entry.
         return [key for key in ("delay", "timeout") if key in manifest["schema"]]
 
-    def kept(manifest, panel, service):
-        # The Delay row saves one key, which the manifest stores with no
-        # schema entry and the service hands the worker as its delay.
-        saved = re.findall(r'root\.save\("(\w+)", root\.delayChoices\[index\]\.value\)', panel)
-        return len(saved) == 1 and saved[0] in manifest["settings"] and saved[0] not in manifest["schema"] and f" delay: s.{saved[0]}," in service
+    def stored(manifest):
+        # The keys the core reads from a plugins row, of the two.
+        return [key for key in ("delay", "timeout") if key in manifest["settings"]]
 
-    assert fields(manifest) == [] and "timeout" not in manifest["settings"], "Settings draws no delay or time limit field"
-    assert kept(manifest, panel, service), "the window's delay reaches the worker"
-    drawn = {**manifest, "schema": {**manifest["schema"], "delay": {"type": "number", "label": "Delay"}, "timeout": {"type": "number", "label": "Limit"}}}
-    assert fields(drawn) == ["delay", "timeout"] and not kept(drawn, panel, service), "control did not fail: delay-field-drawn"
-    for name, source, before, after in [
-        ("delay-unsaved", panel, 'root.save("delay", root.delayChoices[index].value);', ""),
-        ("delay-saved-elsewhere", panel, 'root.save("delay", root.delayChoices[index].value);', 'root.save("cursor", root.delayChoices[index].value);'),
-        ("delay-unread", service, " delay: s.delay,", " delay: 0,"),
+    assert fields(manifest) == [] and stored(manifest) == ["delay"], "the manifest keeps the delay, with no field for it and no time limit"
+    drawn = {**manifest, "settings": {**manifest["settings"], "timeout": 30}, "schema": {**manifest["schema"], "delay": {"type": "number", "label": "Delay"}, "timeout": {"type": "number", "label": "Limit"}}}
+    assert fields(drawn) == ["delay", "timeout"] and stored(drawn) == ["delay", "timeout"], "control did not fail: delay-field-drawn"
+
+    # The Delay row's handler, run with the second of two choices picked:
+    # the `setting` requests the window sends.
+    choose = """
+const input = JSON.parse(process.argv[1]);
+const sent = [];
+const shell = { ipc: { call: (name, arg) => { sent.push([name, JSON.parse(arg)]); return "ok"; } } };
+const root = { delayChoices: [{ value: 0 }, { value: 7 }], choiceIndex: () => 0, setting: () => 0 };
+root.save = new Function("shell", "problem", input.save + "; return save;")(shell, "");
+new Function("root", "Qt", "currentIndex", "return " + input.handler)(root, { binding: read => read }, 0)(1);
+console.log(JSON.stringify(sent));
+"""
+    def chosen(source):
+        select = "                            model: root.delayChoices\n"
+        assert source.count(select) == 1, "delay select boundary"
+        start, end = "onActivated: ", "\n                            }\n"
+        body = source[source.index(select):]
+        body = body[body.index(start) + len(start):]
+        return run(choose, {"save": service_function(source, "save"), "handler": body[:body.index(end) + len(end)]})
+    wanted = [["setting", {"key": "delay", "value": 7}]]
+    assert chosen(panel) == wanted, "the Delay row saves the chosen delay"
+    for name, before, after in [
+        ("delay-unsaved", 'root.save("delay", root.delayChoices[index].value);', 'if (false) root.save("delay", root.delayChoices[index].value);'),
+        ("delay-saved-elsewhere", 'root.save("delay", root.delayChoices[index].value);', 'root.save("cursor", root.delayChoices[index].value);'),
+        ("save-unsent", "    function save(key, value) {\n", '    function save(key, value) {\n        return "ok";\n'),
     ]:
-        assert source.count(before) == 1, name
-        changed = source.replace(before, after)
-        assert not (kept(manifest, changed, service) if source is panel else kept(manifest, panel, changed)), "control did not fail: " + name
+        assert panel.count(before) == 1, name
+        assert chosen(panel.replace(before, after)) != wanted, "control did not fail: " + name
+
+    # `launch` with a stored delay that is not the default, and a time limit
+    # a row written before this manifest may still hold: its reply and the
+    # request each started worker was handed.
+    start = """
+const input = JSON.parse(process.argv[1]);
+const requests = [];
+const workerComponent = { createObject: (parent, properties) => { requests.push(JSON.parse(properties.command[2])); return {}; } };
+const launch = new Function("shell", "Hyprland", "Paths", "outputRectangles", "workerComponent", "root", "helperPath", "publish", "jobs", "activeJob", input.body + "; return launch;")(
+    { settings: input.settings }, { activeToplevel: null }, { stateDir: "/state" }, () => [], workerComponent, {}, "/helper", () => {}, [], null);
+console.log(JSON.stringify([launch("screenshot", "NESTED", []), requests]));
+"""
+    def launched(source):
+        reply, requests = run(start, {"body": service_function(source, "launch"), "settings": {**manifest["settings"], "delay": 7, "timeout": 30}})
+        return reply == "ok" and len(requests) == 1 and requests[0].get("delay") == 7 and "timeout" not in requests[0]
+    assert launched(service), "the worker's request carries the stored delay and no time limit"
+    for name, before, after in [
+        ("delay-unread", " delay: s.delay,", " delay: 0,"),
+        ("delay-overwritten", "        const job = workerComponent.createObject(", "        request.delay = 0;\n        const job = workerComponent.createObject("),
+        ("timeout-sent", " delay: s.delay,", " delay: s.delay, timeout: s.timeout,"),
+    ]:
+        assert service.count(before) == 1, name
+        assert not launched(service.replace(before, after)), "control did not fail: " + name
+
     # The service writes only a delay the worker accepts: [value, written].
     writes = [[0, True], [3, True], [60, True], [61, False], [-1, False], [1.5, False], ["3", False], [True, False], [None, False]]
     program = '''
@@ -130,10 +180,7 @@ const replies = input.values.map(value => setFromRequest(JSON.stringify({ key: "
 console.log(JSON.stringify([replies, written, setFromRequest(JSON.stringify({ key: "cursor", value: true }))]));
 '''
     def written(source):
-        result = subprocess.run(["node", "-e", program, json.dumps({"body": service_function(source, "setFromRequest"), "values": [value for value, _ in writes]})],
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
-        assert result.returncode == 0, result.stderr
-        return json.loads(result.stdout)
+        return run(program, {"body": service_function(source, "setFromRequest"), "values": [value for value, _ in writes]})
     wanted = [[ok for _, ok in writes], [["delay", value] for value, ok in writes if ok] + [["cursor", True]], "ok"]
     assert written(service) == wanted, "the service writes only a delay in range"
     before = 'if (request.key === "delay" && !(Number.isInteger(request.value) && request.value >= 0 && request.value <= 60)) return "refused: setting=delay want=0..60";'
@@ -1544,7 +1591,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("delay-field-drawn,delay-unsaved,delay-saved-elsewhere,delay-unread,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

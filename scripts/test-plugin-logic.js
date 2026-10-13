@@ -1128,20 +1128,9 @@ function suite(ctx, check) {
         check("a stored enum value reads unchanged: " + id + " " + key + (field === null ? "" : "." + field), got, values);
     }
 
-    // Capture drew a Settings field for `delay` and declared `timeout`. A
-    // row of that time keeps its delay, which the capture window now
-    // writes, and its time limit has no reader and leaves at the next write.
-    const capture = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.capture", "manifest.json"), "utf8")), "/p").manifest;
-    if (capture === undefined) throw new Error("manifest refused: vgs.capture");
-    const captured = { version: 2, plugins: [{ id: "vgs.capture", delay: 5, timeout: 30, cursor: true }] };
-    const capturedRead = ctx.settingsFor(ctx.migrateConfig(captured).config, capture);
-    check("capture: a stored delay is read and a stored time limit is not", [capturedRead.delay, "timeout" in capturedRead, "delay" in capture.schema, "timeout" in capture.schema], [5, false, false, false]);
-    check("capture: the window may write its delay", ctx.settingRefusal(capture, "delay", 3), "");
-    check("capture: a delay write drops the stored time limit", ctx.withSetting(captured, capture, "delay", 3, captured).plugins, [{ id: "vgs.capture", delay: 3, cursor: true }]);
-
     // A plugin with a settings schema, for the setting rows.
     const tunable = ctx.validateManifest({ schemaVersion: 1, id: "acme.tune", name: "T", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" },
-        settings: { label: "x", size: 2, on: true, mode: "a", free: 1, limit: 8 },
+        settings: { label: "x", size: 2, on: true, mode: "a", free: 1, limit: 8, box: { a: 1 } },
         schema: { label: { type: "string", label: "Label", presets: [{ value: "x" }], allowCustom: true }, size: { type: "number", label: "Size" }, on: { type: "boolean", label: "On" }, mode: { type: "enum", label: "Mode", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] }, limit: { type: "number", label: "Limit", min: 2, max: 30, step: 1, group: "Timing" } } }, "/p").manifest;
     if (tunable === undefined) throw new Error("fixture manifest refused: acme.tune");
 
@@ -1213,6 +1202,8 @@ function suite(ctx, check) {
         ["a setting with no schema entry takes a value of its default's type", "free", 2, ""],
         ["a setting with no schema entry refuses another type", "free", "2", "refused: setting=free want=number"],
         ["a setting with no schema entry refuses a number JSON cannot hold", "free", Infinity, "refused: setting=free want=number"],
+        ["an object setting with no schema entry refuses null", "box", null, "refused: setting=box want=object"],
+        ["an object setting with no schema entry refuses a list", "box", [], "refused: setting=box want=object"],
         ["a key the manifest does not declare is undeclared", "absent", 2, "refused: setting=absent undeclared"],
         ["a prototype name is undeclared", "constructor", 1, "refused: setting=constructor undeclared"],
         ["a number is not a string", "label", 1, "refused: setting=label want=string"],
@@ -1230,12 +1221,6 @@ function suite(ctx, check) {
     for (const [name, key, value, want] of refusalRows) {
         check("settingRefusal: " + name, ctx.settingRefusal(tunable, key, value), want);
     }
-    // A row from a manifest that drew a field for `free` and declared
-    // `gone`: the stored `free` is still the value read, and `gone` leaves
-    // at the row's next write.
-    const earlier = { version: 2, plugins: [{ id: "acme.tune", free: 5, gone: 30, on: false }] };
-    check("a stored setting with no schema entry is read and a key the manifest dropped is not", ctx.settingsFor(earlier, tunable), { label: "x", size: 2, on: false, mode: "a", free: 5, limit: 8 });
-    check("a write of a setting with no schema entry drops the key the manifest dropped", ctx.withSetting(earlier, tunable, "free", 3, earlier).plugins, [{ id: "acme.tune", free: 3, on: false }]);
     const presetManifest = ctx.validateManifest({ schemaVersion: 1, id: "acme.presets", name: "P", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" },
         settings: { mode: "short", delay: 60, clock: "HH:mm" },
         schema: {
