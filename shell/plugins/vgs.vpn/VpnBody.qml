@@ -185,7 +185,8 @@ FocusScope {
                 id: exitList
                 objectName: "vpn-exit-nodes"
                 width: parent.width
-                enabled: root.vpn.writable && !root.busy
+                enabled: !root.busy
+                disabledReason: root.lockReason
                 rows: root.exitRows
                 onActed: key => { if (key !== (root.vpn.exit === null ? "" : root.vpn.exit.id)) root.request("exit-node", key); }
             }
@@ -220,13 +221,14 @@ FocusScope {
                 objectName: "vpn-accounts"
                 width: parent.width
                 visible: root.accountRows.length > 0
-                enabled: root.vpn.writable && !root.busy
+                enabled: !root.busy
+                disabledReason: root.lockReason
                 rows: root.accountRows
                 onActed: key => { if (!root.vpn.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
             }
             RowAction {
                 visible: root.vpn.login === "idle" && root.vpn.state !== "signed-out"
-                enabled: root.vpn.writable
+                disabledReason: root.lockReason
                 text: "Add account"
                 onClicked: root.request("login", "")
             }

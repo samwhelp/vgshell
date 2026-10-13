@@ -16,10 +16,17 @@ import qs.Unit
 // width than its actions, it continues them on a new line once the next
 // would pass that width, each line `row.height` tall with its actions
 // centred in it and `stack.row` under the last, the pitch of a page's rows, and answers for its highest and lowest ink.
+// An action given a `disabledReason` stays a Tab stop, takes no click,
+// Space, Return or Enter, draws its content faded with no hover under a
+// full-strength ring, and shows the reason on hover and on keyboard focus;
+// an empty reason leaves it as it was. The tooltip waits on `tooltip.delay`
+// in real time, so this proves its wiring.
 Item {
     id: root
     width: 400
-    height: 300
+    height: 360
+
+    readonly property string reason: "Only the administrator can change Tailscale."
 
     RowAction { id: action; x: 40; y: 20; text: "Set up local voice" }
     RowAction { id: danger; x: 40; y: 70; text: "Remove"; tone: "danger" }
@@ -52,7 +59,9 @@ Item {
             RowAction { required property string modelData; text: modelData }
         }
     }
+    RowAction { id: locked; x: 40; y: 310; text: "Add account"; disabledReason: root.reason }
     SignalSpy { id: clicks; target: action; signalName: "clicked" }
+    SignalSpy { id: lockedClicks; target: locked; signalName: "clicked" }
     FontMetrics { id: body; font: action.contentItem.children[1].font }
 
     TestCase {
@@ -62,6 +71,9 @@ Item {
         function init() {
             UnitTheme.reset();
             clicks.clear();
+            lockedClicks.clear();
+            locked.disabledReason = Qt.binding(() => root.reason);
+            locked.focus = false;
             action.focus = false;
             action.focusPreview = false;
             mouseMove(root, 0, root.height - 1);
@@ -73,6 +85,14 @@ Item {
         function underline(control) { return control.contentItem.children[2]; }
         function ring(control) { return control.background.children[0]; }
         function colour(value) { return String(Qt.color(value)); }
+        function reasonTip(control) { return control.lock.children.map(child => child.item).find(item => item && item.objectName === "disabledReasonTip") || null; }
+
+        // The opacity an item draws at: its own times every ancestor's.
+        function drawnOpacity(item) {
+            let out = 1;
+            for (let at = item; at !== null; at = at.parent) out *= at.opacity;
+            return out;
+        }
 
         function test_rest_is_body_text_on_the_edge_over_an_underline() {
             compare(label(action).role, "body");
@@ -271,6 +291,70 @@ Item {
             compare(second.x, first.width + Theme.rowAction.gap);
             compare(made.width, first.width + Theme.rowAction.gap + second.width);
             compare(made.height, Math.max(first.height, second.height));
+        }
+
+        // Tab reaches the locked action from the item before it, and the
+        // reason opens on that focus, under a ring at full strength.
+        function test_a_locked_action_stays_a_tab_stop_and_says_why() {
+            compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
+            locked.nextItemInFocusChain(false).forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Tab);
+            compare(locked.activeFocus, true, "Tab reaches the locked action");
+            compare(locked.visualFocus, true);
+            const tip = reasonTip(locked);
+            verify(tip !== null, "the locked action holds its reason");
+            tryCompare(tip, "opened", true);
+            compare(tip.text, root.reason);
+            compare(locked.Accessible.description, root.reason);
+            compare(ring(locked).visible, true);
+            compare(drawnOpacity(ring(locked)), 1, "the ring draws at full strength");
+            locked.focus = false;
+            tryCompare(tip, "opened", false);
+        }
+
+        function test_a_locked_action_says_why_on_hover_and_draws_none() {
+            compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
+            const tip = reasonTip(locked);
+            mouseMove(locked, locked.width / 2, locked.height / 2);
+            tryCompare(tip, "opened", true);
+            compare(tip.text, root.reason);
+            compare(locked.hovered, false, "a locked action draws no hover");
+            compare(underline(locked).height, Theme.rowAction.underline);
+            compare(colour(label(locked).color), colour(Theme.rowAction.tone.accent.foreground));
+            mouseMove(root, 0, root.height - 1);
+            tryCompare(tip, "opened", false);
+        }
+
+        function test_a_locked_action_takes_no_click_or_key() {
+            mouseClick(locked);
+            compare(lockedClicks.count, 0, "click");
+            locked.forceActiveFocus(Qt.TabFocusReason);
+            for (const key of [Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter]) {
+                keyClick(key);
+                compare(lockedClicks.count, 0, "key " + key);
+            }
+            compare(locked.activeFocus, true, "the keys leave the focus on the action");
+        }
+
+        // The content fades and the control does not, so its ring and its
+        // reason draw at full strength.
+        function test_a_locked_action_draws_faded() {
+            compare(locked.opacity, 1);
+            compare(locked.contentItem.opacity, Theme.opacity.disabled);
+            compare(action.contentItem.opacity, 1);
+        }
+
+        function test_an_empty_reason_leaves_the_action_as_it_was() {
+            compare(reasonTip(action), null);
+            compare(action.Accessible.description, "");
+            locked.disabledReason = "";
+            compare(reasonTip(locked), null, "clearing the reason drops the tooltip");
+            compare(locked.contentItem.opacity, 1);
+            mouseClick(locked);
+            compare(lockedClicks.count, 1);
+            locked.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Space);
+            compare(lockedClicks.count, 2);
         }
 
         function test_a_theme_change_moves_the_tokens() {

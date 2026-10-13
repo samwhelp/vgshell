@@ -20,6 +20,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // a ring on its edge would run through the glyphs. The template supplies
 // press, hover, focus and Space activation; Return and Enter activate it
 // as they do a Button. Given less width than its text, the text elides.
+// A set `disabledReason` disables the action: it stays a Tab stop, takes
+// no click or key, draws its text, mark and underline faded with no hover
+// or press, and shows the reason on hover and keyboard focus
+// (DisabledReason).
 // A danger action leads with a trash mark `rowAction.icon` wide,
 // `rowAction.iconGap` before its text, so it reads apart from an accent
 // action beside it by more than colour; the mark then sits on the
@@ -36,6 +40,8 @@ T.Button {
 
     property string tone: "accent"
     property bool focusPreview: false
+    property string disabledReason: ""
+    readonly property DisabledReason lock: lockState
     readonly property var tokens: toneOf(tone)
     readonly property color foreground: down ? tokens.pressed : hovered ? tokens.hover : tokens.foreground
     // Whether the danger mark leads the text.
@@ -62,12 +68,13 @@ T.Button {
     implicitWidth: implicitContentWidth
     implicitHeight: implicitContentHeight
     padding: 0
-    hoverEnabled: true
-    PointerCursor {}
+    hoverEnabled: !lockState.locked
+    PointerCursor { enabled: !lockState.locked }
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: text
     Keys.onReturnPressed: KeyNavLogic.activate(root)
     Keys.onEnterPressed: KeyNavLogic.activate(root)
+    Keys.onPressed: event => { event.accepted = lockState.takeKey(event); }
 
     contentItem: Item {
         // How far under the baseline the underline starts.
@@ -77,6 +84,7 @@ T.Button {
         readonly property real half: Math.max(label.capCentre, label.baselineOffset + drop + Theme.rowAction.underlineHover - label.capCentre)
         implicitWidth: label.x + label.implicitWidth
         implicitHeight: 2 * half
+        opacity: lockState.fade
 
         Icon {
             id: mark
@@ -109,4 +117,6 @@ T.Button {
     background: Item {
         FocusRing { target: root; outside: true }
     }
+
+    DisabledReason { id: lockState; control: root }
 }

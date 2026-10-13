@@ -223,6 +223,31 @@ Item {
             root.forceActiveFocus();
         }
 
+        // A step can open another window, as a setup terminal. A lock that
+        // clears while that window holds the keyboard leaves the mark its
+        // scope's focus with no active focus: the toggle takes it, and
+        // takes the keyboard from no one, so the keyboard is on the toggle
+        // when the user comes back.
+        function test_an_unlock_behind_another_window_leaves_the_focus_on_the_toggle() {
+            const own = root.Window.window;
+            const mark = markOf(unlocker);
+            verify(mark !== null, "the toggle draws its mark");
+            mark.forceActiveFocus(Qt.TabFocusReason);
+            const other = createTemporaryQmlObject("import QtQuick\nWindow { width: 100; height: 100; visible: true }", root);
+            // The platform activates a window only once it is shown. The
+            // test's window stays `active` as the transient parent of the
+            // window that holds the keyboard (QWindow::isActive), so the
+            // mark's own active focus is the reading.
+            tryVerify(() => { other.requestActivate(); return other.active && !mark.activeFocus; }, 2000, "the other window takes the keyboard");
+            compare(mark.focus, true, "the mark keeps its scope's focus");
+            root.unlockerReason = "";
+            compare(markOf(unlocker), null, "the mark is gone");
+            compare(unlocker.focus, true, "the toggle holds its scope's focus");
+            compare(unlocker.activeFocus, false, "and takes the keyboard from no one");
+            own.requestActivate();
+            tryCompare(unlocker, "activeFocus", true);
+        }
+
         // Where each toggle's body ends, read from its parts.
         function marked_data() {
             return [

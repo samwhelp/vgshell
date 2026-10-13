@@ -12,11 +12,18 @@ import qs.Unit
 // takes a removed row's place takes the keyboard; the selection shows only
 // while the list holds the keyboard; a change to the rows that keeps their
 // count keeps the keyboard where it is; a row's `secondaryTone` reaches
-// its DeviceRow.
+// its DeviceRow. A list given a `disabledReason` keeps its selected row a
+// Tab stop, takes no click and no key, on a row or its action, moves no
+// selection under the pointer, offers no overflow menu, draws its rows'
+// content faded under a full-strength ring, and shows the reason on hover
+// and on keyboard focus; an empty reason leaves it as it was. The tooltip
+// waits on `tooltip.delay` in real time, so this proves its wiring.
 Item {
     id: root
     width: 480
-    height: 400
+    height: 600
+
+    readonly property string reason: "Only the administrator can change Tailscale."
 
     readonly property var three: [
         { key: "a", text: "Headset", secondary: "Connected", iconName: "headphones", battery: 0.5 },
@@ -36,6 +43,21 @@ Item {
     SignalSpy { id: acted; target: list; signalName: "acted" }
     SignalSpy { id: chose; target: list; signalName: "chose" }
     SignalSpy { id: removed; target: list; signalName: "removed" }
+    // Made by the cases that lock it, so the list above keeps the window's
+    // Tab chain.
+    Component {
+        id: lockedList
+        DeviceList {
+            y: 320
+            width: 420
+            rows: root.three
+            removable: true
+            disabledReason: root.reason
+            actionOf: row => row.key === "a" ? { text: "Disconnect" } : null
+            menuOf: row => row.key === "a" ? [{ key: "rename", text: "Rename" }] : []
+        }
+    }
+    Component { id: spyComponent; SignalSpy {} }
 
     TestCase {
         name: "devicelist"
@@ -176,6 +198,126 @@ Item {
             compare(list.rowAt(0).highlighted, true);
             before.forceActiveFocus(Qt.TabFocusReason);
             compare(list.rowAt(0).highlighted, false);
+        }
+
+        function reasonTip(control) { return control.lock.children.map(child => child.item).find(item => item && item.objectName === "disabledReasonTip") || null; }
+        function ringOf(row) { return row.background.children.find(child => child.target === row); }
+        function plateOf(control) { return control.children.find(child => child.followRow !== undefined); }
+
+        // The opacity an item draws at: its own times every ancestor's.
+        function drawnOpacity(item) {
+            let out = 1;
+            for (let at = item; at !== null; at = at.parent) out *= at.opacity;
+            return out;
+        }
+
+        // A locked list under the first, its rows laid out.
+        function locked() {
+            compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
+            const made = createTemporaryObject(lockedList, root);
+            tryVerify(() => made.rowAt(2).y >= made.rowAt(1).y + made.rowAt(1).height, 1000, "the rows are laid out");
+            return made;
+        }
+
+        // Tab reaches the selected row from the item before it, then the
+        // row's action, and the reason opens on each focus.
+        function test_a_locked_list_stays_a_tab_stop_and_says_why() {
+            const made = locked();
+            const row = made.rowAt(0);
+            row.nextItemInFocusChain(false).forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Tab);
+            compare(row.activeFocus, true, "Tab reaches the locked list's selected row");
+            compare(made.visualFocus, true);
+            const tip = reasonTip(made);
+            verify(tip !== null, "the locked list holds its reason");
+            tryCompare(tip, "opened", true);
+            compare(tip.text, root.reason);
+            compare(made.Accessible.description, root.reason);
+            compare(ringOf(row).visible, true);
+            // A row fades in as it enters the list.
+            tryVerify(() => drawnOpacity(ringOf(row)) === 1, 1000, "the row's ring draws at full strength: " + drawnOpacity(ringOf(row)));
+            keyClick(Qt.Key_Tab);
+            compare(actionOf(row).activeFocus, true, "Tab reaches the row's action");
+            compare(made.visualFocus, true, "the keyboard on the action holds the reason open");
+            compare(tip.opened, true);
+            before.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", false);
+        }
+
+        function test_a_locked_list_says_why_on_hover_and_moves_no_selection() {
+            const made = locked();
+            const tip = reasonTip(made);
+            const second = made.rowAt(1);
+            mouseMove(second, 20, second.height / 2);
+            mouseMove(second, 24, second.height / 2);
+            tryCompare(tip, "opened", true);
+            compare(tip.text, root.reason);
+            compare(made.current, 0, "a hover moves the selection of a locked list");
+            compare(second.highlighted, false);
+            compare(made.engaged, false, "a locked list shows a selection");
+            compare(plateOf(made).shown, false, "a hover lights a row of a locked list");
+            mouseMove(actionOf(made.rowAt(0)), 2, 2);
+            compare(actionOf(made.rowAt(0)).hovered, false, "a locked list's action draws hover");
+            mouseMove(root, root.width - 1, 0);
+            tryCompare(tip, "opened", false);
+        }
+
+        function test_a_locked_list_takes_no_click_or_key() {
+            const made = locked();
+            const row = made.rowAt(0);
+            const spies = ["acted", "chose", "removed"].map(name => createTemporaryObject(spyComponent, root, { target: made, signalName: name }));
+            function unchanged(input) {
+                for (const spy of spies) compare(spy.count, 0, input + ": no " + spy.signalName);
+                compare(made.current, 0, input + ": the selection stays");
+            }
+            mouseClick(row, 20, row.height / 2);
+            unchanged("click on a row");
+            mouseClick(made.rowAt(1), 20, row.height / 2);
+            unchanged("click on another row");
+            mouseClick(actionOf(row));
+            unchanged("click on the action");
+            made.focusCurrent(Qt.TabFocusReason);
+            tryCompare(row, "activeFocus", true);
+            for (const key of [Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down, Qt.Key_End, Qt.Key_Delete, Qt.Key_Menu]) {
+                keyClick(key);
+                unchanged("key " + key);
+            }
+            compare(row.activeFocus, true, "the keys leave the focus on the row");
+            compare(menuOf(row).items().length, 0, "a locked list offers an overflow menu");
+            verify(!trailing(row)[2].visible, "a locked list draws an overflow button");
+            actionOf(row).forceActiveFocus(Qt.TabFocusReason);
+            for (const key of [Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter]) {
+                keyClick(key);
+                unchanged("key " + key + " on the action");
+            }
+        }
+
+        // The rows' content fades; the list and its rows do not.
+        function test_a_locked_list_draws_faded() {
+            const made = locked();
+            compare(made.opacity, 1);
+            for (let index = 0; index < made.count; index++) {
+                // A row fades in as it enters the list.
+                tryCompare(made.rowAt(index), "opacity", 1);
+                compare(made.rowAt(index).contentItem.opacity, Theme.opacity.disabled);
+            }
+            compare(list.rowAt(0).contentItem.opacity, 1);
+        }
+
+        function test_an_empty_reason_leaves_the_list_as_it_was() {
+            compare(reasonTip(list), null);
+            compare(list.Accessible.description, "");
+            const made = locked();
+            const spy = createTemporaryObject(spyComponent, root, { target: made, signalName: "acted" });
+            made.disabledReason = "";
+            compare(reasonTip(made), null, "clearing the reason drops the tooltip");
+            compare(made.rowAt(0).contentItem.opacity, 1);
+            compare(menuOf(made.rowAt(0)).items().length, 1);
+            mouseClick(made.rowAt(1), 20, made.rowAt(1).height / 2);
+            compare(spy.count, 1);
+            compare(spy.signalArguments[0][0], "b");
+            keyClick(Qt.Key_Down);
+            compare(made.current, 2);
         }
 
         function test_a_rows_change_keeps_the_keyboard() {

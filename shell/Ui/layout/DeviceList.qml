@@ -15,6 +15,12 @@ import qs.Ui
 // The selection shows while the list holds the keyboard or the pointer is
 // over it, so two lists of one page never both show one. The selected row
 // holds the scope's focus, so a removed row's place takes the keyboard.
+// A set `disabledReason` disables the list: the selected row stays its
+// Tab stop, no row, action or key acts or moves the selection, the rows'
+// content draws faded with no selection, hover or overflow menu, and the
+// reason shows on hover and keyboard focus (DisabledReason). `visualFocus`
+// is the keyboard's focus on a row or on a control in one, which opens
+// that reason.
 //
 // Each entry of `rows` is a plain object: `key`, unique in the list, and
 // the DeviceRow's `text`, `secondary`, `secondaryTone`, `iconName`,
@@ -32,9 +38,12 @@ FocusScope {
     property var menuOf: row => []
     property bool removable: false
     property int current: 0
+    property string disabledReason: ""
+    readonly property DisabledReason lock: lockState
     readonly property int count: repeater.count
     readonly property string currentKey: current >= 0 && current < rows.length ? String(rows[current].key) : ""
-    readonly property bool engaged: activeFocus || hover.hovered
+    readonly property bool engaged: !lockState.locked && (activeFocus || hover.hovered)
+    readonly property bool visualFocus: activeFocus && Window.activeFocusItem !== null && Window.activeFocusItem.visualFocus === true
 
     signal acted(string key)
     signal chose(string key, string entry)
@@ -54,9 +63,10 @@ FocusScope {
         if (row !== null) row.forceActiveFocus(reason === undefined ? Qt.TabFocusReason : reason);
     }
 
-    Keys.onPressed: event => { event.accepted = nav.handle(event); }
+    Keys.onPressed: event => { event.accepted = !lockState.locked && nav.handle(event); }
 
-    ListCursor { id: plate }
+    // A hover on a row of a locked list takes no plate.
+    ListCursor { id: plate; shown: !lockState.locked && (hovered !== null || target !== null) }
     HoverHandler { id: hover }
 
     KeyNav {
@@ -106,7 +116,7 @@ FocusScope {
                 activeFocusOnTab: list.current === index
                 cursor: plate
                 highlighted: list.engaged && list.current === index
-                onPointed: list.current = index
+                onPointed: if (!lockState.locked) list.current = index
                 onActiveFocusChanged: if (activeFocus) list.current = index
                 text: modelData.text
                 secondary: modelData.secondary === undefined ? "" : modelData.secondary
@@ -117,10 +127,13 @@ FocusScope {
                 badgeTone: modelData.badgeTone === undefined ? "neutral" : modelData.badgeTone
                 badgeIcon: modelData.badgeIcon === undefined ? "" : modelData.badgeIcon
                 function act() {
-                    if (busy) return;
+                    if (busy || lockState.locked) return;
                     list.acted(String(modelData.key));
                 }
                 onClicked: act()
+                // The content fades and the row does not, so the row's
+                // focus ring keeps its full strength.
+                Binding { target: row.contentItem; property: "opacity"; value: lockState.fade }
                 actions: [
                     Spinner {
                         visible: row.busy
@@ -129,12 +142,13 @@ FocusScope {
                     RowAction {
                         visible: !row.busy && row.rowAction !== null
                         text: row.rowAction === null ? "" : row.rowAction.text
+                        hoverEnabled: !lockState.locked
                         onClicked: row.act()
                     }
                 ]
                 menuEntries: [
                     Repeater {
-                        model: row.live ? list.menuOf(row.modelData) : []
+                        model: row.live && !lockState.locked ? list.menuOf(row.modelData) : []
                         MenuItem {
                             required property var modelData
                             text: modelData.text
@@ -146,4 +160,6 @@ FocusScope {
             }
         }
     }
+
+    DisabledReason { id: lockState; control: list }
 }

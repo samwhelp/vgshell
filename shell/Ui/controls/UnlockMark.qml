@@ -17,9 +17,14 @@ import qs.Ui
 // step that unlocks at once does, the focus goes back to the toggle with
 // the reason the mark held, before the mark goes: Qt would otherwise move
 // it to the enclosing focus scope (QQuickItem::setParentItem clears the
-// focus of an item it unparents). The mark is a toggle's own part, so an
-// IconButton, which extends Button, holds none: Button cannot contain its
-// own kind.
+// focus of an item it unparents). A step that opens another window leaves
+// the mark its scope's `focus` with no `activeFocus`: the toggle then takes
+// the mark's place in that scope and takes the keyboard from no one, so
+// the keyboard is on the toggle when the user comes back. Qt hands a
+// window that comes back the ActiveWindowFocusReason, so no control shows
+// a ring then until the next key moves the focus (a qml-unit run,
+// 2026-10-13). The mark is a toggle's own part, so an IconButton, which
+// extends Button, holds none: Button cannot contain its own kind.
 Loader {
     id: root
 
@@ -40,7 +45,10 @@ Loader {
 
     // Set here, never bound, so the focus moves before the mark goes.
     function follow() {
-        if (!wanted && item !== null && item.activeFocus) control.forceActiveFocus(item.focusReason);
+        if (!wanted && item !== null) {
+            if (item.activeFocus) control.forceActiveFocus(item.focusReason);
+            else if (item.focus) control.focus = true;
+        }
         active = wanted;
     }
     onWantedChanged: follow()
