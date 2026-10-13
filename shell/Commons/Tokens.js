@@ -974,11 +974,12 @@ var TOKENS = {
     // that colour moved 0.06 toward the theme's text, at least 4.66:1 in
     // every catalog theme, where the theme's own text read 1.80:1 in
     // rose-pine (ThemeLogic.contrastRatio on the resolved catalog themes,
-    // node, 2026-10-13). A failure line draws `hintDanger` behind a danger
-    // mark: the theme's danger where it reads 4.5:1 on that backdrop, as
-    // in each of the 74 dark catalog themes, 5.17:1 or more, and
-    // `hintActive` where it does not, as in the 7 light ones, 1.36:1 in
-    // rose-pine to 3.81:1 in white (the same reading). The open tab's
+    // node, 2026-10-13). A failure line beside the rail rests on
+    // `failurePlate`, the theme's surface drawn solid, not on the scrim, so
+    // no wallpaper reaches it. Its words and its leading danger mark draw
+    // `hintDanger`: the theme's danger where it reads 4.5:1 on the plate,
+    // as in every catalog theme, 4.68:1 or more (the same reading), and the
+    // theme's text colour where it does not. The open tab's
     // indicator draws `tabIndicator`: the theme's accent where it reads
     // 3:1 on that backdrop, and `hintActive` where it does not.
     carousel: {
@@ -997,7 +998,8 @@ var TOKENS = {
         hint: color("mix({carousel.hintActive}, {color.text}, 0.06)"),
         backdrop: color("alpha(mix({color.scrim}, #000000, 0.4), 1)"),
         hintActive: color("contrast({carousel.backdrop})"),
-        hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})"),
+        failurePlate: color("alpha({color.surface}, 1)"),
+        hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})"),
         tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})"),
         sliceName: {
             role: textRole("h2"),

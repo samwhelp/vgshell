@@ -286,10 +286,15 @@ var MODAL_BORDER = "dialog.border";
 var MODAL_FILL = "dialog.background";
 // Text beside the theme browser's rail sits on the scrim over the
 // wallpaper; a black wallpaper leaves it the darkest backdrop.
-var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive", "carousel.hintDanger"];
+var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive"];
 // The open tab's indicator there is a mark, held to the boundary floor.
 var RAIL_MARK_ROLES = ["carousel.tabIndicator"];
 var RAIL_WALLPAPER = "#000000";
+// A failure line beside the rail rests on its own plate, not on the scrim,
+// so no wallpaper reaches it: the line and its mark are judged on the
+// plate alone, which must be solid.
+var FAILURE_LINE = "carousel.hintDanger";
+var FAILURE_PLATE = "carousel.failurePlate";
 
 function valueAt(values, path) {
     var node = values;
@@ -306,8 +311,9 @@ function valueAt(values, path) {
 // indicators and knobs at 3, then the modal card's border and fill at 3 on
 // the scrim laid over each resting surface, a fill at least as light as
 // that dimmed surface passing at any ratio, then the rail text at 4.5 and
-// the rail's marks at 3 on the scrim laid over a black wallpaper. Any
-// other translucent colour has no ratio and is a shortfall.
+// the rail's marks at 3 on the scrim laid over a black wallpaper, then the
+// failure line at 4.5 on its plate. Any other translucent colour, a
+// translucent failure plate included, has no ratio and is a shortfall.
 function readabilityShortfalls(values) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
@@ -334,6 +340,7 @@ function readabilityShortfalls(values) {
         pairs.push([RAIL_TEXT_ROLES[w], MODAL_SCRIM, READABILITY_FLOOR, RAIL_WALLPAPER]);
     for (var x = 0; x < RAIL_MARK_ROLES.length; x++)
         pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);
+    pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
         var under = pairs[q][3];

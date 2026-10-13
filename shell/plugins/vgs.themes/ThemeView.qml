@@ -458,29 +458,55 @@ FocusScope {
                         root.catalogReason === "" ? "" : "The catalog is unavailable. " + BrowserLogic.reasonText(root.catalogReason),
                         root.imagesReason === "" ? "" : "The image list is unavailable. " + BrowserLogic.reasonText(root.imagesReason)
                     ].filter(line => line !== "")
-                    // A failure reads by its mark, not by its colour:
-                    // `hintDanger` is the theme's danger only where that
-                    // reads on the backdrop.
-                    Row {
-                        id: failure
+                    // A failure reads by its mark, not by its colour, on a
+                    // solid plate of the theme's surface that no wallpaper
+                    // reaches, so `hintDanger` reads 4.5:1 over any
+                    // wallpaper. The plate hugs the line, never wider than
+                    // the caption; under a rounded theme the line sits in
+                    // from its sides until it clears the drawn corner.
+                    Rectangle {
+                        id: plate
                         required property string modelData
                         anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: Theme.stack.inline
+                        width: failure.width + 2 * plateInset.inset
+                        height: failure.height + 2 * Theme.surface.padding
+                        radius: Theme.surface.radius
+                        color: Theme.carousel.failurePlate
 
-                        Icon {
-                            id: failureMark
-                            y: failureText.topForLeadingIcon(height)
-                            name: "circle-alert"
-                            size: Theme.icon.size.md
-                            color: failureText.color
+                        Row {
+                            id: failure
+                            x: plateInset.inset
+                            y: Theme.surface.padding
+                            spacing: Theme.stack.inline
+
+                            Icon {
+                                id: failureMark
+                                y: failureText.topForLeadingIcon(height)
+                                name: "circle-alert"
+                                size: Theme.icon.size.md
+                                color: failureText.color
+                            }
+                            Label {
+                                id: failureText
+                                role: "body"
+                                width: Math.min(implicitWidth, caption.width - 2 * plateInset.inset - failureMark.width - failure.spacing)
+                                wrapMode: Text.Wrap
+                                color: Theme.carousel.hintDanger
+                                text: plate.modelData
+                            }
                         }
-                        Label {
-                            id: failureText
-                            role: "body"
-                            width: Math.min(implicitWidth, caption.width - failureMark.width - failure.spacing)
-                            wrapMode: Text.Wrap
-                            color: Theme.carousel.hintDanger
-                            text: failure.modelData
+
+                        // The caption's width bounds the plate's, and a wider
+                        // bound only rounds the corner more (Inset.clearing),
+                        // so the inset never falls short; the plate's own
+                        // width depends on the inset and would feed back.
+                        ClearingInset {
+                            id: plateInset
+                            pad: Theme.surface.padding
+                            radius: plate.radius
+                            width: caption.width
+                            height: plate.height
+                            top: Theme.surface.padding
                         }
                     }
                 }

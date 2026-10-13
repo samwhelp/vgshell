@@ -361,11 +361,13 @@ const DEFAULTS = [
     ["carousel.band", 2],
     ["carousel.decodeCap", 2048],
     ["carousel.duration", 150],
-    // The scrim, #000000 at 0.6, over a black wallpaper is black; white
-    // contrasts with it, and the danger #f43f5e reads 5.72:1 on it:
-    // luminance 0.236, (0.236 + 0.05) / 0.05.
+    // The scrim, #000000 at 0.6, over a black wallpaper is black, and
+    // white contrasts with it. A failure line rests on the surface
+    // #0b0b0b, luminance 0.0033, where the danger #f43f5e, luminance
+    // 0.236, reads 5.36:1, (0.236 + 0.05) / (0.0033 + 0.05).
     ["carousel.backdrop", "#000000ff"],
     ["carousel.hintActive", "#ffffffff"],
+    ["carousel.failurePlate", "#0b0b0bff"],
     ["carousel.hintDanger", "#f43f5eff"],
     // The accent #ff5a36, luminance 0.288, reads 6.76:1 on black.
     ["carousel.tabIndicator", "#ff5a36ff"],
@@ -501,6 +503,7 @@ const REFUSED = [
     // fill alone is refused where that default is evaluated.
     { tokens: { bar: { active: "#ff5a3680" } }, reason: "contrast-translucent", token: "bar.onActive" },
     { tokens: { carousel: { hintDanger: "readable({color.danger}, {color.scrim}, {carousel.hintActive})" } }, reason: "contrast-translucent", token: "carousel.hintDanger" },
+    { tokens: { carousel: { failurePlate: "alpha({color.surface}, 0.5)" } }, reason: "contrast-translucent", token: "carousel.hintDanger" },
     { tokens: { motion: { easing: { standard: "bouncy" } } }, reason: "option", token: "motion.easing.standard" },
     { tokens: { scheme: { mode: "dim" } }, reason: "option", token: "scheme.mode" },
     { tokens: { dialog: { titleRole: "shout" } }, reason: "option", token: "dialog.titleRole" },
@@ -763,11 +766,21 @@ function verify(judge) {
     const railRows = tokens => modalRows(tokens).filter(row => row[0].startsWith("carousel."));
     assert.deepEqual(railRows(LATTE), []);
     assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { hint: "{color.text}", hintActive: "{color.textHeading}" } })),
-        [["carousel.hint", "color.scrim over #000000", 4.5], ["carousel.hintActive", "color.scrim over #000000", 4.5], ["carousel.hintDanger", "color.scrim over #000000", 4.5]]);
-    // A failure line beside the rail: the theme's own danger falls under
-    // the floor on that backdrop.
-    assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })),
-        [["carousel.hintDanger", "color.scrim over #000000", 4.5]]);
+        [["carousel.hint", "color.scrim over #000000", 4.5], ["carousel.hintActive", "color.scrim over #000000", 4.5]]);
+    // A failure line beside the rail is judged on its plate alone, never
+    // on the scrim: latte's danger #f43f5e, forced onto the line, reads
+    // 3.02:1 on its surface #e7e9ee and falls under the floor there, and a
+    // translucent plate has no ratio.
+    const plateRows = tokens => {
+        const accepted = judge.accept(TOKENS, document(tokens));
+        assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
+        return plain(judge.readabilityShortfalls(accepted.values).filter(row => row.text === "carousel.hintDanger"));
+    };
+    assert.deepEqual(plateRows(LATTE), []);
+    assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
+        [["carousel.hintDanger", "carousel.failurePlate", 3.02, 4.5]]);
+    assert.deepEqual(plateRows({ carousel: { hintDanger: "{color.danger}", failurePlate: "alpha({color.surface}, 0.5)" } }),
+        [{ text: "carousel.hintDanger", surface: "carousel.failurePlate", ratio: null, floor: 4.5 }]);
     // The open tab's indicator on that backdrop is a mark at 3:1: the
     // theme's accent forced onto it falls under the floor in latte.
     assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { tabIndicator: "{color.accent}" } })),
@@ -1425,24 +1438,34 @@ function verifyBarScroll(table) {
 }
 verifyBarScroll(TOKENS);
 
-// A failure line beside the rail draws the theme's danger where it reads
-// 4.5:1 on the backdrop and carousel.hintActive where it does not, by the
-// ratio and never by the theme's mode. catppuccin-latte's backdrop is its
-// background #eff1f5 moved 0.14 toward black at 0.6 over black, each
-// channel times 0.516: #7b7c7e, luminance 0.20, so black contrasts with
-// it. Its danger, #d20f39 moved 0.03 toward black, reads 1.37:1 there and
-// the line draws black; the dark red #1a0000, luminance 0.002, reads
-// 4.8:1, (0.20 + 0.05) / (0.002 + 0.05), and the line draws it.
+// A failure line beside the rail rests on its solid plate, and draws the
+// theme's danger where it reads 4.5:1 on that plate and the theme's text
+// colour where it does not, by the ratio and never by the theme's mode.
+// The default danger #f43f5e reads 5.36:1 on its surface #0b0b0b.
+// catppuccin-latte's surface is #e7e9ee, luminance 0.814: its palette's
+// danger #d20f39, luminance 0.143, reads 4.47:1 there, (0.814 + 0.05) /
+// (0.143 + 0.05), and the line draws its text #4c4f69; the catalog's
+// danger, that red moved 0.03 toward black, #cc0f37, luminance 0.135,
+// reads 4.68:1 and the line draws it. In every shipped theme the plate is
+// solid and the line reads 4.5:1 on it, whatever the wallpaper.
 function verifyFailureLine(table) {
     const judge = load(judgeFile);
+    const own = judge.accept(table, document({}));
+    assert.equal(own.ok, true, own.ok ? "" : judge.refusalLine(own));
+    for (const [name, result] of shippedThemes(table)) {
+        assert.equal(result.ok, true, name);
+        const plate = judge.parseColor(at(result.values, "carousel.failurePlate"));
+        assert.equal(plate.a, 1, `${name} carousel.failurePlate is solid`);
+        assert.ok(judge.contrastRatio(judge.parseColor(at(result.values, "carousel.hintDanger")), plate) >= 4.5, `${name} carousel.hintDanger reads on its plate`);
+    }
     const latte = danger => {
         const accepted = judge.accept(table, document({ scheme: { mode: "light" }, palette: { background: "#eff1f5", foreground: "#4c4f69", danger: "#d20f39" }, color: { danger: danger } }));
         assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
         return accepted.values.carousel.hintDanger;
     };
     assert.equal(judge.defaults(table).values.carousel.hintDanger, "#f43f5eff", "a dark theme whose danger reads keeps it");
-    assert.equal(latte("mix({palette.danger}, contrast({palette.background}), 0.03)"), "#000000ff", "catppuccin-latte draws the high-contrast colour");
-    assert.equal(latte("#1a0000"), "#1a0000ff", "a light theme whose danger reads keeps it");
+    assert.equal(latte("{palette.danger}"), "#4c4f69ff", "a danger under the floor on the plate draws the theme's text");
+    assert.equal(latte("mix({palette.danger}, contrast({palette.background}), 0.03)"), "#cc0f37ff", "a light theme whose danger reads keeps it");
 }
 verifyFailureLine(TOKENS);
 
@@ -1460,14 +1483,16 @@ function verifyTabIndicator(table) {
 }
 verifyTabIndicator(TOKENS);
 
-// The failure line of each browser view leads with the danger mark, so
-// the state does not rest on the line's colour. This reads the view's
-// source: it holds that the mark is declared before the line in one row,
-// and the rendered line is the theme sheets' to show. The control is the
-// same source without the mark. The mark takes its top from its line's
-// label, whose placement `scripts/qml-tests/tst_label.qml` holds; the
-// control is the line-box placement.
-const FAILURE_LINE = /Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
+// The failure line of each browser view rests on its plate and leads
+// with the danger mark, so the state does not rest on the line's colour
+// nor the line on the wallpaper. This reads the view's source: it holds
+// that the row sits in a rectangle filled with the plate and that the mark
+// is declared before the line in that row, and the rendered line is the
+// theme sheets' to show. The controls are the same source without the
+// plate's fill and without the mark. The mark takes its top from its
+// line's label, whose placement `scripts/qml-tests/tst_label.qml` holds;
+// the control is the line-box placement.
+const FAILURE_LINE = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
 const FAILURE_MARK = /Icon \{[^{}]*name: "circle-alert"[^{}]*\}/;
 const FAILURE_MARK_TOP = /Icon \{[^{}]*y: failureText\.topForLeadingIcon\(height\)[^{}]*name: "circle-alert"/;
 for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
@@ -1475,6 +1500,8 @@ for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     assert.equal(viewSource.split("Theme.carousel.hintDanger").length, 2, `${view} draws one failure line`);
     assert.match(viewSource, FAILURE_LINE, `${view} leads its failure line with the danger mark`);
     assert.doesNotMatch(viewSource.replace(FAILURE_MARK, ""), FAILURE_LINE, `control: ${view} without the mark must fail the check`);
+    assert.equal(viewSource.split("color: Theme.carousel.failurePlate").length, 2, `${view} fills one failure plate`);
+    assert.doesNotMatch(viewSource.replace("color: Theme.carousel.failurePlate", "color: Theme.carousel.backdrop"), FAILURE_LINE, `control: ${view} without the plate's fill must fail the check`);
     assert.match(viewSource, FAILURE_MARK_TOP, `${view} centres the mark on its line's capitals`);
     assert.doesNotMatch(viewSource.replace("failureText.topForLeadingIcon(height)", "Math.round((failureText.lineBox - height) / 2)"), FAILURE_MARK_TOP, `control: ${view} with the mark on the line box must fail the check`);
 }
@@ -1517,10 +1544,12 @@ const TOKEN_CONTROLS = [
     ["stacked text at the bar size", 'size: length("mul({bar.item.height}, 0.4)")', 'size: length("{text.bar.size}")', verifyBarStacked],
     ["bar scroll fade end", 'clear: color("alpha({bar.background}, 0)")', 'clear: color("alpha({bar.foreground}, 0)")', verifyBarScroll],
     ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll],
-    ["failure line danger forced", 'hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})")', 'hintDanger: color("{color.danger}")', verifyFailureLine],
+    ["failure line danger forced", 'hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})")', 'hintDanger: color("{color.danger}")', verifyFailureLine],
+    ["failure plate translucent", 'failurePlate: color("alpha({color.surface}, 1)")', 'failurePlate: color("alpha({color.surface}, 0.9)")', verifyFailureLine],
+    ["failure plate on the rail backdrop", 'failurePlate: color("alpha({color.surface}, 1)")', 'failurePlate: color("{carousel.backdrop}")', verifyFailureLine],
     ["open tab indicator forced to the accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{color.accent}")', verifyTabIndicator],
     ["open tab indicator without its accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{carousel.hintActive}")', verifyTabIndicator],
-    ["failure line without its danger", 'hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})")', 'hintDanger: color("{carousel.hintActive}")', verifyFailureLine]
+    ["failure line without its danger", 'hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})")', 'hintDanger: color("{color.text}")', verifyFailureLine]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
 const tokenControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "token-control-"));
@@ -1592,6 +1621,7 @@ const CONTROLS = [
     ["discernible keeps a mark under the text floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? READABILITY_FLOOR : READABILITY_FLOOR;'],
     ["a colour that meets its floor is kept", ">= floor ? args[0] : args[2];", ">= floor ? args[2] : args[2];"],
     ["rail marks are judged", "pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);", ";"],
+    ["the failure line is judged on its plate", "pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);", ";"],
     ["readable refuses a translucent text colour", "return args[0].a === 1 && contrastRatio(", "return contrastRatio("],
     ["readable refuses a translucent backdrop", "if (args[1].a < 1)\n                return fail(\"contrast-translucent\"", "if (false)\n                return fail(\"contrast-translucent\""],
     ["unknown reference", "if (target === undefined)", "if (false)"],

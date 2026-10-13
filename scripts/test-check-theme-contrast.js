@@ -133,6 +133,34 @@ try {
         assert.match(proc.stdout, /^short    catalog\/flexoki-light: notifications\.text\.link on notifications\.card\.fill over #000000 ratio=4\.15 floor=4\.5$/m);
     });
 
+    // The failure line on the scrim alone, as VGS-1611 judged it, in a
+    // disposable copy of the check and the files it loads, judged on the
+    // shipped tree: a light theme's danger, which reads on its plate,
+    // falls short on the scrim over a black wallpaper.
+    row("control: a failure line judged on the scrim is a shortfall", dir => {
+        const copy = path.join(dir, "copy");
+        for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
+            "shell/Commons/Tokens.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
+            fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
+            fs.copyFileSync(path.join(repo, file), path.join(copy, file));
+        }
+        const judge = path.join(copy, "shell", "Commons", "ThemeLogic.js");
+        let source = fs.readFileSync(judge, "utf8");
+        for (const [needle, replacement] of [
+            ['var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive"];', 'var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive", "carousel.hintDanger"];'],
+            ["    pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);\n", ""]
+        ]) {
+            assert.equal(source.split(needle).length, 2, `the planted text ${JSON.stringify(needle)} matches once`);
+            source = source.replace(needle, () => replacement);
+        }
+        fs.writeFileSync(judge, source);
+        const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+            { encoding: "utf8", env: env(path.join(dir, "env")) });
+        assertStatus(proc, 1);
+        assert.match(proc.stdout, /^short    catalog\/catppuccin-latte: carousel\.hintDanger on color\.scrim over #000000 ratio=1\.36 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/white: carousel\.hintDanger on color\.scrim over #000000 ratio=3\.80 floor=4\.5$/m);
+    });
+
     row("direct package shortfall exits one", dir => {
         fs.mkdirSync(dir, { recursive: true });
         writeTheme(dir, "faint", { color: { textFaint: "#111111" } });
