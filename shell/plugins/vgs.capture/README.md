@@ -32,8 +32,8 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 | Screenshot folder | Empty uses Screenshots in your Pictures folder. A custom folder is an absolute path or starts with `~/`. |
 | Recording folder | Empty uses Screencasts in your Videos folder. |
 | Audio | None, desktop, microphone, or desktop and microphone. |
-| Text languages | Codes joined by +, such as eng+deu. English is installed with Capture. Install languages adds the data for the other chosen languages. |
-| Image viewer, Image editor, Video player | The command each notification button starts, with `%f` as the file. imv, Satty and mpv are the defaults. |
+| Text languages | The language of the text Capture reads. English is installed with Capture. Install languages adds the data for the other chosen languages. |
+| Image viewer, Image editor, Video player | The program each notification button starts on the saved file. A custom program gets the file as its last argument. imv, Satty and mpv are the defaults. |
 
 Every saved recording puts its file link on the clipboard, which replaces what the clipboard held. Recording needs gpu-screen-recorder, which the Arch and NixOS packages provide. A missing tool opens the install notice for the action that needs it.
 

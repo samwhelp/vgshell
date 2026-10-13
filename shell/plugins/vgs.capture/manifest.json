@@ -48,7 +48,7 @@
     "webcam": { "type": "boolean", "label": "Include camera", "group": "Recording" },
     "webcamDevice": { "type": "string", "label": "Camera", "optionsFrom": "cameras", "group": "Recording" },
     "postProcess": { "type": "boolean", "label": "Clean up recordings", "description": "Removes the first tenth of a second and evens out the volume", "group": "Recording" },
-    "ocrLanguages": { "type": "string", "label": "Text languages", "description": "Codes joined by +, such as eng+deu", "group": "Text",
+    "ocrLanguages": { "type": "string", "label": "Text languages", "description": "The language of the text Capture reads", "group": "Text",
       "presets": [
         { "value": "eng", "label": "English" },
         { "value": "deu", "label": "German" },
@@ -64,11 +64,11 @@
         { "value": "jpn", "label": "Japanese" },
         { "value": "kor", "label": "Korean" }
       ], "allowCustom": true },
-    "viewer": { "type": "string", "label": "Image viewer", "description": "Opens a saved screenshot, with %f as the file", "group": "Open with",
+    "viewer": { "type": "string", "label": "Image viewer", "description": "Opens a saved screenshot", "group": "Open with",
       "presets": [{ "value": "imv %f", "label": "imv" }], "allowCustom": true },
-    "editor": { "type": "string", "label": "Image editor", "description": "Edits a saved screenshot, with %f as the file", "group": "Open with",
+    "editor": { "type": "string", "label": "Image editor", "description": "Edits a saved screenshot", "group": "Open with",
       "presets": [{ "value": "satty --filename %f --output-filename %f", "label": "Satty" }], "allowCustom": true },
-    "player": { "type": "string", "label": "Video player", "description": "Plays a saved recording, with %f as the file", "group": "Open with",
+    "player": { "type": "string", "label": "Video player", "description": "Plays a saved recording", "group": "Open with",
       "presets": [{ "value": "mpv %f", "label": "mpv" }], "allowCustom": true }
   },
   "hyprland": { "binds": [
