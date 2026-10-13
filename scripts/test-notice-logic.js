@@ -121,24 +121,25 @@ function suite(ctx, check) {
     const atFloor = { "vgs-old": "2.0.0", "vgs-far": "1.2.0" };
     const oldLeft = { kind: "outdated", name: "old", version: "1.9.0", floor: "2.0.0" };
     const oneLeft = { kind: "missing", name: "one" };
+    const unchanged = (...left) => ({ kind: "unchanged", left });
     const unchangedRows = [
-        ["an update that left the version it read is named with that version and the floor", [], below, "pacman", [], ["old"], [oldLeft]],
-        ["the primary's update is named by its own package, behind an overlay's declared first", [], { "vgs-old": "1.9.0", "vgs-far": "1.1.9" }, "pacman", [], ["old"], [oldLeft]],
-        ["an update that reached the floor left nothing", [], atFloor, "pacman", [], ["old"], []],
-        ["an update that reached the floor left nothing, with the next manager's still owed", [], farBelow, "pacman", [], ["old"], []],
-        ["an overlay's update that left its version is named by its own package", [], farBelow, "aur", [], ["far-git"], [{ kind: "outdated", name: "far-git", version: "1.1.9", floor: "1.2.0" }]],
-        ["an install that left its command missing is named by its package", ["vgs-one"], atFloor, "pacman", ["one"], [], [oneLeft]],
-        ["an install that found its command left nothing, with an update it did not run still owed", [], below, "pacman", ["one"], [], []],
-        ["a package the press updated is not named for a command that went missing", ["vgs-old"], atFloor, "pacman", [], ["old"], []],
-        ["a package the press installed below its floor changed, and is not named", [], below, "pacman", ["old"], [], []],
-        ["a press of both that changed nothing names both packages, in declaration order", ["vgs-one"], below, "pacman", ["one"], ["old"], [oldLeft, oneLeft]],
-        ["a press of both that installed and left its update names the outdated package alone", [], below, "pacman", ["one"], ["old"], [oldLeft]],
-        ["a press of both that updated and left its install names the missing package alone", ["vgs-one"], atFloor, "pacman", ["one"], ["old"], [oneLeft]],
-        ["a press of both that did both left nothing", [], atFloor, "pacman", ["one"], ["old"], []],
+        ["an update that left the version it read is named with that version and the floor", [], below, "pacman", [], ["old"], unchanged(oldLeft)],
+        ["the primary's update is named by its own package, behind an overlay's declared first", [], { "vgs-old": "1.9.0", "vgs-far": "1.1.9" }, "pacman", [], ["old"], unchanged(oldLeft)],
+        ["an update that reached the floor left nothing", [], atFloor, "pacman", [], ["old"], null],
+        ["an update that reached the floor left nothing, with the next manager's still owed", [], farBelow, "pacman", [], ["old"], null],
+        ["an overlay's update that left its version is named by its own package", [], farBelow, "aur", [], ["far-git"], unchanged({ kind: "outdated", name: "far-git", version: "1.1.9", floor: "1.2.0" })],
+        ["an install that left its command missing is named by its package", ["vgs-one"], atFloor, "pacman", ["one"], [], unchanged(oneLeft)],
+        ["an install that found its command left nothing, with an update it did not run still owed", [], below, "pacman", ["one"], [], null],
+        ["a package the press updated is not named for a command that went missing", ["vgs-old"], atFloor, "pacman", [], ["old"], null],
+        ["a package the press installed below its floor changed, and is not named", [], below, "pacman", ["old"], [], null],
+        ["a press of both that changed nothing names both packages, in declaration order", ["vgs-one"], below, "pacman", ["one"], ["old"], unchanged(oldLeft, oneLeft)],
+        ["a press of both that installed and left its update names the outdated package alone", [], below, "pacman", ["one"], ["old"], unchanged(oldLeft)],
+        ["a press of both that updated and left its install names the missing package alone", ["vgs-one"], atFloor, "pacman", ["one"], ["old"], unchanged(oneLeft)],
+        ["a press of both that did both left nothing", [], atFloor, "pacman", ["one"], ["old"], null],
     ];
     for (const [name, missing, versions, manager, installs, updates, want] of unchangedRows)
         check("noticeUnchanged: " + name, ctx.noticeUnchanged(floored, missing, versions, three, ARCH, { manager, installs, updates }), want);
-    check("noticeUnchanged: no answer from detection names nothing", ctx.noticeUnchanged(floored, [], below, three, null, { manager: "pacman", installs: [], updates: ["old"] }), []);
+    check("noticeUnchanged: no answer from detection names nothing", ctx.noticeUnchanged(floored, [], below, three, null, { manager: "pacman", installs: [], updates: ["old"] }), null);
     // A manifest that declares its missing requirement before its outdated
     // one: the answer follows the requirement's state, not the press's action.
     const missingFirst = ctx.validateManifest({
@@ -151,7 +152,7 @@ function suite(ctx, check) {
     }, "/p").manifest;
     const firstNotice = { commands: ["vgs-one", "vgs-old"], required: ["vgs-one", "vgs-old"] };
     const firstRun = ctx.noticeView(missingFirst, ["vgs-one"], below, firstNotice, ARCH).run;
-    check("noticeUnchanged: a press of both that changed nothing names a missing package declared first before the outdated one", [firstRun.action, ctx.noticeUnchanged(missingFirst, ["vgs-one"], below, firstNotice, ARCH, firstRun)], ["update", [oneLeft, oldLeft]]);
+    check("noticeUnchanged: a press of both that changed nothing names a missing package declared first before the outdated one", [firstRun.action, ctx.noticeUnchanged(missingFirst, ["vgs-one"], below, firstNotice, ARCH, firstRun)], ["update", unchanged(oneLeft, oldLeft)]);
     // Two commands of one package, both below their floors, and a command
     // vgs-vox whose package is vox-bin: an update that changed nothing
     // names the package once, with its first requirement's version and floor.
@@ -166,7 +167,7 @@ function suite(ctx, check) {
     const voxNotice = { commands: ["vgs-vox", "vgs-voxctl"], required: ["vgs-vox", "vgs-voxctl"] };
     const voxBelow = { "vgs-vox": "1.0.0", "vgs-voxctl": "1.5.0" };
     const voxRun = ctx.noticeView(vox, [], voxBelow, voxNotice, ARCH).run;
-    check("noticeUnchanged: two commands of one package left outdated name the package once", [voxRun.args, ctx.noticeUnchanged(vox, [], voxBelow, voxNotice, ARCH, voxRun)], [["--manager", "aur", "vox-bin"], [{ kind: "outdated", name: "vox-bin", version: "1.0.0", floor: "2.0.0" }]]);
+    check("noticeUnchanged: two commands of one package left outdated name the package once", [voxRun.args, ctx.noticeUnchanged(vox, [], voxBelow, voxNotice, ARCH, voxRun)], [["--manager", "aur", "vox-bin"], unchanged({ kind: "outdated", name: "vox-bin", version: "1.0.0", floor: "2.0.0" })]);
     const HELD_MISE = { primary: PACMAN, overlays: [PARU], sources: [{ id: "mise", binary: "mise" }], holders: { "vgs-old": { path: "/home/method/.local/bin/vgs-old", owners: { pacman: null, mise: "npm:vgs-old" } } } };
     const heldView = ctx.noticeView(floored, [], below, { id: "acme.floor", commands: ["vgs-old"], required: ["vgs-old"] }, HELD_MISE);
     check("noticeView: an outdated command held by the second manager updates through that manager", [heldView.rows.map(r => r.name + " (" + r.package.manager + "/" + r.package.name + "): " + r.purpose), heldView.run.action, heldView.run.args], [["vgs-old (mise/npm:vgs-old): Old"], "update", ["--manager", "mise", "npm:vgs-old"]]);
@@ -200,28 +201,45 @@ function suite(ctx, check) {
     }, "/p").manifest;
     const twinView = ctx.noticeView(twins, ["vgs-here"], { "vgs-there": "1.0.0" }, { commands: ["vgs-here", "vgs-there"], required: ["vgs-here"] }, ARCH);
     check("noticeView press: a package is updated only through its own manager", [twinView.run.action, twinView.run.args, twinView.groups.map(g => [g.manager, g.chip, g.update]), laterOf(twinView)], ["update", ["--manager", "aur", "twin"], [["aur", "twin", true]], [["pacman", "twin"]]]);
-    check("noticeUnchanged: a package of another manager with the name the press installed is not named", ctx.noticeUnchanged(twins, ["vgs-there"], {}, { commands: ["vgs-here", "vgs-there"], required: ["vgs-here"] }, ARCH, { manager: "pacman", installs: ["twin"], updates: [] }), []);
+    check("noticeUnchanged: a package of another manager with the name the press installed is not named", ctx.noticeUnchanged(twins, ["vgs-there"], {}, { commands: ["vgs-here", "vgs-there"], required: ["vgs-here"] }, ARCH, { manager: "pacman", installs: ["twin"], updates: [] }), null);
     for (const [name, missing, versions, run, groups, later] of pressRows) {
         const v = ctx.noticeView(floored, missing, versions, three, ARCH);
         check("noticeView press: " + name, [[v.run.action, v.run.args, v.run.installs, v.run.updates], v.groups.map(g => [g.chip, g.update]), laterOf(v)], [run, groups, later]);
     }
     // Three required packages, one for each manager that installs here
-    // (VGS-1490): the press installs the primary's, and the view names
-    // the other two, each with its manager, as entries a later press offers.
+    // (VGS-1490), declared in another order than the presses take them:
+    // the press installs the primary's, and the view names the other two,
+    // each with its manager, in the order the next presses offer them.
+    const MISE_TOO = { primary: PACMAN, overlays: [PARU], sources: [{ id: "mise", binary: "mise" }] };
     const world = ctx.validateManifest({
         schemaVersion: 1, id: "acme.world", name: "World", version: "1", author: "a", description: "d",
         kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
         requirements: [
-            { command: "agent-browser", packages: { aur: "agent-browser-bin" }, purpose: "Browser" },
             { command: "pi", packages: { mise: "npm:pi" }, purpose: "Agent" },
+            { command: "agent-browser", packages: { aur: "agent-browser-bin" }, purpose: "Browser" },
             { command: "gum", packages: { pacman: "gum" }, purpose: "Dialogs" },
         ],
     }, "/p").manifest;
-    const worldNames = ["agent-browser", "pi", "gum"];
-    const worldView = ctx.noticeView(world, worldNames, {}, { commands: worldNames, required: worldNames }, { primary: PACMAN, overlays: [PARU], sources: [{ id: "mise", binary: "mise" }] });
-    check("noticeView press: a notice of three managers names every package with its manager across its step and the later ones",
+    const worldNames = ["pi", "agent-browser", "gum"];
+    const worldView = ctx.noticeView(world, worldNames, {}, { commands: worldNames, required: worldNames }, MISE_TOO);
+    check("noticeView press: a notice of three managers names every package with its manager across its step and the later ones, in press order",
         [worldView.run.args, worldView.groups.map(e => [e.manager, e.chip]), laterOf(worldView), worldView.later.map(e => [e.packaged, e.update, e.purposes])],
         [["gum"], [["pacman", "gum"]], [["aur", "agent-browser-bin"], ["mise", "npm:pi"]], [[true, false, ["Browser"]], [true, false, ["Agent"]]]]);
+    // A required package for each of two managers and an optional one of a
+    // third that the presses reach after them: the notice closes once the
+    // second press finds its package, so the optional one is not offered.
+    const reach = ctx.validateManifest({
+        schemaVersion: 1, id: "acme.reach", name: "Reach", version: "1", author: "a", description: "d",
+        kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["requirements"],
+        requirements: [
+            { command: "gum", packages: { pacman: "gum" }, purpose: "Dialogs" },
+            { command: "pi", packages: { mise: "npm:pi" }, optional: true, purpose: "Agent" },
+            { command: "agent-browser", packages: { aur: "agent-browser-bin" }, purpose: "Browser" },
+        ],
+    }, "/p").manifest;
+    const reachView = ctx.noticeView(reach, ["gum", "pi", "agent-browser"], {}, { commands: ["gum", "pi", "agent-browser"], required: ["gum", "agent-browser"] }, MISE_TOO);
+    check("noticeView press: later stops at the last manager that holds a required package",
+        [reachView.run.args, laterOf(reachView)], [["gum"], [["aur", "agent-browser-bin"]]]);
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
@@ -483,19 +501,22 @@ const CONTROLS = [
     ["installed lists only missing commands", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows;"],
     ["an install or enable trigger lists no outdated command", "listed = trigger === \"requested\" ? lacking : lacking.filter(function (row) { return row.state === \"missing\"; });", "listed = lacking;"],
     ["an unchanged run names a requirement of the manager that ran", "r.package !== null && r.package.manager === ran.manager && (", "r.package !== null && ("],
-    ["a package the press updated is judged outdated", "var stillOutdated = left(ran.updates, \"outdated\");", "var stillOutdated = function () { return false; };"],
-    ["a package the press installed is judged missing", "var stillMissing = left(ran.installs, \"missing\");", "var stillMissing = function () { return false; };"],
+    ["a package the press updated is judged outdated", "var stillOutdated = judged(ran.updates, \"outdated\");", "var stillOutdated = function () { return false; };"],
+    ["a package the press installed is judged missing", "var stillMissing = judged(ran.installs, \"missing\");", "var stillMissing = function () { return false; };"],
     ["a package is judged by the state its own list names", "return r.state === state && names.indexOf(r.package.name) !== -1;", "return names.indexOf(r.package.name) !== -1;"],
     ["only a package the press ran is judged", "return r.state === state && names.indexOf(r.package.name) !== -1;", "return r.state === state;"],
     ["an unchanged run is named by its requirement's state", "var named = { kind: row.state,", "var named = { kind: ran.updates.length === 0 ? \"missing\" : \"outdated\","],
     ["an unchanged run names its package, not its command", "var named = { kind: row.state, name: row.package.name };", "var named = { kind: row.state, name: row.name };"],
-    ["an unchanged run names every package it left", "return owed.filter(function (row, i) {", "return owed.slice(0, 1).filter(function (row, i) {"],
+    ["an unchanged run names every package it left", "var left = owed.filter(function (row, i) {", "var left = owed.slice(0, 1).filter(function (row, i) {"],
+    ["a run that left nothing is no failure", "return left.length === 0 ? null : { kind: \"unchanged\", left: left };", "return { kind: \"unchanged\", left: left };"],
     ["an unchanged run names a package once", "return !owed.slice(0, i).some(", "return true || !owed.slice(0, i).some("],
     ["an unchanged update names the version its command printed", "VERSION_IN_LINE.exec(versions[row.name]).slice(1, 4).join(\".\")", "versions[row.name]"],
     ["one press installs a manager's missing packages beside its updates", ".concat(installs.length === 0 ? [] : [\"--install\"].concat(installs))", ""],
-    ["a manager with an update is pressed first", "runs.filter(function (g) { return updatesOf(g).length > 0; }).concat(runs)[0]", "runs[0]"],
-    ["a view offers nothing for later once its press closes the notice", "var waiting = !staysOpen ? [] : entries.filter(", "var waiting = entries.filter("],
-    ["a view offers for later only what a manager here installs", "return e.manager !== pressed.manager && runs.some(function (g) { return g.manager === e.manager; }); });", "return e.manager !== pressed.manager; });"],
+    ["a manager with an update is pressed first", "var order = runs.filter(function (g) { return updatesOf(g).length > 0; }).concat(runs.filter(function (g) { return updatesOf(g).length === 0; }));", "var order = runs;"],
+    ["later stops at the last manager that holds a required package", "next.slice(0, unreached ? next.length : reach)", "next"],
+    ["later holds every manager while no press reaches a required package", "unreached ? next.length : reach", "reach"],
+    ["later holds no entry of the press's own manager", "var next = order.slice(1);", "var next = order;"],
+    ["later follows the order of the presses", "reached.reduce(function (held, manager) { return held.concat(entries.filter(function (e) { return e.manager === manager; })); }, [])", "entries.filter(function (e) { return reached.indexOf(e.manager) !== -1; })"],
     ["a view names the later entries, not their count", "        later: waiting,\n", "        later: waiting.length,\n"],
     ["a view lists only the packages its press handles", "entries.filter(function (e) { return e.manager === pressed.manager; })", "entries"],
     ["a press updates only a package of its own manager", "e.manager === group.manager && e.chip === name && e.update", "e.chip === name && e.update"],

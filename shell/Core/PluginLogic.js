@@ -2383,12 +2383,17 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // with those arguments over `updates` after `vgshell pkg run update`, then
 // `--install` and `installs` when both are owed. `groups` are the rows
 // noticeGroups gathers that `run` handles, every one when it is null.
-// `later` holds the noticeGroups entries of the other managers that
-// install, which the notice offers once a rescan finds these installed or
-// updated: empty unless a requirement of `required` is lacking outside
-// `run`'s manager, since noticeSettle closes the notice once `required` is
-// found, and a closed notice offers nothing. An entry `later` does not hold
-// is neither drawn nor promised.
+// `later` holds the noticeGroups entries the presses after this one
+// offer, once a rescan finds these installed or updated, in the order
+// those presses take their managers: the other managers that install, the
+// ones holding an update first, then installGroups' order, as `run` picks
+// its own. noticeSettle closes the notice once `required` is found, and a
+// closed notice offers nothing, so `later` stops at the last of those
+// managers that holds a lacking requirement of `required`, and is empty
+// when none does. A lacking requirement of `required` that no manager here
+// installs keeps the notice open past every press, so then it holds every
+// other manager that installs. An entry `later` does not hold is neither
+// drawn nor promised.
 // `byHand` is each group whose manager installs nothing through vgshell,
 // nix, as { manager, names }.
 function noticeView(manifest, missing, versions, notice, found) {
@@ -2402,7 +2407,8 @@ function noticeView(manifest, missing, versions, notice, found) {
         return group.names.filter(function (name) { return entries.some(function (e) { return e.manager === group.manager && e.chip === name && e.update; }); });
     };
     var runs = plan.groups.filter(function (g) { return g.installs; });
-    var pressed = runs.filter(function (g) { return updatesOf(g).length > 0; }).concat(runs)[0];
+    var order = runs.filter(function (g) { return updatesOf(g).length > 0; }).concat(runs.filter(function (g) { return updatesOf(g).length === 0; }));
+    var pressed = order[0];
     var run = null;
     if (pressed !== undefined) {
         var updates = updatesOf(pressed);
@@ -2412,8 +2418,15 @@ function noticeView(manifest, missing, versions, notice, found) {
             : { manager: pressed.manager, action: "update", args: PackageManagers.installArgs(Object.assign({}, pressed, { names: updates })).concat(installs.length === 0 ? [] : ["--install"].concat(installs)), installs: installs, updates: updates };
     }
     var handled = run === null ? entries : entries.filter(function (e) { return e.manager === pressed.manager; });
-    var staysOpen = run !== null && shown.some(function (row) { return notice.required.indexOf(row.name) !== -1 && (row.package === null || row.package.manager !== pressed.manager); });
-    var waiting = !staysOpen ? [] : entries.filter(function (e) { return e.manager !== pressed.manager && runs.some(function (g) { return g.manager === e.manager; }); });
+    var owed = shown.filter(function (row) { return notice.required.indexOf(row.name) !== -1; });
+    var unreached = owed.some(function (row) { return row.package === null || !runs.some(function (g) { return g.manager === row.package.manager; }); });
+    var next = order.slice(1);
+    var reach = 0;
+    next.forEach(function (g, i) {
+        if (owed.some(function (row) { return row.package !== null && row.package.manager === g.manager; })) reach = i + 1;
+    });
+    var reached = next.slice(0, unreached ? next.length : reach).map(function (g) { return g.manager; });
+    var waiting = reached.reduce(function (held, manager) { return held.concat(entries.filter(function (e) { return e.manager === manager; })); }, []);
     return {
         satisfied: satisfied,
         rows: shown,
@@ -2449,33 +2462,34 @@ function noticeGroups(rows) {
     return out;
 }
 
-// What a run of RAN left as it was: RAN is noticeView's `run` of the press
-// on NOTICE that ran to code 0, and the other arguments are noticeView's,
-// read once the version read after the run returned. Each package of the
-// press is judged alone, since one run can install one and leave another:
-// a package manager with nothing newer ends an update with code 0, and so
-// does one that installs a copy behind the one PATH finds first. The
-// answer holds every package of RAN's manager that RAN's `updates` still
-// leave outdated or its `installs` still leave missing, once each by its
-// package name, the name its chip draws, in the order its first listed
-// requirement is declared, and is empty when the run left nothing: {
-// kind: "missing", name }, or { kind: "outdated", name, version, floor },
-// `version` the three numbers the command of that first requirement
-// printed and `floor` the one its owner needs. A package the press
-// installed below its floor changed, and is not named.
+// What a run of RAN left as it was, or null when it left nothing: RAN is
+// noticeView's `run` of the press on NOTICE that ran to code 0, and the
+// other arguments are noticeView's, read once the version read after the
+// run returned. Each package of the press is judged alone, since one run
+// can install one and leave another: a package manager with nothing newer
+// ends an update with code 0, and so does one that installs a copy behind
+// the one PATH finds first. The answer is { kind: "unchanged", left },
+// `left` every package of RAN's manager that RAN's `updates` still leave
+// outdated or its `installs` still leave missing, once each by its package
+// name, the name its chip draws, in the order its first listed requirement
+// is declared: { kind: "missing", name }, or { kind: "outdated", name,
+// version, floor }, `version` the three numbers the command of that first
+// requirement printed and `floor` the one its owner needs. A package the
+// press installed below its floor changed, and is not named.
 function noticeUnchanged(manifest, missing, versions, notice, found, ran) {
-    var left = function (names, state) {
+    var judged = function (names, state) {
         return function (r) { return r.state === state && names.indexOf(r.package.name) !== -1; };
     };
-    var stillOutdated = left(ran.updates, "outdated");
-    var stillMissing = left(ran.installs, "missing");
+    var stillOutdated = judged(ran.updates, "outdated");
+    var stillMissing = judged(ran.installs, "missing");
     var owed = noticeView(manifest, missing, versions, notice, found).rows.filter(function (r) { return r.package !== null && r.package.manager === ran.manager && (stillOutdated(r) || stillMissing(r)); });
-    return owed.filter(function (row, i) { return !owed.slice(0, i).some(function (r) { return r.package.name === row.package.name; }); }).map(function (row) {
+    var left = owed.filter(function (row, i) { return !owed.slice(0, i).some(function (r) { return r.package.name === row.package.name; }); }).map(function (row) {
         var named = { kind: row.state, name: row.package.name };
         if (row.state === "missing") return named;
         var floor = manifest.requirements.filter(function (entry) { return entry.name === row.name; })[0].floor;
         return Object.assign(named, { version: VERSION_IN_LINE.exec(versions[row.name]).slice(1, 4).join("."), floor: floor });
     });
+    return left.length === 0 ? null : { kind: "unchanged", left: left };
 }
 
 // QUEUE after a scan, the notices of OWNERS, the core's owner and each

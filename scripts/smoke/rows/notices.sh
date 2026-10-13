@@ -41,8 +41,8 @@
 # the version read and the floor, and the read after a run that reaches the
 # floor closes it, while the same offer of a command at its floor answers
 # satisfied, which is that state's control; the Install and update notice
-# draws its two entries as a GroupList whose hairline is centred by ink
-# between them, and its run that changes nothing names both packages; a
+# draws its two entries as a GroupList with its hairline between them, and
+# its run that changes nothing names both packages; a
 # detection that fails shows the commands
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
@@ -515,11 +515,14 @@ expect_poll "the mixed notice offers one step for both" '["Install and update", 
 expect "the mixed notice draws both packages" '[["vgs-smoke-old-aur", 1], ["vgs-smoke-extra-git", 1]]' group_shape
 expect "the mixed notice marks one outdated and one missing" '[["Outdated"], ["Missing"]]' group_states
 expect "the mixed notice counts both packages" '"Acme Sync needs 2 packages"' drawn title
-# The mixed notice's two entries are groups of a GroupList: its one
-# hairline is centred between the lowest drawn pixel of the entry above and
-# the highest of the entry below, within a pixel. One control plants the
-# same reading with the hairline 3 px low and one with it gone, which the
-# check refuses on each rule. `[]` is the pass.
+# The mixed notice's two entries are groups of a GroupList with one shown
+# hairline in the gap between them, drawn within a pixel of the place
+# GroupList computes from the entries' ink (Theme.inkBelow of the entry
+# above, Theme.inkAbove of the entry below). The probe reads that ink with
+# the same calls, so the check proves the composition, not the ink:
+# tst_grouplist.qml reads the centring from an image. One control plants
+# the same reading with the hairline 3 px low and one with it gone, which
+# the check refuses on each rule. `[]` is the pass.
 entry_hairlines() { # [low|line]
   local ink
   ink="$(ipc smoke noticeEntryInk)" || return
@@ -542,7 +545,7 @@ else:
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the mixed notice's hairline is centred by ink between its two entries" '[]' entry_hairlines
+geometry expect_poll "the mixed notice's entries are a GroupList with one hairline at the place it computes" '[]' entry_hairlines
 hairline_planted() { entry_hairlines "$1" | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(sys.argv[1] in e for e in o))' "$2"; }
 expect "control: a hairline 3 px low is refused" True hairline_planted low hairline1=
 expect "control: a missing hairline is refused" True hairline_planted line hairlines=
