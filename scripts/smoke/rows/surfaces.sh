@@ -1446,7 +1446,10 @@ start_shell "$repo" "$sandbox/window-pane-request-restored.log" || fail "the cli
 # The page reference control: a tree whose FormRow drops its message's
 # page reference, so the same click opens no page, and whose Settings
 # plugin is not always on, so the manager window can be turned off and
-# openPage then answers refused: manager=none.
+# openPage then answers refused: manager=none. Turning Settings on in that
+# tree records it in shell.json, which the shipped tree's later rows would
+# read as a placed widget, so the row puts back the file it found.
+cp -- "$home/.config/vgshell/shell.json" "$sandbox/page-reference-config-before.json"
 copy_tree page-reference-control
 edit_tree page-reference-control shell/Ui/controls/FormRow.qml \
   'onPageActivated: (page, tab) => root.warningPageActivated(page, tab)' \
@@ -1474,4 +1477,5 @@ expect "the page reference control turns the manager window on again" ok page_re
 expect "the page reference control hides its panel" ok ipc shell hide panel acme.surfaces
 expect "the page reference control disables its fixture" ok ipc shell setPluginEnabled acme.surfaces false
 stop_shell
+user_config_restore "$sandbox/page-reference-config-before.json" || fail "the page reference control puts back the shell.json it found"
 start_shell "$repo" "$sandbox/page-reference-restored.log" || fail "the page reference control restores the shipped shell"
