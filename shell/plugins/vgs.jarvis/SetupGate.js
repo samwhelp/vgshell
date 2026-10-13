@@ -604,8 +604,10 @@ function optionalStep(value) {
 // the voice the daemon runs (voiceProvider), beside VOICE, the Voice step's
 // published value (voiceCheck). One task, setting up the local voice, takes
 // one open step. While the Voice step offers Set up local voice, whatever
-// the voice, this row is a state of that step: never open, offering no
-// setup, and a reading that is not ready says where its setup is. Else,
+// the voice, this row is a state of that step: never open and offering no
+// setup. A reading that would offer setup itself, with no hint of its own,
+// says where that setup is; a setup that runs, or a failed check whose hint
+// already names the action, says nothing more. Else,
 // under a voice that hears the user on this computer, the row is the
 // required step itself and offers setup as its reading does. Under a voice
 // that hears the user elsewhere it is optional.
@@ -613,7 +615,9 @@ var VOICE_STEP_SETS_UP = "Press Set up local voice on the Voice step to set it u
 function localVoiceStep(value, provider, voice) {
     if (voice.action === "setup") {
         if (value.tone === "ok") return Object.assign({}, value, { action: false });
-        var row = { tone: "info", text: value.text, lines: (value.lines || []).concat([VOICE_STEP_SETS_UP]), action: false };
+        var row = { tone: "info", text: value.text, action: false };
+        var lines = (value.lines || []).concat(value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []);
+        if (lines.length > 0) row.lines = lines;
         if (value.hint !== undefined) row.hint = value.hint;
         return row;
     }

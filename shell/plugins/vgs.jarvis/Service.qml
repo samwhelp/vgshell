@@ -206,8 +206,12 @@ Item {
             const reply = shell.status.set(key, values[key]);
             if (reply !== "ok") throw new Error("jarvis: " + reply);
         }
-        voiceStep = values.setupVoice;
-        localRuntime.republish();
+        // The Local voice row is shaped beside the Voice step: a changed
+        // Voice step publishes it again.
+        if (JSON.stringify(values.setupVoice) !== JSON.stringify(voiceStep)) {
+            voiceStep = values.setupVoice;
+            localRuntime.republish();
+        }
     }
     function publishShellSetup() {
         publishSetup(setupAnswer);

@@ -59,18 +59,16 @@ Item {
         }
     }
     function publish() {
-        const missing = shell.requirements.missing;
-        reading = Gate.setupValue(checked(), requires, missing);
-        if (shell.status.set(statusKey, shape(reading)) !== "ok") {
-            reading = Gate.setupValue(Gate.checkFailure("unreadable", shell.manifest.status[statusKey]), requires, missing);
-            if (shell.status.set(statusKey, shape(reading)) !== "ok") throw new Error("jarvis-setup: status=refused");
-        }
+        reading = Gate.setupValue(checked(), requires, shell.requirements.missing);
+        republish();
         refreshed();
     }
-    // Publishes the last check again through `shape`, for a shape whose
-    // other input changed; it emits no `refreshed`.
+    // Publishes the last check through `shape`, also for a shape whose
+    // other input changed; it emits no `refreshed`. A value the status
+    // judge refuses is published as an unreadable check.
     function republish() {
-        if (reading === null) return;
+        if (reading === null || shell.status.set(statusKey, shape(reading)) === "ok") return;
+        reading = Gate.setupValue(Gate.checkFailure("unreadable", shell.manifest.status[statusKey]), requires, shell.requirements.missing);
         const reply = shell.status.set(statusKey, shape(reading));
         if (reply !== "ok") throw new Error("jarvis-setup: " + reply);
     }

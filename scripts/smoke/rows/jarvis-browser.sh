@@ -138,7 +138,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='        reading = Gate.setupValue(checked(), requires, missing);'
+needle='        reading = Gate.setupValue(checked(), requires, shell.requirements.missing);'
 assert s.count(needle)==1
 changed=s.replace(needle, '        if (code !== 0) return;\n' + needle)
 assert changed != s
