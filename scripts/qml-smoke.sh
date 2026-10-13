@@ -49,16 +49,25 @@
 # own and the default, or `default`, every first-party plugin enabled as
 # in a live session (scripts/smoke/harness.sh); it needs --first-bar-runs.
 #
-# --rows runs only the named rows, each a name --list-rows prints, in the
-# order scripts/smoke/rows.list fixes, with the harness steps between them;
-# without it every row runs. It adds no row: the core rows and the rows an
-# input line names come only from scripts/validate, which passes it on a
-# diff-scoped run:
+# --rows runs the named rows, each a name --list-rows prints, and each row
+# one of them reads: the rows its input line names, and theirs in turn,
+# read by scripts/smoke/row-inputs.sh, the reader scripts/validate selects
+# with. They run in the order scripts/smoke/rows.list fixes, with the
+# harness steps between them; without --rows every row runs. The run prints
+# `qml-smoke: rows named=<name>,... run=<row>,...` once, before the
+# harness starts. It adds no core row: those come from scripts/validate,
+# which passes a set already closed on a diff-scoped run:
 # docs/architecture/validation.md. A name the runner does
 # not hold is refused as `qml-smoke: refused: argument=--rows value=<name>
-# reason=unknown-row`. --list-rows prints the rows a run with the same
-# --rows would run, one name per line in run order, and every row without
-# --rows; it starts nothing. qml_smoke_wanted decides both.
+# reason=unknown-row`, and a row whose input line names a row file that the
+# list does not hold and the tree does not have as `qml-smoke: refused:
+# argument=--rows value=<row> reason=reads-unknown-row reads=<name>`, each
+# before anything starts. A row file the tree has and the list does not is
+# one the row runs itself through smoke_row. A row whose input line cannot
+# be read prints `qml-smoke: rows inputs=<fault> row=<row>` on stderr and
+# brings no row. --list-rows prints the rows a run with the same --rows
+# would run, one name per line in run order, and every row without --rows;
+# it starts nothing. qml_smoke_wanted decides both.
 #
 # VGSHELL_SMOKE_RSS_CEILING_KIB: resident-size ceiling for the largest reading
 # of the shells the run starts up to rows/diagnostics.sh: each shell a row
@@ -146,6 +155,7 @@ keep=false
 first_bar_runs=""
 plugin_set=smoke
 qml_smoke_only=""
+qml_smoke_named=()
 qml_smoke_list=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -163,7 +173,7 @@ while [[ $# -gt 0 ]]; do
       for qml_smoke_row in "${qml_smoke_named[@]}"; do
         if [[ " ${qml_smoke_rows[*]} " != *" $qml_smoke_row "* ]]; then printf 'qml-smoke: refused: argument=--rows value=%s reason=unknown-row\n' "$qml_smoke_row" >&2; exit 2; fi
       done
-      qml_smoke_only=",$2,"; shift 2 ;;
+      shift 2 ;;
     --list-rows) qml_smoke_list=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) printf 'qml-smoke: refused: argument=%s\n' "$1" >&2; exit 2 ;;
@@ -174,9 +184,41 @@ if [[ $plugin_set != smoke && -z $first_bar_runs ]]; then
   printf 'qml-smoke: refused: argument=--plugin-set value=%s reason=needs-first-bar-runs\n' "$plugin_set" >&2
   exit 2
 fi
-if [[ -n $qml_smoke_only && -n $first_bar_runs ]]; then
+if [[ ${#qml_smoke_named[@]} -gt 0 && -n $first_bar_runs ]]; then
   printf 'qml-smoke: refused: argument=--rows reason=first-bar-runs-runs-no-row\n' >&2
   exit 2
+fi
+# The rows --rows names bring the rows they read: qml_smoke_reach holds
+# each row reached, and the queue each row whose input line is still to
+# read. A named row file that is no listed row is the reading row's own
+# when the tree has it; one the tree lacks is a row that left or a
+# misspelt name, which would end the run in a command not found.
+if [[ ${#qml_smoke_named[@]} -gt 0 ]]; then
+  source "$repo/scripts/smoke/row-inputs.sh"
+  declare -A qml_smoke_reach=()
+  qml_smoke_queue=("${qml_smoke_named[@]}")
+  while [[ ${#qml_smoke_queue[@]} -gt 0 ]]; do
+    qml_smoke_row="${qml_smoke_queue[0]}"
+    qml_smoke_queue=("${qml_smoke_queue[@]:1}")
+    [[ -z ${qml_smoke_reach[$qml_smoke_row]-} ]] || continue
+    qml_smoke_reach[$qml_smoke_row]=1
+    if ! smoke_inputs_read "$repo/scripts/smoke/rows/$qml_smoke_row.sh"; then
+      printf 'qml-smoke: rows inputs=%s row=%s\n' "$smoke_inputs_fault" "$qml_smoke_row" >&2
+      continue
+    fi
+    smoke_inputs_rows "$qml_smoke_row"
+    for qml_smoke_read in "${smoke_inputs_named[@]}"; do
+      if [[ " ${qml_smoke_rows[*]} " == *" $qml_smoke_read "* ]]; then
+        qml_smoke_queue+=("$qml_smoke_read")
+      elif [[ ! -f $repo/scripts/smoke/rows/$qml_smoke_read.sh ]]; then
+        printf 'qml-smoke: refused: argument=--rows value=%s reason=reads-unknown-row reads=%s\n' "$qml_smoke_row" "$qml_smoke_read" >&2; exit 2
+      fi
+    done
+  done
+  for qml_smoke_row in "${qml_smoke_rows[@]}"; do
+    [[ -z ${qml_smoke_reach[$qml_smoke_row]-} ]] || qml_smoke_only+=",$qml_smoke_row"
+  done
+  qml_smoke_only+=,
 fi
 # qml_smoke_wanted ROW: whether this run runs ROW, the one answer the row
 # loop below and --list-rows read.
@@ -191,6 +233,10 @@ fi
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+if [[ -n $qml_smoke_only ]]; then
+  qml_smoke_run="${qml_smoke_only#,}"
+  (IFS=,; printf 'qml-smoke: rows named=%s run=%s\n' "${qml_smoke_named[*]}" "${qml_smoke_run%,}")
+fi
 rss_ceiling_kib="${VGSHELL_SMOKE_RSS_CEILING_KIB:-1174016}"
 first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-620}"
 default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-1426}"

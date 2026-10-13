@@ -81,6 +81,7 @@ parallel_cases() { # WORKER PREFIX SPEC...
 # one under each root an install ships, bin/, shell/ and config/, each at a
 # path the tree holds, so a fixture that copies the tree in replaces it;
 # refs/remotes/origin/trunk points at it; HEAD is a feature branch on top.
+# It holds the input line reader too, which the script sources.
 # The repository is built once and each fixture is its own copy of it.
 fresh() {
   local dir="$1"
@@ -91,8 +92,9 @@ fresh() {
 }
 template() {
   local dir="$tmp/template"
-  mkdir -p "$dir/scripts" "$dir/.agents/skills/orch/scripts/lib" "$dir/.agents/skills/commit-guards" "$dir/tools"
+  mkdir -p "$dir/scripts/smoke" "$dir/.agents/skills/orch/scripts/lib" "$dir/.agents/skills/commit-guards" "$dir/tools"
   cp -- "$repo/scripts/validate" "$dir/scripts/validate"
+  cp -- "$repo/scripts/smoke/row-inputs.sh" "$dir/scripts/smoke/row-inputs.sh"
   cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$dir/.agents/skills/orch/scripts/lib/kendex-env.sh"
   cp -R -- "$repo/.agents/skills/commit-guards/scripts" "$dir/.agents/skills/commit-guards/"
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
@@ -1252,6 +1254,8 @@ smoke_cases=(
   "control: a harness with no input line no longer runs every row|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher|harness-line|no-harness-line"
   "a runner change runs every row|scripts/qml-smoke.sh|changed|scripts/qml-smoke.sh||rows"
   "control: a runner change no longer runs every row|scripts/qml-smoke.sh|changed|$smoke_none|runner|rows"
+  "an input line reader change runs every row|scripts/smoke/row-inputs.sh|changed|scripts/qml-smoke.sh||rows"
+  "control: an input line reader change no longer runs every row|scripts/smoke/row-inputs.sh|changed|$smoke_none|reader|rows"
   "a runner that does not list a core row runs every row|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh||no-core"
   "control: a runner that does not list a core row no longer runs every row|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_always,start-order|core-missing|no-core"
   "an unknown input runs every row|shell/plugins/acme.launcher/Panel.qml new-source.bin|changed|scripts/qml-smoke.sh||rows"
@@ -1276,8 +1280,8 @@ smoke_cases=(
 )
 # Each mutant: the text it replaces in validate, then its replacement.
 declare -A smoke_mutant_old=(
-  [missing]=$'"$key" "$file" >&2; return 1\n  fi\n  if [[ $count -gt 1 ]]'
-  [lines]=$'"$key" "$count" "$file" >&2; return 1'
+  [missing]=$'missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 1'
+  [lines]=$'"$key" "$smoke_inputs_fault" "$file" >&2; return 1'
   [empty]=$'empty; fix the line in %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 1'
   [unreadable]=$'unreadable path=%s\\n\' "$key" "$file" >&2; return 1'
   [matches-nothing]='      smoke_glob_unmatched=true'
@@ -1285,9 +1289,10 @@ declare -A smoke_mutant_old=(
   [core]=$'      printf \'validate: smoke-rows=all reason=core-row-missing row=%s\\n\' "$row" >&2; return 0\n    fi\n    want[$row]=1\n  done'
   [core-missing]=$'reason=core-row-missing row=%s\\n\' "$row" >&2; return 0'
   [closure]='do want[$needed]=1; done'
-  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [runner]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [runner]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [reader]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
   [harness-line]="    every='reason=harness-line-unreadable'"
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
   [full]=$'smoke_scoped=false\naffected=()'
@@ -1301,8 +1306,8 @@ declare -A smoke_mutant_old=(
   [malformed]='"$number" "$file" >&2; return 1'
 )
 declare -A smoke_mutant_new=(
-  [missing]=$'"$key" "$file" >&2; return 0\n  fi\n  if [[ $count -gt 1 ]]'
-  [lines]=$'"$key" "$count" "$file" >&2; return 0'
+  [missing]=$'missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
+  [lines]=$'"$key" "$smoke_inputs_fault" "$file" >&2; return 0'
   [empty]=$'empty; fix the line in %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
   [unreadable]=$'unreadable path=%s\\n\' "$key" "$file" >&2; return 0'
   [matches-nothing]='      :'
@@ -1310,9 +1315,10 @@ declare -A smoke_mutant_new=(
   [core]=$'      printf \'validate: smoke-rows=all reason=core-row-missing row=%s\\n\' "$row" >&2; return 0\n    fi\n  done'
   [core-missing]=$'reason=core-row-missing row=%s\\n\' "$row" >&2'
   [closure]='do :; done'
-  [harness]='for glob in scripts/qml-smoke.sh "${smoke_globs[@]}"; do'
-  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh; do'
-  [runner]='for glob in scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh "${smoke_globs[@]}"; do'
+  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh; do'
+  [runner]='for glob in scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [reader]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
   [harness-line]='    :'
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
   [full]=$'smoke_scoped=true\naffected=()'
@@ -1807,8 +1813,9 @@ test_args=()
 # The real runner, under the test environment so a regressed refusal stops
 # at the harness's missing-session check: it lists the core rows, each with
 # its row file; --list-rows with --rows lists the rows that run would hold,
-# in run order; and it refuses a row it does not hold. The control is a
-# copy whose row predicate holds every row.
+# in run order, the rows a named row's input line names among them; and it
+# refuses a row it does not hold. The first control is a copy whose row
+# predicate holds every row, the second one that follows no input line.
 smoke_core_rows=(bar hyprland-consent session start-order auth-sentinel)
 if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $(wc -l <<<"$listed") -ge 60 ]]; then
   for smoke_row_name in "${smoke_core_rows[@]}"; do
@@ -1820,14 +1827,30 @@ if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $
 else
   fail "qml-smoke.sh --list-rows: the read listed under 60 rows, so the row list no longer reads as one name a line"
 fi
-smoke_subset=$'bar\nsession\nstart-order'
-if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows start-order,bar,session --list-rows)" && [[ $out == "$smoke_subset" ]]; then
+smoke_subset=$'bar\nplugins'
+if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows plugins,bar --list-rows)" && [[ $out == "$smoke_subset" ]]; then
   ok "the runner lists only the rows --rows names, in run order"
 else
   fail "the runner's --rows listing: $out"
 fi
-mkdir -p "$tmp/runner-control/scripts/smoke"
-cp -- "$repo/scripts/smoke/rows.list" "$tmp/runner-control/scripts/smoke/rows.list"
+smoke_read=$'plugins\ncapabilities'
+if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == "$smoke_read" ]]; then
+  ok "the runner adds the row a named row's input line names, in run order"
+else
+  fail "the runner's listing of a row that reads another: $out"
+fi
+for dir in runner-control runner-reads-control; do
+  mkdir -p "$tmp/$dir/scripts/smoke/rows"
+  cp -- "$repo/scripts/smoke/rows.list" "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/"
+  cp -- "$repo/scripts/smoke/rows/bar.sh" "$repo/scripts/smoke/rows/plugins.sh" "$repo/scripts/smoke/rows/capabilities.sh" "$tmp/$dir/scripts/smoke/rows/"
+done
+cp -- "$repo/scripts/qml-smoke.sh" "$tmp/runner-reads-control/scripts/qml-smoke.sh"
+plant "$tmp/runner-reads-control/scripts/qml-smoke.sh" '        qml_smoke_queue+=("$qml_smoke_read")' '        :'
+if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == capabilities ]]; then
+  ok "control: a runner that follows no input line lists the named row alone"
+else
+  fail "control: the runner that follows no input line listed: $out"
+fi
 python3 - "$repo/scripts/qml-smoke.sh" "$tmp/runner-control/scripts/qml-smoke.sh" <<'PY'
 from pathlib import Path
 import sys
@@ -1836,7 +1859,7 @@ old = 'qml_smoke_wanted() { [[ -z $qml_smoke_only || $qml_smoke_only == *",$1,"*
 assert source.count(old) == 1, old
 target.write_text(source.replace(old, 'qml_smoke_wanted() { true; }'))
 PY
-if out="$("${base_env[@]}" bash "$tmp/runner-control/scripts/qml-smoke.sh" --rows start-order,bar,session --list-rows)" && [[ $out == "$listed" && $out != "$smoke_subset" ]]; then
+if out="$("${base_env[@]}" bash "$tmp/runner-control/scripts/qml-smoke.sh" --rows plugins,bar --list-rows)" && [[ $out == "$listed" && $out != "$smoke_subset" ]]; then
   ok "control: a runner whose predicate holds every row lists every row"
 else
   fail "control: the runner predicate copy listed: $(wc -l <<<"$out") rows"
@@ -1897,6 +1920,52 @@ if [[ $status == 2 && $out == 'qml-smoke: refused: argument=--rows value=no-such
   ok "the runner refuses a row it does not hold"
 else
   fail "the runner's unknown row refusal: exit=$status output=$out"
+fi
+# The rows a row reads, in a scratch tree: own names bar's file and part's,
+# a row file the tree has and the list does not, which is own's own; gone
+# names a row file the tree lacks. The tree's fence passes and its harness
+# stands in, printing each row it is handed, so no run here starts a
+# compositor or a shell. The run prints the named and the expanded set
+# once, which a lane reads to see what its retry ran, and runs the rows in
+# list order. The refused run stops before the fence, which would log its
+# call. The control is a copy without the refusal, which lists the row.
+for dir in runner-reads runner-refusal-control; do
+  mkdir -p "$tmp/$dir/scripts/smoke/rows"
+  cp -- "$repo/scripts/qml-smoke.sh" "$tmp/$dir/scripts/qml-smoke.sh"
+  cp -- "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/row-inputs.sh"
+  printf '%s\n' '# Rows.' bar own gone >"$tmp/$dir/scripts/smoke/rows.list"
+  printf '# inputs: shell/Core/Bar.qml\n' >"$tmp/$dir/scripts/smoke/rows/bar.sh"
+  printf '# inputs: scripts/smoke/rows/part.sh scripts/smoke/rows/bar.sh\n' >"$tmp/$dir/scripts/smoke/rows/own.sh"
+  printf '# Run by own.sh.\n' >"$tmp/$dir/scripts/smoke/rows/part.sh"
+  printf '# inputs: scripts/smoke/rows/left.sh\n' >"$tmp/$dir/scripts/smoke/rows/gone.sh"
+  printf '#!/usr/bin/env bash\necho fence >>"%s"\n' "$tmp/$dir/fence.log" >"$tmp/$dir/scripts/smoke/gpu-fence.sh"
+  chmod +x "$tmp/$dir/scripts/smoke/gpu-fence.sh"
+  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'smoke_finish() { :; }' >"$tmp/$dir/scripts/smoke/harness.sh"
+done
+d="$tmp/runner-reads"
+status=0
+out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows own 2>&1)" || status=$?
+if [[ $status == 0 && $out == $'qml-smoke: rows named=own run=bar,own\nrow=bar\nrow=own' && $(<"$d/fence.log") == fence ]]; then
+  ok "a run prints the named and the expanded rows once and runs them in list order"
+else
+  fail "the runner's expanded run: exit=$status output=$out"
+fi
+: >"$d/fence.log"
+status=0
+out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows gone 2>&1)" || status=$?
+if [[ $status == 2 && $out == 'qml-smoke: refused: argument=--rows value=gone reason=reads-unknown-row reads=left' && ! -s $d/fence.log ]]; then
+  ok "the runner refuses a row that reads a row file the tree lacks, before the fence"
+else
+  fail "the runner's unknown read refusal: exit=$status output=$out"
+fi
+d="$tmp/runner-refusal-control"
+plant "$d/scripts/qml-smoke.sh" '      elif [[ ! -f $repo/scripts/smoke/rows/$qml_smoke_read.sh ]]; then' '      elif false; then'
+status=0
+out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows gone --list-rows 2>&1)" || status=$?
+if [[ $status == 0 && $out == gone ]]; then
+  ok "control: a runner without the refusal lists the row"
+else
+  fail "control: the runner without its unknown read refusal: exit=$status output=$out"
 fi
 
 d="$tmp/plan-selector"; fresh "$d"
@@ -2364,7 +2433,7 @@ test_area=repo
 test_args=()
 d="$tmp/refs-clean"; refs_fixture "$d"
 row "live references pass" "$d" 0 "" \
-  "md-refs: summary=violations=0 references=2 markdown=1 sources=1 decisions=0:docs/decisions skipped=0"
+  "md-refs: summary=violations=0 references=2 markdown=1 sources=2 decisions=0:docs/decisions skipped=0"
 d="$tmp/refs-untracked"; refs_fixture "$d"
 mkdir -p "$d/sub"; printf 'See [gone](gone.md).\n' >"$d/sub/AGENTS.md"
 row "a dead link in an untracked document fails" "$d" 1 "" \

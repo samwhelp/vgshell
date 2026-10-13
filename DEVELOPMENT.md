@@ -6,7 +6,7 @@ Quickshell 0.3.1, Hyprland with Lua configuration, node 18 and python3; `vgshell
 
 ```sh
 bin/vgshell run                              # the shell from this checkout, in a Hyprland session that runs no other VGS
-scripts/qml-smoke.sh --rows bar,launcher     # the shell inside the nested sandbox, running only the named rows
+scripts/qml-smoke.sh --rows bar,launcher     # the shell inside the nested sandbox, running the named rows and the rows they read
 scripts/sandbox-shots.sh gallery settings    # PNGs of named scenes from the sandbox, under tmp/
 ```
 
@@ -42,7 +42,7 @@ Quickshell links jemalloc, so glibc's `MALLOC_PERTURB_` does nothing. Start a sh
 
 ## Smoke rows and shots
 
-- Run a row through `scripts/validate qml --changed <base>`, which adds the core rows `bar`, `hyprland-consent`, `session`, `start-order` and `auth-sentinel`. `scripts/qml-smoke.sh --rows` runs only the rows it names: without `hyprland-consent` the first-start notice keeps the keyboard, and without `bar` the device fakes never start and `share-picker` waits on `pw-dump` with no bound.
+- Run a row through `scripts/validate qml --changed <base>`, which adds the core rows `bar`, `hyprland-consent`, `session`, `start-order` and `auth-sentinel`. `scripts/qml-smoke.sh --rows` runs the rows it names and the rows their input lines name, and adds no core row: without `hyprland-consent` the first-start notice keeps the keyboard, and without `bar` the device fakes never start and `share-picker` waits on `pw-dump` with no bound.
 - Rows run in one bash shell. Give a new row's helpers a prefix no other row uses.
 - Enabling `vgs.jarvis` raises the requirement notice, which takes the keyboard, because the sandbox hides `tesseract`. A Jarvis row that reads focus or pixels calls `jarvis_setup_requirements` from `scripts/smoke/rows/jarvis.sh` before it enables the plugin.
 - `diagnostics` reads the log of the last shell a row started, and `jarvis-input` and `hyprland` restart the shell before it in a full run. A warning an earlier row logs can fail a scoped run and never a full one; compare the instance-log paths the rows print.
