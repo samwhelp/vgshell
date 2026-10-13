@@ -218,7 +218,7 @@ info_link_click() {
 }
 expect "the window opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "the page link fixture's page shows for its info dialog" '"acme.page-link/Settings"' settings_shown
-settings_press --type InfoButton "About On" || fail "the click on the On field's info icon failed"
+settings_press --type InfoButton "About On" SettingField On || fail "the click on the On field's info icon failed"
 expect_poll "the On field's info dialog draws its page reference" shown info_link_shown
 info_link_click || fail "the click on the info dialog's page reference failed"
 expect_poll "a page reference in an info dialog closes the dialog" absent info_link_shown
@@ -227,9 +227,9 @@ expect_poll "a page reference in an info dialog opens the page and tab it names"
 # A summon that names a tab opens the page on that tab, and on Settings
 # when the page has no such tab; a summon of the page shown switches its
 # tab. A tab without a plugin, or one that is not text, refuses the
-# summon. The control, at the row's end, is the Settings copy whose open()
-# drops the tab.
-expected_errors+=('summon host: vgs\.settings open\(\) failed: payload tab must be')
+# summon, read at the row's end with the window hidden, since a refused
+# summon drops the window (SummonHost.summon). The control, at the row's
+# end, is the Settings copy whose open() drops the tab.
 expect "the window opens the bare fixture's page before the tab summons" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
 expect_poll "the bare fixture's page shows before the tab summons" '"acme.bare/Settings"' settings_shown
 expect "a summon that names a tab is accepted" ok ipc shell summon window vgs.settings '{"plugin":"acme.probe","tab":"Details"}'
@@ -240,9 +240,6 @@ expect "a summon of the page shown that names a tab is accepted" ok ipc shell su
 expect_poll "a summon of the page shown switches to the tab it names" '"acme.probe/Details"' settings_shown
 expect "a summon that names a tab the page lacks is accepted" ok ipc shell summon window vgs.settings '{"plugin":"acme.probe","tab":"Setup"}'
 expect_poll "a tab the page lacks opens Settings" '"acme.probe/Settings"' settings_shown
-expect "a tab without a plugin refuses the summon" "refused: open-failed=vgs.settings" ipc shell summon window vgs.settings '{"tab":"Details"}'
-expect "a tab that is not text refuses the summon" "refused: open-failed=vgs.settings" ipc shell summon window vgs.settings '{"plugin":"acme.probe","tab":1}'
-expect "a refused summon leaves the page shown" '"acme.probe/Settings"' settings_shown
 rm -rf -- "${page_link_fixture:?}"
 rescan "a rescan drops the page link fixture"
 expect "the window opens the fixture's page after the page reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
@@ -1296,6 +1293,10 @@ hover "$page_link_x" "$((page_link_y - 60))" || fail "control: moving the pointe
 expect_poll "control: the pointer has left the page reference" false ipc smoke readMatchingDescendant window vgs.settings LinkText text "$page_link_text" hoveredLink
 expect "control: a window that opens no page for a page reference keeps its page" '"acme.page-link"' settings_page
 settings_page_close acme.probe
+expected_errors+=('summon host: vgs\.settings open\(\) failed: payload tab must be')
+expect "a tab without a plugin refuses the summon" "refused: open-failed=vgs.settings" ipc shell summon window vgs.settings '{"tab":"Details"}'
+expect "a tab that is not text refuses the summon" "refused: open-failed=vgs.settings" ipc shell summon window vgs.settings '{"plugin":"acme.probe","tab":1}'
+expect_poll "a refused tab summon leaves no window" 0 window_count Plugins
 
 # Control of the tab summon and the info dialog's page reference: a copy
 # of the Settings plugin whose open() drops the tab and whose field drops
@@ -1318,7 +1319,7 @@ expect "control: the copy takes a summon that names a tab" ok ipc shell summon w
 expect_poll "control: an open() that drops the tab shows Settings" '"acme.probe/Settings"' settings_shown
 expect "control: the copy opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "control: the copy shows the page link fixture's page" '"acme.page-link/Settings"' settings_shown
-settings_press --type InfoButton "About On" || fail "control: the click on the On field's info icon failed"
+settings_press --type InfoButton "About On" SettingField On || fail "control: the click on the On field's info icon failed"
 expect_poll "control: the copy's info dialog draws its page reference" shown info_link_shown
 info_link_click || fail "control: the click on the info dialog's page reference failed"
 expect_poll "control: the page reference closes the copy's info dialog" absent info_link_shown
