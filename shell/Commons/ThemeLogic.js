@@ -438,11 +438,18 @@ function readValue(leaf, raw) {
 // `overrides`, a map of dotted token path to raw value. Answers
 // { ok: true, values } with `values` a tree in the table's shape, or one
 // refusal. Each token is resolved once; a reference to a token on the
-// current path is a cycle.
+// current path is a cycle. The table's leaves are listed once and found by
+// path from then on: a walk of the table for every token and reference was
+// 6.3 to 7.3 ms of the 16.0 to 17.1 ms three judgments took in one apply
+// (node --cpu-prof at 100 us, three applies on cachy, 2026-10-12).
 function resolve(tokens, overrides) {
     var resolved = {};
     var visiting = [];
     var failure = null;
+    var all = leaves(tokens);
+    var leafAt = {};
+    for (var l = 0; l < all.length; l++)
+        leafAt[all[l].path] = all[l].leaf;
 
     var fail = function (reason, token, detail) {
         if (failure === null)
@@ -455,7 +462,7 @@ function resolve(tokens, overrides) {
             return resolved[path];
         if (visiting.indexOf(path) !== -1)
             return fail("cycle", path, "path=" + visiting.concat([path]).join(">"));
-        var leaf = nodeAt(tokens, path);
+        var leaf = leafAt[path];
         visiting.push(path);
         var tree = readValue(leaf, hasOwn(overrides, path) ? overrides[path] : leaf.value);
         var value = tree.error !== undefined ? fail(tree.error, path, tree.detail) : evaluate(tree, leaf.type, path);
@@ -486,8 +493,8 @@ function resolve(tokens, overrides) {
         case "text":
             return tree.value;
         case "reference":
-            var target = nodeAt(tokens, tree.path);
-            if (!isLeaf(target))
+            var target = hasOwn(leafAt, tree.path) ? leafAt[tree.path] : undefined;
+            if (target === undefined)
                 return fail("unknown-reference", token, "reference=" + tree.path);
             if (target.type !== want)
                 return fail("type", token, "want=" + want + " got=" + target.type + " reference=" + tree.path);
@@ -576,7 +583,6 @@ function resolve(tokens, overrides) {
         return value;
     }
 
-    var all = leaves(tokens);
     var values = {};
     var scale = valueOf(MOTION_SCALE);
     if (failure !== null)

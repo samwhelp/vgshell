@@ -1455,7 +1455,7 @@ const CONTROLS = [
     ["trailing text", "if (at !== text.length)", "if (false)"],
     ["unknown function", "if (!hasOwn(FUNCTIONS, tree.name))", "if (false)"],
     ["arity", "if (tree.args.length !== signature.args.length)", "if (false)"],
-    ["unknown reference", "if (!isLeaf(target))", "if (false)"],
+    ["unknown reference", "if (target === undefined)", "if (false)"],
     ["reference type", "if (target.type !== want)", "if (false)"],
     ["colour literal type", 'if (want !== "color")', "if (false)"],
     ["number literal type", "if (NUMERIC_TYPES.indexOf(want) === -1)\n                return fail", "if (false)\n                return fail"],
