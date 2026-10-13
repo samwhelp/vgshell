@@ -466,8 +466,8 @@ rows=(
   "tools|smoke verdict controls|scripts/test-smoke-verdict.sh|scripts/smoke/verdict.sh"
   "tools|smoke hyprctl bound controls|scripts/test-smoke-hypr-bound.sh|scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/test-smoke-hypr-bound.sh"
   "tools|mode hold controls|scripts/test-mode-hold.sh|scripts/smoke/mode-hold.sh scripts/smoke/verdict.sh"
-  "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/validate scripts/smoke/rows.list"
-  "tools|smoke row reader controls|python3 scripts/test-check-smoke-readers.py|scripts/check-smoke-readers.py scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/validate scripts/smoke/rows.list"
+  "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/smoke/rows.list"
+  "tools|smoke row reader controls|python3 scripts/test-check-smoke-readers.py|scripts/check-smoke-readers.py scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/smoke/rows.list"
   "tools|compositor reveal barrier controls|python3 scripts/test-compositor-reveal.py|scripts/test-compositor-reveal.py scripts/smoke/rows/compositor-reveal.sh scripts/smoke/harness.sh"
   "tools|secret-tool stand-in stdin order controls|scripts/test-secret-tool-stand-in.sh|scripts/test-secret-tool-stand-in.sh scripts/smoke/harness.sh"
   "tools|smoke stand-in terminal writers|python3 scripts/check-smoke-terminal.py|scripts/smoke/rows/*"
@@ -501,7 +501,7 @@ rows=(
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/*"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/*"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js themes/*"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh"
@@ -834,12 +834,6 @@ private_keys_check() {
   echo "validate: no private key in the tree"
 }
 
-# The rows every run that selects the nested smoke runs: the bar and the
-# session the others build on, the consent row that answers the dialog the
-# first shell raises, the start order and auth-sentinel, whose reading
-# covers every row the run held.
-smoke_core=(bar hyprland-consent session start-order auth-sentinel)
-
 # The lane bound: a diff-scoped run leaves out a row whose median in
 # scripts/smoke/rows.secs exceeds this many seconds, and the batch run on
 # main, which runs --full, runs it. In the measurement that file names
@@ -869,7 +863,8 @@ smoke_secs_read() {
   done
 }
 
-# The reader of a row's input line, which scripts/qml-smoke.sh shares.
+# The reader of a row's input line and the core rows, smoke_core, both of
+# which scripts/qml-smoke.sh shares.
 source scripts/smoke/row-inputs.sh
 
 # smoke_input_read KEY FILE: read FILE's input line into smoke_globs
@@ -1317,11 +1312,11 @@ smoke_list_rows() {
 # scripts/smoke/harness.sh carries an input line too, naming what the
 # harness and the libraries it sources read for every row. The harness
 # inputs are scripts/qml-smoke.sh, which holds the latency budgets and the
-# commands the sandbox hides, scripts/smoke/row-inputs.sh, which reads the
-# rows a named row brings, harness.sh and the paths its line matches: a
-# change to one runs every row, as does a harness line, row list or
-# tracked-file list this cannot read; a harness glob that matches nothing
-# only reports. scripts/smoke/rows.list, which holds the row order, is no
+# commands the sandbox hides, scripts/smoke/row-inputs.sh, which holds
+# the core rows and reads the rows a row brings, harness.sh and the paths
+# its line matches: a change to one runs every row, as does a harness
+# line, row list or tracked-file list this cannot read; a harness glob
+# that matches nothing only reports. scripts/smoke/rows.list, which holds the row order, is no
 # harness input: a change to it runs the rows its added lines name, read
 # from the diff against the change base, so a moved row runs and a comment
 # runs nothing, and a row its removed lines unlist brings each row that

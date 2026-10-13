@@ -23,7 +23,7 @@ program in a row that parses JSON from its stdin is `py_reply`'s program:
                   cannot replace the sourcing shell's function.
   unreachable-leaves the row declares state it leaves on a `# leaves:`
                   line in its leading comment block, and it is no core row,
-                  `smoke_core` in scripts/validate, and no later row in
+                  `smoke_core` in scripts/smoke/row-inputs.sh, and no later row in
                   rows.list beside DIR names its file,
                   `scripts/smoke/rows/<row>.sh`, as a word of its
                   `# inputs:` line, the word scripts/validate follows. A scoped run that holds the row and not that reader
@@ -45,7 +45,8 @@ line: `<rule> <file>:<line> <detail>`. The pass is
 finding, 2 when the directory or a file cannot be read, printed as
 `check-smoke-readers: unreadable: <path>: <strerror>`. A directory holding
 no row is unreadable too: an empty walk certifies nothing, and so is a
-scripts/validate without one `smoke_core=(...)` line once a row declares.
+scripts/smoke/row-inputs.sh without one `smoke_core=(...)` line once a row
+declares.
 """
 import os
 import re
@@ -54,7 +55,7 @@ import sys
 ROWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smoke", "rows")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HARNESS = os.path.join(REPO, "scripts", "smoke", "harness.sh")
-VALIDATE = os.path.join(REPO, "scripts", "validate")
+CORE_FILE = os.path.join(REPO, "scripts", "smoke", "row-inputs.sh")
 CORE = re.compile(r"(?m)^smoke_core=\(([^)\n]*)\)$")
 FUNCTION = re.compile(r"(?<![\w=])(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)\s*[{(]|\bfunction\s+([A-Za-z_][\w.-]*)\s*[{(]")
 SOURCE = re.compile(r"(?m)^[ \t]*(source|\.)[ \t]+(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;]+))")
@@ -277,9 +278,9 @@ def check_leaves(root, texts, findings):
         return
     order = [line.strip() for line in read_file(os.path.join(os.path.dirname(root), "rows.list")).splitlines()]
     order = [row for row in order if row and not row.startswith("#")]
-    cores = CORE.findall(read_file(VALIDATE))
+    cores = CORE.findall(read_file(CORE_FILE))
     if len(cores) != 1:
-        raise Unreadable(VALIDATE, f"smoke_core lines={len(cores)}")
+        raise Unreadable(CORE_FILE, f"smoke_core lines={len(cores)}")
     for name, number in sorted(declared.items()):
         row = name[:-len(".sh")]
         if row in cores[0].split():

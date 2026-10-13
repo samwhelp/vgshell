@@ -1813,9 +1813,10 @@ test_args=()
 # The real runner, under the test environment so a regressed refusal stops
 # at the harness's missing-session check: it lists the core rows, each with
 # its row file; --list-rows with --rows lists the rows that run would hold,
-# in run order, the rows a named row's input line names among them; and it
-# refuses a row it does not hold. The first control is a copy whose row
-# predicate holds every row, the second one that follows no input line.
+# in run order: the named rows, the core rows and the rows an input line
+# of one of those names; and it refuses a row it does not hold. The
+# controls are copies: one whose row predicate holds every row, one that
+# follows no input line, one that adds no core row.
 smoke_core_rows=(bar hyprland-consent session start-order auth-sentinel)
 if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $(wc -l <<<"$listed") -ge 60 ]]; then
   for smoke_row_name in "${smoke_core_rows[@]}"; do
@@ -1827,29 +1828,36 @@ if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $
 else
   fail "qml-smoke.sh --list-rows: the read listed under 60 rows, so the row list no longer reads as one name a line"
 fi
-smoke_subset=$'bar\nplugins'
-if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows plugins,bar --list-rows)" && [[ $out == "$smoke_subset" ]]; then
-  ok "the runner lists only the rows --rows names, in run order"
-else
-  fail "the runner's --rows listing: $out"
-fi
-smoke_read=$'plugins\ncapabilities'
-if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == "$smoke_read" ]]; then
-  ok "the runner adds the row a named row's input line names, in run order"
-else
-  fail "the runner's listing of a row that reads another: $out"
-fi
-for dir in runner-control runner-reads-control; do
+# session and start-order read capabilities, which reads plugins, and
+# start-order reads device-fakes.
+smoke_subset=$'bar\nhyprland-consent\nplugins\ncapabilities\nsession\ndevice-fakes\nstart-order\nauth-sentinel'
+for smoke_named in plugins,bar capabilities; do
+  if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows "$smoke_named" --list-rows)" && [[ $out == "$smoke_subset" ]]; then
+    ok "the runner lists the rows --rows $smoke_named names, the core rows and the rows those read, in run order"
+  else
+    fail "the runner's --rows $smoke_named listing: $out"
+  fi
+done
+for dir in runner-control runner-reads-control runner-core-control; do
   mkdir -p "$tmp/$dir/scripts/smoke/rows"
   cp -- "$repo/scripts/smoke/rows.list" "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/"
-  cp -- "$repo/scripts/smoke/rows/bar.sh" "$repo/scripts/smoke/rows/plugins.sh" "$repo/scripts/smoke/rows/capabilities.sh" "$tmp/$dir/scripts/smoke/rows/"
+  for smoke_row_name in $smoke_subset; do
+    cp -- "$repo/scripts/smoke/rows/$smoke_row_name.sh" "$tmp/$dir/scripts/smoke/rows/"
+  done
 done
 cp -- "$repo/scripts/qml-smoke.sh" "$tmp/runner-reads-control/scripts/qml-smoke.sh"
 plant "$tmp/runner-reads-control/scripts/qml-smoke.sh" '        qml_smoke_queue+=("$qml_smoke_read")' '        :'
-if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == capabilities ]]; then
-  ok "control: a runner that follows no input line lists the named row alone"
+if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == $'bar\nhyprland-consent\ncapabilities\nsession\nstart-order\nauth-sentinel' ]]; then
+  ok "control: a runner that follows no input line lists the named row and the core rows alone"
 else
   fail "control: the runner that follows no input line listed: $out"
+fi
+cp -- "$repo/scripts/qml-smoke.sh" "$tmp/runner-core-control/scripts/qml-smoke.sh"
+plant "$tmp/runner-core-control/scripts/qml-smoke.sh" '  qml_smoke_queue=("${qml_smoke_named[@]}" "${smoke_core[@]}")' '  qml_smoke_queue=("${qml_smoke_named[@]}")'
+if out="$("${base_env[@]}" bash "$tmp/runner-core-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == $'plugins\ncapabilities' ]]; then
+  ok "control: a runner that adds no core row lists the named row and the row it reads alone"
+else
+  fail "control: the runner that adds no core row listed: $out"
 fi
 python3 - "$repo/scripts/qml-smoke.sh" "$tmp/runner-control/scripts/qml-smoke.sh" <<'PY'
 from pathlib import Path
@@ -1921,34 +1929,48 @@ if [[ $status == 2 && $out == 'qml-smoke: refused: argument=--rows value=no-such
 else
   fail "the runner's unknown row refusal: exit=$status output=$out"
 fi
-# The rows a row reads, in a scratch tree: own names bar's file and part's,
-# a row file the tree has and the list does not, which is own's own; gone
-# names a row file the tree lacks. The tree's fence passes and its harness
-# stands in, printing each row it is handed, so no run here starts a
-# compositor or a shell. The run prints the named and the expanded set
-# once, which a lane reads to see what its retry ran, and runs the rows in
-# list order. The refused run stops before the fence, which would log its
-# call. The control is a copy without the refusal, which lists the row.
-for dir in runner-reads runner-refusal-control; do
+# The rows a run holds, in a scratch tree whose list holds the core rows:
+# top names own's file, own names base's and part's, a row file the tree
+# has and the list does not, which is own's own; the core row session names
+# seat's; gone names a row file the tree lacks; and the short tree's list
+# lacks a core row. The tree's fence passes and its harness stands in,
+# printing each row it is handed and answering the step the runner takes
+# after hyprland-consent, so no run here starts a compositor or a shell. The run prints the named and the expanded set once, which a lane
+# reads to see what its retry ran, and runs the rows in list order: the
+# rows top's chain reaches two reads deep and the row a core row reads. A
+# refused run stops before the fence, which would log its call. The
+# controls are copies: one that follows the named rows' lines alone, which
+# loses base and seat, and one for each refusal, which lists the rows.
+for dir in runner-reads runner-deep-control runner-refusal-control runner-short runner-short-control; do
   mkdir -p "$tmp/$dir/scripts/smoke/rows"
   cp -- "$repo/scripts/qml-smoke.sh" "$tmp/$dir/scripts/qml-smoke.sh"
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/row-inputs.sh"
-  printf '%s\n' '# Rows.' bar own gone >"$tmp/$dir/scripts/smoke/rows.list"
-  printf '# inputs: shell/Core/Bar.qml\n' >"$tmp/$dir/scripts/smoke/rows/bar.sh"
-  printf '# inputs: scripts/smoke/rows/part.sh scripts/smoke/rows/bar.sh\n' >"$tmp/$dir/scripts/smoke/rows/own.sh"
+  printf '%s\n' '# Rows.' bar hyprland-consent seat session base own top gone start-order auth-sentinel >"$tmp/$dir/scripts/smoke/rows.list"
+  for smoke_row_name in bar hyprland-consent seat base start-order auth-sentinel; do
+    printf '# inputs: shell/Core/Bar.qml\n' >"$tmp/$dir/scripts/smoke/rows/$smoke_row_name.sh"
+  done
+  printf '# inputs: scripts/smoke/rows/seat.sh\n' >"$tmp/$dir/scripts/smoke/rows/session.sh"
+  printf '# inputs: scripts/smoke/rows/part.sh scripts/smoke/rows/base.sh\n' >"$tmp/$dir/scripts/smoke/rows/own.sh"
+  printf '# inputs: scripts/smoke/rows/own.sh\n' >"$tmp/$dir/scripts/smoke/rows/top.sh"
   printf '# Run by own.sh.\n' >"$tmp/$dir/scripts/smoke/rows/part.sh"
   printf '# inputs: scripts/smoke/rows/left.sh\n' >"$tmp/$dir/scripts/smoke/rows/gone.sh"
   printf '#!/usr/bin/env bash\necho fence >>"%s"\n' "$tmp/$dir/fence.log" >"$tmp/$dir/scripts/smoke/gpu-fence.sh"
   chmod +x "$tmp/$dir/scripts/smoke/gpu-fence.sh"
-  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'smoke_finish() { :; }' >"$tmp/$dir/scripts/smoke/harness.sh"
+  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_finish() { :; }' >"$tmp/$dir/scripts/smoke/harness.sh"
 done
 d="$tmp/runner-reads"
+smoke_deep=(bar hyprland-consent seat session base own top start-order auth-sentinel)
 status=0
-out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows own 2>&1)" || status=$?
-if [[ $status == 0 && $out == $'qml-smoke: rows named=own run=bar,own\nrow=bar\nrow=own' && $(<"$d/fence.log") == fence ]]; then
+out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows top 2>&1)" || status=$?
+if [[ $status == 0 && $out == "qml-smoke: rows named=top run=$(IFS=,; printf '%s' "${smoke_deep[*]}")"$'\n'"$(printf 'row=%s\n' "${smoke_deep[@]}")" && $(<"$d/fence.log") == fence ]]; then
   ok "a run prints the named and the expanded rows once and runs them in list order"
 else
   fail "the runner's expanded run: exit=$status output=$out"
+fi
+if out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows top --list-rows 2>&1)" && [[ $out == "$(printf '%s\n' "${smoke_deep[@]}")" ]]; then
+  ok "the runner lists the rows a named row's chain and a core row's line reach"
+else
+  fail "the runner's listing of a two-read chain: $out"
 fi
 : >"$d/fence.log"
 status=0
@@ -1958,20 +1980,46 @@ if [[ $status == 2 && $out == 'qml-smoke: refused: argument=--rows value=gone re
 else
   fail "the runner's unknown read refusal: exit=$status output=$out"
 fi
+d="$tmp/runner-deep-control"
+plant "$d/scripts/qml-smoke.sh" $'    qml_smoke_reach[$qml_smoke_row]=1\n' $'    qml_smoke_reach[$qml_smoke_row]=1\n    [[ " ${qml_smoke_named[*]} " == *" $qml_smoke_row "* ]] || continue\n'
+if out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows top --list-rows 2>&1)" && [[ $out == $'bar\nhyprland-consent\nsession\nown\ntop\nstart-order\nauth-sentinel' ]]; then
+  ok "control: a runner that follows the named rows' lines alone loses the second read and the core row's"
+else
+  fail "control: the runner that follows the named rows' lines alone listed: $out"
+fi
 d="$tmp/runner-refusal-control"
 plant "$d/scripts/qml-smoke.sh" '      elif [[ ! -f $repo/scripts/smoke/rows/$qml_smoke_read.sh ]]; then' '      elif false; then'
 status=0
 out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows gone --list-rows 2>&1)" || status=$?
-if [[ $status == 0 && $out == gone ]]; then
+if [[ $status == 0 && $out == $'bar\nhyprland-consent\nseat\nsession\ngone\nstart-order\nauth-sentinel' ]]; then
   ok "control: a runner without the refusal lists the row"
 else
   fail "control: the runner without its unknown read refusal: exit=$status output=$out"
 fi
+for dir in runner-short runner-short-control; do
+  printf '%s\n' '# Rows.' bar hyprland-consent seat session base own top start-order >"$tmp/$dir/scripts/smoke/rows.list"
+done
+d="$tmp/runner-short"
+status=0
+out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows own 2>&1)" || status=$?
+if [[ $status == 2 && $out == 'qml-smoke: refused: argument=--rows value=auth-sentinel reason=core-row-missing' && ! -e $d/fence.log ]]; then
+  ok "the runner refuses a row list that lacks a core row, before the fence"
+else
+  fail "the runner's missing core row refusal: exit=$status output=$out"
+fi
+d="$tmp/runner-short-control"
+plant "$d/scripts/qml-smoke.sh" $'  for qml_smoke_row in "${smoke_core[@]}"; do\n    if [[ " ${qml_smoke_rows[*]} " != *" $qml_smoke_row "* ]]; then' $'  for qml_smoke_row in "${smoke_core[@]}"; do\n    if false; then'
+status=0
+out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows own --list-rows 2>/dev/null)" || status=$?
+if [[ $status == 0 && $out == $'bar\nhyprland-consent\nseat\nsession\nbase\nown\nstart-order' ]]; then
+  ok "control: a runner without the core row refusal lists a run that lacks the row"
+else
+  fail "control: the runner without its missing core row refusal: exit=$status output=$out"
+fi
 
 d="$tmp/plan-selector"; fresh "$d"
 printf '\n' >>"$d/scripts/validate"
-# The smoke reader rule reads the core row list from scripts/validate.
-selector_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\n'"$repo_plan"$'\nscripts/test-validate.sh'
+selector_plan="$repo_plan"$'\nscripts/test-validate.sh'
 if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate --list 2>"$tmp/plan.err")" && [[ $out == "$selector_plan" ]]; then
   ok "selector changes run their control without unrelated product suites"
 else

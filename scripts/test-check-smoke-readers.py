@@ -7,7 +7,7 @@ running `qs list` itself. Each row builds a throwaway rows directory
 holding one row, runs the check on it and asserts the exact set of rule
 keys and lines, and the exit status. The `# leaves:` rule's rows each
 build a rows directory of several rows with a rows.list beside it, read
-against the core rows scripts/validate names."""
+against the core rows scripts/smoke/row-inputs.sh names."""
 import os
 import re
 import shutil
@@ -69,7 +69,7 @@ CASES = [
 ]
 
 # leaves rows: name, {row: text}, rows.list order, the expected (rule key,
-# row, line) findings. session is a core row in scripts/validate.
+# row, line) findings. session is a core row in scripts/smoke/row-inputs.sh.
 LEAVES = [
     ("a declaring row a later row names", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["a", "b"], []),
     ("a declaring row a later row matches only by a glob", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/*\n:\n"}, ["a", "b"], [("unreachable-leaves", "a", 1)]),
@@ -163,11 +163,12 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = plant(fixture, "phantom() { :; }\n")
     result = run([rows], checker)
     check("a stand-in function in a harness heredoc is not shared", result.returncode == 0, result)
-    # The fixture tree's checker reads the fixture's scripts/validate, which
-    # does not exist: the core rows cannot be read.
+    # The fixture tree's checker reads the fixture's
+    # scripts/smoke/row-inputs.sh, which does not exist: the core rows
+    # cannot be read.
     directory = plant_rows(os.path.join(fixture, "leaves"), {"session": "# leaves: layers\n:\n"}, ["session"])
     result = run([directory], checker)
-    check("a declaration with no core list to read is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + os.path.join(fixture, "scripts", "validate") + ":"), result)
+    check("a declaration with no core list to read is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + os.path.join(smoke, "row-inputs.sh") + ":"), result)
     os.remove(nested)
     result = run([rows], checker)
     check("a missing sourced helper cannot certify the rows", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + nested + ":"), result)
