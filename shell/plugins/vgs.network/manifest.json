@@ -20,6 +20,7 @@
     "pane": "Pane.qml"
   },
   "capabilities": [
+    "run",
     "status",
     "surfaces",
     "ipc",
@@ -32,6 +33,7 @@
     "order": 20
   },
   "requirements": [
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": true, "purpose": "Opens the browser for network sign-in" },
     { "command": "nmcli", "packages": { "pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager" }, "optional": false, "purpose": "Reads saved profiles for QR sharing, connection details and network permissions" },
     { "command": "qrencode", "packages": { "pacman": "qrencode", "apt": "qrencode", "dnf": "qrencode", "nix": "qrencode" }, "optional": false, "purpose": "Encodes a saved Wi-Fi network for sharing by QR code" },
     { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": false, "purpose": "Reads whether NetworkManager is installed and running" }

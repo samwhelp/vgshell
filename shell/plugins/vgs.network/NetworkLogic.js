@@ -93,6 +93,13 @@ function permission(text, code) {
     return "unavailable";
 }
 
+function checkedConnectivity(text, code) {
+    if (code !== 0) return "Unknown";
+    const values = { portal: "Portal", limited: "Limited", full: "Full", none: "None", unknown: "Unknown" };
+    const value = text.trim();
+    return Object.prototype.hasOwnProperty.call(values, value) ? values[value] : "Unknown";
+}
+
 function state(service, backend, managed, access, connected, connectivity, checks, wifiEnabled, hasWifi) {
     if (service === "absent" || service === "stopped") return service;
     if (service !== "running" || !backend) return "unavailable";

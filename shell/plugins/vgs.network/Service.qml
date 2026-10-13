@@ -41,10 +41,6 @@ Item {
         NoSecrets: ConnectionFailReason.NoSecrets, WifiAuthTimeout: ConnectionFailReason.WifiAuthTimeout,
         WifiClientFailed: ConnectionFailReason.WifiClientFailed
     })
-    readonly property var connectivityVariants: ({
-        Portal: NetworkConnectivity.Portal, Limited: NetworkConnectivity.Limited,
-        Full: NetworkConnectivity.Full, None: NetworkConnectivity.None, Unknown: NetworkConnectivity.Unknown
-    })
     readonly property var devices: Networking.devices.values
     readonly property var wifiDevice: devices.find(d => d.type === DeviceType.Wifi) || null
     readonly property var wifiObjects: wifiDevice ? wifiDevice.networks.values : []
@@ -60,16 +56,111 @@ Item {
     readonly property bool backendAvailable: Networking.backend === NetworkBackendType.NetworkManager
     readonly property bool managed: devices.length === 0 || devices.some(d => d.nmManaged)
     readonly property bool connected: devices.some(d => d.connected && (d.type !== DeviceType.Wifi || Networking.wifiEnabled))
+    // A tunnel can stay connected after Wi-Fi drops. Only a physical link
+    // can offer sign-in; scans do not change that link's identity.
+    readonly property string portalConnectionKey: devices.filter(d => d.connected &&
+        (d.type === DeviceType.Wired || (d.type === DeviceType.Wifi && Networking.wifiEnabled)))
+        .map(d => d.name).sort().join("\n")
+    property int connectivityGeneration: 0
+    property var connectivityRequest: null
+    property string checkedConnectivity: "Unknown"
+    property string connectivityProblem: ""
     readonly property string state: Logic.state(serviceState, backendAvailable, managed, access,
-        connected, Logic.enumName(Networking.connectivity, connectivityVariants), Networking.connectivityCheckEnabled,
+        connected, checkedConnectivity, Networking.connectivityCheckEnabled,
         Networking.wifiEnabled, wifiDevice !== null)
     readonly property int leaseCount: Object.keys(leases).length
+    readonly property bool portalAvailable: portalConnectionKey !== "" && state === "portal"
     readonly property bool nmcliPresent: shell !== null && shell.requirements.missing.indexOf("nmcli") === -1
     readonly property var snapshot: ({ state: state, access: access, text: Logic.summary({ state: state, wifi: wifiRows, ethernet: wiredRows }),
         wifi: wifiRows, ethernet: wiredRows, wifiEnabled: Networking.wifiEnabled,
         wifiHardwareEnabled: Networking.wifiHardwareEnabled, hasWifi: wifiDevice !== null,
         wifiAutoconnect: wifiDevice ? wifiDevice.autoconnect : false, wifiInterface: wifiDevice ? wifiDevice.name : "",
-        writable: Logic.writable(state), action: action, prompt: prompt, problem: problem, detail: detail })
+        writable: Logic.writable(state), portalAvailable: portalAvailable,
+        action: action, prompt: prompt, problem: problem || connectivityProblem, detail: detail })
+
+    // The native connectivity property can still describe the previous link.
+    // nmcli's check waits for a fresh result; only its current link may publish.
+    // https://networkmanager.dev/docs/api/latest/nmcli.html#networking
+    function checkConnectivity() {
+        if (portalConnectionKey === "" || !Networking.canCheckConnectivity || !Networking.connectivityCheckEnabled || !nmcliPresent) return;
+        if (connectivityProbe.running || connectivityRequest !== null) return;
+        connectivityRequest = { key: portalConnectionKey, generation: connectivityGeneration };
+        connectivityProbe.running = true;
+    }
+    function finishConnectivity(text, code) {
+        const pending = connectivityRequest;
+        connectivityRequest = null;
+        if (pending === null) return;
+        if (pending.key !== portalConnectionKey || pending.generation !== connectivityGeneration) {
+            Qt.callLater(root.checkConnectivity);
+            return;
+        }
+        const value = Logic.checkedConnectivity(text, code);
+        if (value === "Unknown") {
+            connectivityProblem = "Internet access could not be checked. Retrying.";
+            console.warn("network: connectivity check unavailable exit=" + code);
+            return;
+        }
+        checkedConnectivity = value;
+        connectivityProblem = "";
+    }
+    Process {
+        id: connectivityProbe
+        objectName: "network-connectivity-check"
+        command: ["nmcli", "--wait", String(root.requestTimeout / 1000), "networking", "connectivity", "check"]
+        environment: ({ LC_ALL: "C" })
+        stdout: StdioCollector { id: connectivityText; waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: code => root.finishConnectivity(connectivityText.text, code)
+        // FailedToStart emits runningChanged without exited in Quickshell 0.3.1.
+        onRunningChanged: if (!running && root.connectivityRequest !== null) root.finishConnectivity("", -1)
+    }
+    Connections {
+        target: Networking
+        function onConnectivityChanged() { Qt.callLater(root.checkConnectivity); }
+        function onConnectivityCheckEnabledChanged() {
+            root.connectivityGeneration++;
+            root.checkedConnectivity = "Unknown";
+            root.connectivityProblem = "";
+            Qt.callLater(root.checkConnectivity);
+        }
+    }
+    function openPortal() {
+        if (shell === null || !portalAvailable) return "refused: portal=unavailable";
+        if (shell.requirements.missing.includes("xdg-open")) {
+            shell.requirements.offer(["xdg-open"]);
+            return "refused: portal=missing-tool";
+        }
+        // Fixed HTTP lets the network redirect the browser to its sign-in
+        // page. No address supplied by the network becomes a command.
+        // Chromium preloads archlinux.org with include_subdomains HSTS, so
+        // its probe URL upgrades to HTTPS before a hotel can redirect HTTP.
+        // Apple's success page is cacheable. Each click must reach this network.
+        const reply = shell.run.detached(["xdg-open", "http://captive.apple.com/hotspot-detect.html?vgs=" + Date.now()]);
+        if (reply === "ok") {
+            problem = "";
+        } else {
+            console.warn("network: sign-in page " + reply);
+            problem = "The browser could not open the network sign-in page.";
+        }
+        return reply;
+    }
+    onPortalConnectionKeyChanged: {
+        connectivityGeneration++;
+        checkedConnectivity = "Unknown";
+        connectivityProblem = "";
+        Qt.callLater(root.checkConnectivity);
+    }
+    // Omarchy keeps native checks active while the browser has sign-in open.
+    // https://github.com/basecamp/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml
+    Timer {
+        interval: 10000
+        repeat: true
+        running: root.portalConnectionKey !== "" && (root.checkedConnectivity === "Unknown"
+            || root.connectivityProblem !== "" || ["portal", "limited"].includes(root.state))
+            && Networking.canCheckConnectivity && Networking.connectivityCheckEnabled
+        onTriggered: root.checkConnectivity()
+    }
 
     function publish() {
         if (shell === null) return;
@@ -244,6 +335,8 @@ Item {
 
     function act(arg) {
         const request = JSON.parse(arg);
+        if (request.kind === "sign-in") return openPortal();
+        if (request.kind === "check-connectivity") { checkConnectivity(); return "ok"; }
         if (request.kind === "cancel") { prompt = null; problem = ""; return "ok"; }
         if (!Logic.writable(state)) return "refused: network=" + state;
         if (operation !== null && operation.kind === "join") return "busy";
@@ -304,6 +397,7 @@ Item {
 
     function refresh() {
         if (shell === null) return "unavailable";
+        checkConnectivity();
         if (!serviceProbe.running && shell.requirements.missing.indexOf("systemctl") === -1) serviceProbe.running = true;
         if (!nmcliPresent) access = "unavailable";
         else if (!permissions.running) permissions.running = true;

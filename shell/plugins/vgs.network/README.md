@@ -11,6 +11,7 @@ Network joins Wi-Fi and shows your Wi-Fi and Ethernet connections. It has a bar 
 - Select a network and press Enter to join or disconnect. Delete forgets the selected saved network.
 - Turns the Wi-Fi radio and automatic joining on or off.
 - Shows the connection details of the selected device.
+- Sign in opens the browser when a fresh connection check finds a captive portal. VGS checks the connection while access is restricted. Check connection updates the result after sign-in.
 - Share QR code shows a QR code that joins another device to a saved network. VGS keeps neither the password nor the QR code after the view closes.
 - Shows the cause when NetworkManager is missing, stopped or refuses access. Wi-Fi passwords stay in NetworkManager's store.
 - Offers to install the details tool or the sharing tool when one is missing.

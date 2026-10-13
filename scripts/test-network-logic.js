@@ -28,6 +28,124 @@ function activateSuite(source) {
     }
 }
 const body = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.network/NetworkBody.qml"), "utf8");
+const service = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.network/Service.qml"), "utf8");
+function portalSuite(source) {
+    const open = source.match(/function openPortal\(\) \{[\s\S]*?\n    \}/);
+    const check = source.match(/function checkConnectivity\(\) \{[\s\S]*?\n    \}/);
+    const finish = source.match(/function finishConnectivity\(text, code\) \{[\s\S]*?\n    \}/);
+    const offered = source.match(/readonly property bool portalAvailable: (.*)/);
+    assert.ok(open && check && finish && offered);
+    const offer = new Function("portalConnectionKey", "state", "return " + offered[1]);
+    for (const [key, state, expected] of [["wlan0", "portal", true], ["wlan0", "limited", false],
+        ["wlan0", "connected", false], ["", "portal", false]]) assert.equal(offer(key, state), expected);
+    for (const [available, missing, launchReply, expected] of [
+        [false, [], "ok", "refused: portal=unavailable"],
+        [true, ["xdg-open"], "ok", "refused: portal=missing-tool"],
+        [true, [], "ok", "ok"], [true, [], "refused: run=failed", "refused: run=failed"]
+    ]) {
+        const calls = [];
+        const offers = [];
+        const context = { portalAvailable: available, problem: "", console: { warn() {} }, Date: { now: () => 123 },
+            shell: { requirements: { missing, offer(value) { offers.push(value); } },
+                run: { detached(argv) { calls.push(argv); return launchReply; } } } };
+        vm.createContext(context);
+        vm.runInContext(open[0], context);
+        assert.equal(context.openPortal(), expected);
+        assert.deepEqual(JSON.parse(JSON.stringify(calls)), available && missing.length === 0
+            ? [["xdg-open", "http://captive.apple.com/hotspot-detect.html?vgs=123"]] : []);
+        assert.deepEqual(JSON.parse(JSON.stringify(offers)), available && missing.length !== 0 ? [["xdg-open"]] : []);
+        assert.equal(context.problem !== "", available && missing.length === 0 && launchReply !== "ok");
+        context.shell = null;
+        assert.equal(context.openPortal(), "refused: portal=unavailable");
+    }
+    for (const [key, supported, enabled, present, running, pending, expected] of [
+        ["wlan0", true, true, true, false, null, true], ["", true, true, true, false, null, false],
+        ["wlan0", false, true, true, false, null, false], ["wlan0", true, false, true, false, null, false],
+        ["wlan0", true, true, false, false, null, false], ["wlan0", true, true, true, true, null, false],
+        ["wlan0", true, true, true, false, {}, false]
+    ]) {
+        const probe = { running };
+        const context = { portalConnectionKey: key, connectivityGeneration: 3, connectivityRequest: pending,
+            nmcliPresent: present, connectivityProbe: probe,
+            Networking: { canCheckConnectivity: supported, connectivityCheckEnabled: enabled } };
+        vm.createContext(context);
+        vm.runInContext(check[0], context);
+        context.checkConnectivity();
+        assert.equal(probe.running, running || expected);
+        assert.deepEqual(JSON.parse(JSON.stringify(context.connectivityRequest)), expected ? { key, generation: 3 } : pending);
+    }
+    const logic = load(file, commons);
+    for (const [text, code, expected] of [["portal\n", 0, "Portal"], ["full\n", 0, "Full"],
+        ["limited", 0, "Limited"], ["none", 0, "None"], ["unknown", 0, "Unknown"],
+        ["portal", 1, "Unknown"], ["garbage", 0, "Unknown"]]) assert.equal(logic.checkedConnectivity(text, code), expected);
+    for (const [key, generation, request, text, code, expected, retry] of [
+        ["wlan0", 3, { key: "wlan0", generation: 3 }, "portal", 0, "Portal", false],
+        ["wlan0", 3, { key: "wlan0", generation: 3 }, "full", 0, "Full", false],
+        ["wlan1", 3, { key: "wlan0", generation: 3 }, "portal", 0, "Unknown", true],
+        ["wlan0", 5, { key: "wlan0", generation: 3 }, "portal", 0, "Unknown", true],
+        ["wlan0", 3, null, "portal", 0, "Unknown", false],
+        ["wlan0", 3, { key: "wlan0", generation: 3 }, "portal", 1, "Unknown", false]
+    ]) {
+        let retries = 0;
+        const context = { portalConnectionKey: key, connectivityGeneration: generation, connectivityRequest: request,
+            checkedConnectivity: "Unknown", connectivityProblem: "", Logic: logic, checkConnectivity() {}, console: { warn() {} },
+            Qt: { callLater() { retries++; } } };
+        context.root = context;
+        vm.createContext(context);
+        vm.runInContext(finish[0], context);
+        context.finishConnectivity(text, code);
+        assert.equal(context.checkedConnectivity, expected);
+        assert.equal(context.connectivityRequest, null);
+        assert.equal(retries, Number(retry));
+    }
+    const recovery = { portalConnectionKey: "wlan0", connectivityGeneration: 3,
+        connectivityRequest: null, checkedConnectivity: "Portal", connectivityProblem: "",
+        Logic: logic, console: { warn() {} }, Qt: { callLater() {} } };
+    recovery.root = recovery;
+    vm.createContext(recovery);
+    vm.runInContext(finish[0], recovery);
+    for (const [text, code, expected, failed] of [["", 1, "Portal", true], ["full", 0, "Full", false]]) {
+        recovery.connectivityRequest = { key: "wlan0", generation: 3 };
+        recovery.finishConnectivity(text, code);
+        assert.equal(recovery.checkedConnectivity, expected);
+        assert.equal(recovery.connectivityProblem !== "", failed);
+    }
+    const polling = source.match(/running: (root.portalConnectionKey[^]*?)\n        onTriggered/);
+    assert.ok(polling);
+    const polls = new Function("root", "Networking", "return " + polling[1]);
+    for (const [key, value, state, failed, enabled, expected] of [
+        ["wlan0", "Portal", "portal", false, true, true],
+        ["wlan0", "Full", "connected", false, true, false],
+        ["wlan0", "Full", "connected", true, true, true],
+        ["wlan0", "Unknown", "connected", false, true, true],
+        ["wlan0", "Limited", "limited", false, true, true],
+        ["", "Unknown", "connected", true, true, false],
+        ["wlan0", "Portal", "portal", false, false, false]
+    ]) assert.equal(polls({ portalConnectionKey: key, checkedConnectivity: value, state,
+        connectivityProblem: failed ? "unavailable" : "" },
+        { canCheckConnectivity: true, connectivityCheckEnabled: enabled }), expected);
+}
+portalSuite(service);
+for (const [before, after] of [
+    ["!portalAvailable", "false"],
+    ['shell.requirements.missing.includes("xdg-open")', "false"],
+    ['portalConnectionKey === "" ||', ""],
+    ["!Networking.canCheckConnectivity ||", ""],
+    ["!Networking.connectivityCheckEnabled ||", ""],
+    ["|| !nmcliPresent", ""],
+    ["connectivityProbe.running ||", ""],
+    ["connectivityRequest !== null", "false"],
+    ["pending.key !== portalConnectionKey ||", ""],
+    ["pending.generation !== connectivityGeneration", "false"],
+    ['if (value === "Unknown")', "if (false)"],
+    ['root.connectivityProblem !== "" ||', ""],
+    ['root.checkedConnectivity === "Unknown"\n            ||', "false ||"],
+    ['state === "portal"', '["portal", "limited"].includes(state)']
+]) {
+    assert.ok(service.includes(before));
+    assert.throws(() => portalSuite(service.replace(before, after)));
+}
+console.log("network-logic: control=portal launch and native checks red");
 activateSuite(body);
 assert.equal(body.split("!row.known && Logic.supportsEnterprise").length - 1, 1);
 assert.throws(() => activateSuite(body.replace("!row.known && Logic.supportsEnterprise", "Logic.supportsEnterprise")));

@@ -553,6 +553,38 @@ net_details_layout() {
 net_expect_fixture "the mock adds two Ethernet devices" wired || return 0
 expect_poll "Network publishes each wired device's state" '[["enp10s0", "connected"], ["enp11s0", "no-cable"]]' net_wired
 expect_poll "the connected wired device connects the computer" '"connected"' net_state
+net_portal_url='http://captive.apple.com/hotspot-detect.html'
+device_reply xdg-open 0 ""
+net_portal_calls_before="$(device_calls xdg-open | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
+net_portal_calls() { device_calls xdg-open | py_reply 'import json,sys; calls=json.load(sys.stdin)[int(sys.argv[1]):]; print(json.dumps([[arg.split("?vgs=",1)[0] for arg in call] for call in calls]))' "$net_portal_calls_before"; }
+net_portal_available() { net_snapshot | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["portalAvailable"])'; }
+cp -- "$devices_dir/replies/nmcli.json" "$sandbox/network-before-connectivity-replies.json"
+device_reply nmcli 0 "portal" --wait 10 networking connectivity check
+net_expect_fixture "the network requires browser sign-in" portal || return 0
+expect_poll "the native portal result reaches Network" '"portal"' net_state
+expect_poll "the connected portal offers sign-in" True net_portal_available
+expect "portal detection waits for the user to open the browser" '[]' net_portal_calls
+expect "the sign-in dropdown opens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the sign-in dropdown is mounted" shown net_shown panel
+click_in "panel:Network" panel vgs.network RowAction 'Sign in' || fail "network: sign-in action was not clickable"
+expect_poll "Sign in opens the fixed HTTP page through the browser stand-in" "[[\"$net_portal_url\"]]" net_portal_calls
+device_reply nmcli 0 "full" --wait 10 networking connectivity check
+net_expect_fixture "the portal grants internet access" full || return 0
+expect_poll "successful sign-in clears the portal result" '"connected"' net_state
+expect_poll "successful sign-in removes the sign-in actions" False net_portal_available
+device_reply nmcli 0 "limited" --wait 10 networking connectivity check
+net_expect_fixture "an inconclusive check reports limited access" limited || return 0
+expect_poll "the fresh check publishes limited access" '"limited"' net_state
+expect "limited access does not claim browser sign-in is needed" False net_portal_available
+expect "limited access refuses an unrelated sign-in request" 'refused: portal=unavailable' ipc vgs.network invoke action '{"kind":"sign-in"}'
+expect "limited access opens no browser" "[[\"$net_portal_url\"]]" net_portal_calls
+expect "the user can request a fresh connectivity check" ok ipc vgs.network invoke action '{"kind":"check-connectivity"}'
+net_expect_fixture "the portal test restores disabled checks" checks-off || return 0
+expect_poll "the portal test restores the connected result" '"connected"' net_state
+expect "a full connection refuses an unrelated sign-in request" 'refused: portal=unavailable' ipc vgs.network invoke action '{"kind":"sign-in"}'
+expect "the portal test closes the dropdown" ok ipc shell hide panel vgs.network
+device_reply_clear xdg-open
+cp -- "$sandbox/network-before-connectivity-replies.json" "$devices_dir/replies/nmcli.json"
 net_widget_click || fail "the click on the Network widget failed"
 expect_poll "a click on the widget opens the dropdown" shown net_shown panel
 summon_drawn panel vgs.network || fail "the dropdown never drew a frame"

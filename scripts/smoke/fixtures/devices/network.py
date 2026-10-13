@@ -127,6 +127,14 @@ next_device.AddProperty("{WIFI}", "ActiveAccessPoint", dbus.ObjectPath("/"))
         for path in paths:
             manager.EmitSignal(NM, "DeviceRemoved", "o", [dbus.ObjectPath(path)])
             root.RemoveObject(path)
+    elif action in ("portal", "limited", "full", "checks-off"):
+        value = {"portal": 2, "limited": 3, "full": 4, "checks-off": 4}[action]
+        manager.AddMethod(NM, "CheckConnectivity", "", "u", 'ret = self.props["org.freedesktop.NetworkManager"]["Connectivity"]')
+        manager.UpdateProperties(NM, dbus.Dictionary({
+            "Connectivity": dbus.UInt32(value),
+            "ConnectivityCheckAvailable": dbus.Boolean(action != "checks-off"),
+            "ConnectivityCheckEnabled": dbus.Boolean(action != "checks-off"),
+        }, signature="sv"))
     elif action == "calls":
         print(json.dumps({"connect": len(manager.GetMethodCalls("ActivateConnection")), "new": len(manager.GetMethodCalls("AddAndActivateConnection"))}))
         return

@@ -260,6 +260,19 @@ FocusScope {
             text: root.network.text || Logic.stateText("unavailable")
             wrapMode: Text.Wrap
         }
+        RowActions {
+            visible: !!root.network.portalAvailable
+            RowAction {
+                objectName: "network-sign-in"
+                text: "Sign in"
+                onClicked: root.action("sign-in", null)
+            }
+            RowAction {
+                objectName: "network-check-connectivity"
+                text: "Check connection"
+                onClicked: root.action("check-connectivity", null)
+            }
+        }
         Label {
             width: parent.width
             visible: text !== ""
