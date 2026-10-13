@@ -138,6 +138,15 @@ Item {
             compare(findChild(tabs.itemAt(tabs.currentIndex).background, "indicator").color, Qt.color(Theme.tabs.indicatorColor));
         }
 
+        // A view can hand the open tab's line and the hover line one
+        // colour, so the hover line is the thinner of the two.
+        function test_hover_mark_is_thinner_than_the_open_indicator() {
+            const open = findChild(markedTabs.itemAt(0).background, "indicator");
+            const mark = findChild(markedTabs.itemAt(1).background, "hoverMark");
+            verify(mark.height > 0);
+            verify(mark.height < open.height, "hover " + mark.height + ", open " + open.height);
+        }
+
         // The track is a resting surface's line: a row with `hoverMark`
         // draws none, so no stub shows between its tabs.
         function test_a_marked_row_draws_no_track() {

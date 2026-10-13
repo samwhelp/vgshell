@@ -12,8 +12,9 @@ import qs.Ui
 // `foreground`, `hover` and `active` label colours and the open tab's
 // `indicatorColor`, and sets
 // `hoverMark` where those colours are too near one another to tell
-// apart: a closed tab under the pointer then draws an indicator in its
-// label's colour, and the row draws no track, whose colour is a resting
+// apart: a closed tab under the pointer then draws a line in its
+// label's colour, thinner than the open tab's, whose colour it can
+// share, and the row draws no track, whose colour is a resting
 // surface's border and would show as a stub between the tabs' own
 // lines. While the row holds the keyboard, Ctrl+Tab,
 // Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step the open tab, round
@@ -129,7 +130,7 @@ T.TabBar {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    height: Theme.tabs.indicator
+                    height: Theme.tabs.hoverIndicator
                     color: tab.hover
                     visible: tab.hoverMark && !tab.checked && (tab.hovered || tab.down)
                 }

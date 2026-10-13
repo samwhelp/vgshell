@@ -762,11 +762,15 @@ var TOKENS = {
         weight: weight(600)
     },
 
+    // The open tab's line is `indicator` thick. A closed tab's hover line,
+    // where a row draws one, is `hoverIndicator` thick, thinner, so the
+    // two read apart where they share a colour.
     tabs: {
         height: length("{size.control.md}"),
         paddingX: length("{control.paddingX}"),
         gap: length("{space.md}"),
         indicator: length("{border.thick}"),
+        hoverIndicator: length("{border.thin}"),
         indicatorColor: color("{color.accent}"),
         foreground: color("{color.textMuted}"),
         hover: color("mix({color.textMuted}, {color.text}, 0.5)"),

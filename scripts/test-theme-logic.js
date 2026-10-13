@@ -1767,7 +1767,7 @@ try {
 // check must name it.
 const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size|bar\.stacked\.size)$/, "type sizes"],
-    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
+    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.(indicator|hoverIndicator)$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|bar\.stacked\.icon$|menu\.item\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],

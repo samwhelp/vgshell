@@ -1137,6 +1137,7 @@ mutations=(
   "a hovered closed tab draws no mark|layout/Tabs.qml|visible: tab.hoverMark && !tab.checked|visible: false && !tab.checked|tst_layout.qml"
   "every row draws the hover mark|layout/Tabs.qml|visible: tab.hoverMark && !tab.checked|visible: !tab.checked|tst_layout.qml"
   "the open tab ignores the handed indicator|layout/Tabs.qml|color: tab.indicatorColor|color: Theme.tabs.indicatorColor|tst_layout.qml"
+  "the hover mark is as thick as the open tab's line|layout/Tabs.qml|height: Theme.tabs.hoverIndicator|height: Theme.tabs.indicator|tst_layout.qml"
   "a marked row keeps its track|layout/Tabs.qml|visible: !root.hoverMark|visible: true|tst_layout.qml"
   "no row draws a track|layout/Tabs.qml|visible: !root.hoverMark|visible: false|tst_layout.qml"
   "the tabs ignore disabled|layout/Tabs.qml|    opacity: enabled ? 1 : Theme.opacity.disabled|    opacity: 1|tst_layout.qml"
