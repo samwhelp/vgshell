@@ -16,7 +16,7 @@
     },
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.38)",
-      "success": "mix({palette.success}, contrast({palette.background}), 0.24)"
+      "success": "mix({palette.success}, contrast({palette.background}), 0.27)"
     }
   },
   "backgrounds": {

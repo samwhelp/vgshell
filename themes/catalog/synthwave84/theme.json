@@ -13,6 +13,9 @@
       "warning": "#f3e70f",
       "danger": "#fe4450",
       "info": "#03edf9"
+    },
+    "color": {
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.03)"
     }
   },
   "backgrounds": {

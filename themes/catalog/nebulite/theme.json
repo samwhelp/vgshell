@@ -16,7 +16,8 @@
     },
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.31)",
-      "danger": "mix({palette.danger}, contrast({palette.background}), 0.08)"
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.11)",
+      "accent": "mix({palette.accent}, contrast({palette.background}), 0.04)"
     }
   },
   "backgrounds": {

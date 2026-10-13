@@ -15,8 +15,8 @@
       "info": "#9071f4"
     },
     "color": {
-      "danger": "mix({palette.danger}, contrast({palette.background}), 0.17)",
-      "info": "mix({palette.info}, contrast({palette.background}), 0.18)"
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.21)",
+      "info": "mix({palette.info}, contrast({palette.background}), 0.22)"
     }
   },
   "backgrounds": {

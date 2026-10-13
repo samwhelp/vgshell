@@ -15,9 +15,11 @@
       "info": "#81a1c1"
     },
     "color": {
-      "textFaint": "mix({palette.foreground}, {palette.background}, 0.25)",
-      "danger": "mix({palette.danger}, contrast({palette.background}), 0.38)",
-      "info": "mix({palette.info}, contrast({palette.background}), 0.15)"
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.19)",
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.41)",
+      "info": "mix({palette.info}, contrast({palette.background}), 0.19)",
+      "accent": "mix({palette.accent}, contrast({palette.background}), 0.05)",
+      "textMuted": "mix({palette.foreground}, {palette.background}, 0.19)"
     }
   },
   "backgrounds": {

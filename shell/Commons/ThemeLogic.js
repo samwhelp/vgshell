@@ -242,11 +242,48 @@ var READABILITY_SURFACES = [
     "color.surfaceSunken"
 ];
 var READABILITY_FLOOR = 4.5;
-// Native-pixel Tray Settings captures measured with Pillow on ff5695762
-// (2026-10-13): catppuccin-latte, dracula and nord stem medians fit one
-// 0.949 coverage after channel rounding (VGS-1653's captured-page refit).
-// Judge the hint on its raised fill after that coverage and channel rounding.
-var HINT_STROKE_COVERAGE = 0.949;
+// Pillow native-pixel fixed-stem medians on 9ebf4e75f (2026-10-13,
+// VGS-1658): Tray hint and Network bodyStrong danger in dracula and
+// flexoki-light fit these coverages without exceeding either capture.
+// Medium (500) uses the regular fit; bold (600/700) uses bodyStrong's.
+var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
+// Typography used by Label and colour overrides in the shared controls
+// and plugin views. Read their resolved weights, so a theme's weight
+// change cannot leave a colour judged at the old weight.
+var READABILITY_TYPOGRAPHY = {
+    "color.text": ["body", "bodyStrong", "item", "itemCode", "menuItem", "value", "button", "kbd", "code", "bar", "tooltip"],
+    "color.textHeading": ["display", "h1", "h2", "h3", "windowTitle"],
+    "color.textMuted": ["subheading", "label", "body", "hint", "bar", "value"],
+    "color.textFaint": ["hint", "itemHint", "menuItemHint"],
+    "color.accent": ["eyebrow", "body", "bar", "button"],
+    "color.success": ["body", "hint", "value"],
+    "color.warning": ["body", "hint", "value"],
+    "color.danger": ["body", "hint", "itemHint", "bodyStrong"],
+    "color.info": ["body", "hint", "value"],
+    "segmented.foreground": ["button"],
+    "segmented.selectedForeground": ["button"],
+    "listItem.selectedForeground": ["item", "itemHint"],
+    "badge.tone.neutral.foreground": ["label", "kbd"],
+    "badge.tone.accent.foreground": ["label", "kbd"],
+    "badge.tone.success.foreground": ["label", "kbd"],
+    "badge.tone.warning.foreground": ["label", "kbd"],
+    "badge.tone.danger.foreground": ["label", "kbd"],
+    "badge.tone.info.foreground": ["label", "kbd"],
+    "carousel.hint": ["itemHint", "h3"],
+    "carousel.hintActive": ["itemHint", "h3", "display"],
+    "carousel.hintDanger": ["body"],
+    "carousel.typed": ["h3", "itemHint"],
+    "carousel.searchHint": ["itemHint"],
+    "tooltip.foreground": ["tooltip"],
+    "tooltip.detail": ["hint", "body", "label", "value", "bodyStrong"]
+};
+
+// The sampled ink model, rounded to display channels before contrast.
+function drawnTextRatio(text, surface, weight) {
+    var coverage = weight >= 600 ? TEXT_STROKE_COVERAGE.bold : TEXT_STROKE_COVERAGE.regular;
+    var ink = { r: text.r, g: text.g, b: text.b, a: coverage };
+    return contrastRatio(parseColor(formatColor(overlay(ink, surface))), surface);
+}
 // Text drawn on a control's own fill rather than on a resting surface, at
 // the same floor. A translucent fill, such as a badge's faint tone, is
 // judged laid over each resting surface, as it is drawn.
@@ -378,9 +415,10 @@ function readabilityShortfalls(values, glass) {
         var ratio = text === null || surface === null || text.a < 1 || surface.a < 1
             ? null
             : contrastRatio(text, surface);
-        if (ratio !== null && pairs[q][0] === "color.textFaint" && pairs[q][1] === "color.surfaceRaised") {
-            text.a = HINT_STROKE_COVERAGE;
-            ratio = contrastRatio(parseColor(formatColor(overlay(text, surface))), surface);
+        if (ratio !== null && pairs[q][2] === READABILITY_FLOOR) {
+            var roles = READABILITY_TYPOGRAPHY[pairs[q][0]];
+            for (var r = 0; r < roles.length; r++)
+                ratio = Math.min(ratio, drawnTextRatio(text, surface, valueAt(values, "text." + roles[r] + ".weight")));
         }
         if (ratio !== null && pairs[q][4] === true && luminance(text) >= luminance(surface))
             continue;

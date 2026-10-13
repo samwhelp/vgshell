@@ -722,12 +722,13 @@ function verify(judge) {
     assert.equal(judge.contrastRatio(judge.parseColor("#000000"), judge.parseColor("#ffffff")), 21);
     assert.deepEqual(plain(readability(judge, defaults.values)), [], "default vgs readability");
     verifyHintMargin(judge);
+    verifyDrawnWeights(judge);
     const faintFailure = judge.accept(TOKENS, document({ color: { textFaint: "#111111" } }));
     assert.equal(faintFailure.ok, true, faintFailure.ok ? "" : judge.refusalLine(faintFailure));
     const faintShortfalls = readability(judge, faintFailure.values);
     assert.deepEqual(
         Object.assign({}, faintShortfalls[0], { ratio: truncateRatio(faintShortfalls[0].ratio) }),
-        { text: "color.textFaint", surface: "color.background", ratio: 1.11, floor: 4.5 }
+        { text: "color.textFaint", surface: "color.background", ratio: 1.1, floor: 4.5 }
     );
     const accentFailure = judge.accept(TOKENS, document({ palette: { accent: "#111111" } }));
     assert.equal(accentFailure.ok, true, accentFailure.ok ? "" : judge.refusalLine(accentFailure));
@@ -775,10 +776,10 @@ function verify(judge) {
         [["carousel.hint", "color.scrim over #000000", 4.5], ["carousel.hintActive", "color.scrim over #000000", 4.5]]);
     // A failure line beside the rail is judged on its plate alone, never
     // on the scrim: latte's danger #f43f5e, forced onto the line, reads
-    // 3.02:1 on its surface #e7e9ee and falls under the floor there, and a
+    // 2.94:1 drawn on its surface #e7e9ee and falls under the floor there, and a
     // translucent plate has no ratio. The typed filter and the search hint
     // rest on the same plate, where that danger forced onto either reads
-    // the same 3.02:1.
+    // the same 2.94:1.
     const plateRows = tokens => {
         const accepted = judge.accept(TOKENS, document(tokens));
         assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
@@ -786,11 +787,11 @@ function verify(judge) {
     };
     assert.deepEqual(plateRows(LATTE), []);
     assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
-        [["carousel.hintDanger", "carousel.failurePlate", 3.02, 4.5]]);
+        [["carousel.hintDanger", "carousel.failurePlate", 2.94, 4.5]]);
     assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { typed: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
-        [["carousel.typed", "carousel.failurePlate", 3.02, 4.5]]);
+        [["carousel.typed", "carousel.failurePlate", 2.94, 4.5]]);
     assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { searchHint: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
-        [["carousel.searchHint", "carousel.failurePlate", 3.02, 4.5]]);
+        [["carousel.searchHint", "carousel.failurePlate", 2.94, 4.5]]);
     assert.deepEqual(plateRows({ carousel: { hintDanger: "{color.danger}", typed: "{color.text}", searchHint: "{color.textFaint}", failurePlate: "alpha({color.surface}, 0.5)" } }), [
         { text: "carousel.hintDanger", surface: "carousel.failurePlate", ratio: null, floor: 4.5 },
         { text: "carousel.typed", surface: "carousel.failurePlate", ratio: null, floor: 4.5 },
@@ -845,7 +846,7 @@ function verify(judge) {
     };
     assert.deepEqual(plain(readability(judge, badgeFailure.values).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor])),
         READABILITY_SURFACES.map(surface => ["badge.tone.success.foreground", "badge.tone.success.background over " + surface,
-            truncateRatio(judge.contrastRatio(judge.parseColor("#3a3a3a"), blend(surface))), 4.5]));
+            truncateRatio(judge.drawnTextRatio(judge.parseColor("#3a3a3a"), blend(surface), 500)), 4.5]));
     const opaqueFill = judge.accept(TOKENS, document({ badge: { tone: { success: { background: "#c9d897" } } } }));
     assert.equal(opaqueFill.ok, true, opaqueFill.ok ? "" : judge.refusalLine(opaqueFill));
     assert.deepEqual(plain(readability(judge, opaqueFill.values)), [{ text: "badge.tone.success.foreground", surface: "badge.tone.success.background", ratio: 1, floor: 4.5 }]);
@@ -1369,9 +1370,9 @@ function verifyHintMargin(judge) {
     for (const [name, oldInk, expected] of [
         ["vgs", "#7d7d7e", null],
         ["catalog/flexoki-light", "#6b6965", null],
-        ["catalog/catppuccin-latte", "mix({palette.foreground}, {palette.background}, 0.13)", 4.159352660397403],
-        ["catalog/dracula", "mix({palette.foreground}, {palette.background}, 0.41)", 4.312050812197351],
-        ["catalog/nord", "mix({palette.foreground}, {palette.background}, 0.29)", 4.242458619271823]
+        ["catalog/catppuccin-latte", "mix({palette.foreground}, {palette.background}, 0.13)", 4.342148561625259],
+        ["catalog/dracula", "mix({palette.foreground}, {palette.background}, 0.41)", 4.368422119504450],
+        ["catalog/nord", "mix({palette.foreground}, {palette.background}, 0.29)", 4.338940848008551]
     ]) {
         const source = JSON.parse(fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
         source.tokens.color = { ...source.tokens.color, textFaint: oldInk };
@@ -1381,7 +1382,42 @@ function verifyHintMargin(judge) {
         assert.ok(row, name + ": old hint is refused by stroke-core contrast");
         assert.equal(row.floor, 4.5);
         if (expected !== null) assert.ok(Math.abs(row.ratio - expected) < 1e-12, name + ": rounded stroke-core ratio");
-        assert.ok(!readability(judge, values).some(row => row.text === "color.textFaint" && row.surface === "color.background"), name + ": other surfaces retain token contrast");
+        assert.ok(!readability(judge, values).some(row => row.text === "color.textFaint" && row.surface === "color.background"), name + ": its background also clears the drawn floor");
+    }
+}
+
+// Native fixed-stem medians from VGS-1658, main 9ebf4e75f, measured
+// with Pillow on 2026-10-13. The model can read low, never high.
+function verifyDrawnWeights(judge) {
+    for (const [theme, weight, ink, fill, measured, predicted] of [
+        ["dracula", 400, "#a9aaab", "#383944", 4.688598365121197, 4.688598365121197],
+        ["flexoki-light", 400, "#64625e", "#edeadf", 4.751705100405833, 4.690615181927497],
+        ["dracula", 600, "#ff7a7a", "#383944", 4.527718224903436, 4.527718224903436],
+        ["flexoki-light", 600, "#b64339", "#edeadf", 4.527591635617860, 4.527591635617860]
+    ]) {
+        const ratio = judge.drawnTextRatio(judge.parseColor(ink), judge.parseColor(fill), weight);
+        assert.ok(ratio <= measured + 1e-12, theme + ": model never exceeds the fixed-stem median");
+        assert.ok(Math.abs(ratio - predicted) < 1e-12, theme + ": drawn weight ratio");
+    }
+    const fill = judge.parseColor("#edeadf");
+    const danger = judge.parseColor("#b64339");
+    const lighter = judge.parseColor("#b74339");
+    assert.ok(judge.drawnTextRatio(danger, fill, 600) >= 4.5, "original flexoki-light bodyStrong danger clears the floor");
+    const failed = judge.drawnTextRatio(lighter, fill, 600);
+    assert.ok(Math.abs(failed - 4.499039530534811) < 1e-12, "one red unit lighter: drawn danger ratio");
+    assert.ok(failed < 4.5, "control: one red unit lighter fails the drawn floor");
+    // Isolate bodyStrong: other danger uses draw bold, then this actual
+    // role moves to regular. Omitting it would silently skip the failure.
+    const text = Object.fromEntries(["body", "hint", "itemHint", "bodyStrong"].map(role => [role, { weight: 600 }]));
+    const fixture = (weight, ink = "#b64339") => judge.accept(TOKENS, document({ color: { danger: ink, surfaceRaised: "#edeadf" }, text: { ...text, bodyStrong: { weight } } })).values;
+    const dangerRows = (weight, ink) => readability(judge, fixture(weight, ink)).filter(row => row.text === "color.danger" && row.surface === "color.surfaceRaised");
+    assert.equal(dangerRows(600).length, 0, "all drawn danger weights clear the floor");
+    assert.equal(dangerRows(600, "#b74339").length, 1, "control: the judge rejects one red unit lighter at bodyStrong weight");
+    assert.equal(dangerRows(400).length, 1, "the actual bodyStrong weight is judged");
+    // Every default typography colour has its drawing role represented.
+    for (const [role, type] of Object.entries(TOKENS.text)) {
+        const colour = /^\{(color\.[^}]+)\}$/.exec(type.color.value);
+        assert.ok(colour && judge.READABILITY_TYPOGRAPHY[colour[1]].includes(role), role + ": typography is judged at its own weight");
     }
 }
 
@@ -1555,8 +1591,8 @@ verifyTabIndicator(TOKENS);
 const FAILURE_LINE = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
 const FAILURE_MARK = /Icon \{[^{}]*name: "circle-alert"[^{}]*\}/;
 const FAILURE_MARK_TOP = /Icon \{[^{}]*y: failureText\.topForLeadingIcon\(height\)[^{}]*name: "circle-alert"/;
-const TYPED_FILTER = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?Label \{[^{}]*color: Theme\.carousel\.typed[^{}]*text: root\.filterText/;
-const SEARCH_HINT = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?(?:Label \{[^{}]*\}[^{}]*)?Label \{[^{}]*text: "Type a [^"]* to search[^"]*"[^{}]*color: Theme\.carousel\.searchHint/;
+const TYPED_FILTER = /BrowserPlate \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?Label \{[^{}]*color: Theme\.carousel\.typed[^{}]*text: root\.filterText/;
+const SEARCH_HINT = /BrowserPlate \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?(?:Label \{[^{}]*\}[^{}]*)?Label \{[^{}]*text: "Type a [^"]* to search[^"]*"[^{}]*color: Theme\.carousel\.searchHint/;
 for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     const viewSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.themes", view), "utf8");
     assert.equal(viewSource.split("Theme.carousel.hintDanger").length, 2, `${view} draws one failure line`);
@@ -1698,7 +1734,10 @@ try {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
-    ["hint stroke-core margin", "var HINT_STROKE_COVERAGE = 0.949;", "var HINT_STROKE_COVERAGE = 1;"],
+    ["regular drawn ink", "regular: 0.966", "regular: 1"],
+    ["bold drawn ink", "bold: 1.000", "bold: 0.966"],
+    ["drawn ink on every text pair", "pairs[q][2] === READABILITY_FLOOR", "false"],
+    ["danger bodyStrong drawn weight", '"color.danger": ["body", "hint", "itemHint", "bodyStrong"]', '"color.danger": ["body", "hint", "itemHint"]'],
     ["unknown top-level key", "if (DOCUMENT_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
     ["schema version", "if (document.schemaVersion !== SCHEMA_VERSION)", "if (false)"],
     ["document name", 'if (typeof document.name !== "string" || document.name.trim() === "")', "if (false)"],

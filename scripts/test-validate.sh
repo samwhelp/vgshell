@@ -927,6 +927,32 @@ PY
 row "control: an omitted Settings input skips Jarvis integration while the Settings suite runs" "$d" 0 "" \
   "!node scripts/test-jarvis-setup-gate.js" "node scripts/test-settings-steps.js"
 
+# The theme judge suite reads these drawing sites. Each missing edge
+# must skip that suite when only its source file changes. A plate change
+# must select the suite that verifies its fill and ink bindings.
+for theme_input in shell/Ui/feedback/SaveBar.qml shell/plugins/vgs.sysmon/Reading.qml shell/plugins/vgs.themes/ThemeView.qml shell/plugins/vgs.themes/WallpaperView.qml shell/Ui/controls/FormRow.qml shell/plugins/vgs.notifications/NotificationCard.qml shell/plugins/vgs.notifications/MediaSlot.qml shell/plugins/vgs.notifications/RowMeasure.qml; do
+  d="$tmp/plan-theme-site-${theme_input//\//-}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$theme_input")"
+  printf 'changed\n' >"$d/$theme_input"
+  test_area=logic
+  test_args=(--changed HEAD --list)
+  row "the theme judge is selected for $theme_input" "$d" 0 "" "node scripts/test-theme-logic.js"
+  python3 - "$d/scripts/validate" "$theme_input" <<'PYTHEME'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1]); source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "logic|theme judge table|')]
+edge = ' ' + sys.argv[2]
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, '', 1))
+assert changed != source
+path.write_text(changed)
+PYTHEME
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: omitting $theme_input skips the theme judge" "$d" 0 "" "!node scripts/test-theme-logic.js"
+done
+
 # The terminal suite runs the shipped sign-in script. Broad Jarvis checks
 # do not replace its interactive folder, vendor and failure assertions.
 d="$tmp/plan-jarvis-sign-in-terminal-control"; fresh "$d"

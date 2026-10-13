@@ -15,8 +15,9 @@
       "info": "#5e738b"
     },
     "color": {
-      "danger": "mix({palette.danger}, contrast({palette.background}), 0.05)",
-      "info": "mix({palette.info}, contrast({palette.background}), 0.18)"
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.09)",
+      "info": "mix({palette.info}, contrast({palette.background}), 0.21)",
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.38)"
     }
   },
   "backgrounds": {

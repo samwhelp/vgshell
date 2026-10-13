@@ -15,7 +15,8 @@
       "info": "#7d7bdb"
     },
     "color": {
-      "danger": "mix({palette.danger}, contrast({palette.background}), 0.14)"
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.17)",
+      "accent": "mix({palette.accent}, contrast({palette.background}), 0.02)"
     }
   },
   "backgrounds": {

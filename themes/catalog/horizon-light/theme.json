@@ -16,9 +16,10 @@
     },
     "color": {
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.36)",
-      "success": "mix({palette.success}, contrast({palette.background}), 0.39)",
-      "warning": "mix({palette.warning}, contrast({palette.background}), 0.09)",
-      "danger": "mix({palette.danger}, contrast({palette.background}), 0.09)"
+      "success": "mix({palette.success}, contrast({palette.background}), 0.41)",
+      "warning": "mix({palette.warning}, contrast({palette.background}), 0.13)",
+      "danger": "mix({palette.danger}, contrast({palette.background}), 0.11)",
+      "accent": "mix({palette.accent}, contrast({palette.background}), 0.02)"
     }
   },
   "backgrounds": {
