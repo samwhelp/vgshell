@@ -221,6 +221,7 @@ run() { # HOME AREA LABEL CMD...
 # The command's words that hold a slash are also inputs. Every input glob
 # counts, a root file such as VERSION included.
 rows=(
+  "logic|Jarvis word census|node scripts/check-jarvis-words.js|shell/plugins/vgs.jarvis/* docs/architecture/jarvis.md docs/architecture/jarvis-outbound.md docs/decisions/D105-jarvis-home-folder.md scripts/*jarvis*"
   "logic|duration formatter|node scripts/test-duration.js|shell/Commons/Duration.js bin/lib/qml-library.js"
   "logic|timestamp formatter|node scripts/test-timestamp.js|shell/Commons/Timestamp.js shell/Commons/Duration.js bin/lib/qml-library.js"
   "logic|traffic counters rates and bounded apps|node scripts/test-traffic-logic.js|shell/plugins/vgs.traffic/TrafficLogic.js scripts/fixtures/traffic/* bin/lib/qml-library.js"
