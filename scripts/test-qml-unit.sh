@@ -174,6 +174,8 @@ mutations=(
   "a failed binds read is not named|../Core/HyprlandState.qml|                root.bindsFailure = read.error;|                {}|tst_hyprlandstate_binds.qml"
   "a binds read keeps an old failure|../Core/HyprlandState.qml|                root.bindsFailure = \"\";|                {}|tst_hyprlandstate_binds.qml"
   "turning the reads off keeps the binds failure|../Core/HyprlandState.qml|        bindsFailure = \"\";|        {}|tst_hyprlandstate_binds.qml"
+  "a theme change renders the layer per changed input|../Core/HyprlandLayer.qml|onRenderInputsChanged: Qt.callLater(root.renderLayer)|onRenderInputsChanged: root.renderLayer()|tst_hyprland_layer.qml"
+  "the layer writes a render of other inputs|../Core/HyprlandLayer.qml|Layer.render.apply(null, renderInputs)|Layer.render.apply(null, renderInputs.slice(0, 2).concat([\"mutant\"], renderInputs.slice(3)))|tst_hyprland_layer.qml"
   "the shortcut capability lends no key capture|../Core/ShortcutRegistry.qml|capture: capture.provider(ctx)|capture: null|tst_keycapture.qml"
   "a removal edits a key no plugin asks for|../Core/KeyCapture.qml|if (!asked) { done(|if (false) { done(|tst_keycapture.qml"
   "a removal takes a line that is no whole call|../Core/KeyCapture.qml|.filter(row => row.removable) : [];|: [];|tst_keycapture.qml"

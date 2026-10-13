@@ -81,7 +81,10 @@ Scope {
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },
         tuiCell: { width: Math.ceil(terminalCell.averageCharacterWidth), height: Math.ceil(terminalCell.lineSpacing) }
     })
-    readonly property var rendered: inputsReady ? Layer.render(sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId) : null
+    // Layer.render's arguments, or null before its inputs are read.
+    readonly property var renderInputs: inputsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId] : null
+    // Assigned by renderLayer alone.
+    property var rendered: null
 
     // What `listPlugins` and the plugin manager report beside the manifest
     // errors, as { id, dir, error }: each bind a conflict skipped, each pad
@@ -186,13 +189,20 @@ Scope {
         }
     }
 
-    // Config's Appearance text reaches Theme inside the turn that changes
-    // it (Config's Binding, ThemeSource.onUserTextChanged), and a render
-    // made part way through that turn holds the theme alone. Qt.callLater
-    // runs the feed once the engine is back in the event loop
-    // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method), and the
-    // feed reads `rendered` then, so only the settled text is written.
-    onRenderedChanged: Qt.callLater(() => feed({ type: "render" }))
+    // A theme change moves several render inputs one after another in one
+    // turn, and Config's Appearance text reaches Theme inside the turn that
+    // changes it (Config's Binding, ThemeSource.onUserTextChanged), so a
+    // render made part way through that turn holds a theme half applied.
+    // Qt.callLater runs renderLayer once the engine is back in the event
+    // loop, and calls it once however often it is asked in that turn
+    // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method), so one
+    // change renders once and only the settled text is written.
+    onRenderInputsChanged: Qt.callLater(root.renderLayer)
+
+    function renderLayer() {
+        rendered = renderInputs === null ? null : Layer.render.apply(null, renderInputs);
+        feed({ type: "render" });
+    }
 
     // Write the layer and reload Hyprland now, whatever the bytes, reading
     // the file first so one removed by hand is written again. A request made

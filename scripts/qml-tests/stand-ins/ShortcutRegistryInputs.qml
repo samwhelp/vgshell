@@ -1,10 +1,14 @@
 pragma Singleton
 import QtQml
 
-// The enabled, judged sections and the manifests by id that the real
-// Registry supplies. Tests replace them to exercise the shipped provider
-// without a compositor.
+// The enabled, judged sections, the manifests by id and the scan state that
+// the real Registry supplies, and the problems the Hyprland layer hands it.
+// Tests replace them to exercise the shipped provider and the layer without
+// a compositor.
 QtObject {
     property var hyprlandSections: []
     property var manifests: ({})
+    property bool scanned: true
+    property string monitorRuleOwnerId: ""
+    property var hyprlandProblems: []
 }
