@@ -918,7 +918,9 @@ automations_stand_ins_restore() { # STUB
 # lock on stderr, for the token probe. Every token starts xoxp-smoke-.
 # `store` and `clear`, as the core's SecretWriter runs them for the
 # Settings page's Connect and Disconnect (D061), set the account's state to
-# `present` and `absent`. A store keeps stdin, the secret, byte for byte in
+# `present` and `absent`, but a clear leaves a `locked` account as it is and
+# still exits 0, as libsecret's clear deletes unlocked items only and asks
+# for no unlock. A store keeps stdin, the secret, byte for byte in
 # $shim/secret-tool.stdin.<account>, and records its call only after stdin
 # reaches EOF. A reader that sees the store call sees the whole secret.
 # slack_states STATES: the states file rewritten from STATES, lines joined
@@ -940,7 +942,7 @@ fi
 if [[ \${1:-} == clear ]]; then
   [[ \${2:-} == service && \${3:-} == vgs-notifications && \${4:-} == account && \$# -eq 5 ]] || exit 1
   printf '%s\\n' "\$*" >>"$shim/secret-tool.calls"
-  set_state "\$5" absent
+  grep -q -F -x -e "\$5 locked" "\$states" || set_state "\$5" absent
   exit 0
 fi
 [[ \${2:-} == service && \${3:-} == vgs-notifications && \${4:-} == account && \$# -eq 5 ]] || exit 1

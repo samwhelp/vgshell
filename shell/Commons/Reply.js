@@ -42,6 +42,7 @@ var MESSAGES = [
     [/^refused: secret=\S+ reason=value$/, "Enter a key on one line with at most 4096 characters."],
     [/^refused: secret write failed start-failed$/, "VGS could not open the key store. Try again."],
     [/^refused: secret write failed exit=-?\d+$/, "VGS could not change the saved account. Try again."],
+    [/^refused: secret write failed locked$/, "The key store is locked. Unlock it and try again."],
     [/^build failed: [^:]+: refused: capability=\S+ held-by=\S+$/, "Another plugin uses this feature. Turn off that plugin before you turn on this one."],
     [/^build failed: [^:]+: /, "This plugin could not start. Check for an update."],
     [/^hyprland: .+ for \S+:\S+ skipped: already bound by .+$/, "Another plugin uses this shortcut. Give this shortcut other keys."],

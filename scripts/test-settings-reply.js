@@ -52,6 +52,7 @@ const CASES = [
     ["refused: secret=slack:T0ACME reason=value", /key on one line/],
     ["refused: secret write failed start-failed", /could not open the key store/],
     ["refused: secret write failed exit=1", /could not change the saved account/],
+    ["refused: secret write failed locked", /key store is locked/],
     ["build failed: service: refused: capability=notifications held-by=acme.other", /Another plugin uses this feature/],
     ["build failed: service: file:///fixture/Service.qml:12: No such type", /plugin could not start/],
     ["hyprland: SUPER+SPACE for acme.example:toggle skipped: already bound by acme.other:toggle", /Another plugin uses this shortcut/],
@@ -177,7 +178,7 @@ function verifyCallers(logic, source, page) {
         assert.equal(ctx.notice, "");
         assert.equal(logs.length, before, "success clears the message without a refusal log");
     }
-    for (const reason of ["start-failed", "exit=1", "future=unknown"]) {
+    for (const reason of ["start-failed", "exit=1", "locked", "future=unknown"]) {
         let done;
         ctx.shell.manager.storeSecret = (id, key, account, value, callback) => { same([id, key, account, value], ["plugin", "accounts", "account", "fixture-key"]); done = callback; return "ok"; };
         assert.equal(ctx.storeSecret("plugin", "accounts", "account", "fixture-key"), "ok");
@@ -216,6 +217,79 @@ function verifyCallers(logic, source, page) {
     for (const [modelData] of CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:"))) {
         const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData });
         assert.equal(drawn, logic.line(modelData), "the actual delegate maps its current error");
+    }
+}
+
+// The actual SecretWriter functions under Node, with doubles for its two
+// processes. Each row is one clear: the exit code of `secret-tool clear`,
+// the state of the stub the presence search then really runs against,
+// `none` for a search that must not run and `unstarted` for one that never
+// starts, and the result `done` receives. The stub prints a secret on
+// stdout for an item it holds, as secret-tool does, and the search's own
+// stdout must stay empty.
+const writerSource = fs.readFileSync(path.join(core, "SecretWriter.qml"), "utf8");
+const CLEARS = [
+    [0, "kept", { ok: false, reason: "locked" }],
+    [0, "absent", { ok: true, reason: null }],
+    [0, "failing", { ok: false, reason: "exit=1" }],
+    [0, "unstarted", { ok: false, reason: "start-failed" }],
+    [1, "none", { ok: false, reason: "exit=1" }],
+    [null, "none", { ok: false, reason: "start-failed" }]
+];
+function verifyWriter(source) {
+    const { spawnSync } = require("node:child_process");
+    const stubs = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-writer-"));
+    try {
+        fs.writeFileSync(path.join(stubs, "secret-tool"), `#!/bin/bash
+printf '%s\\n' "$*" >>"$CALLS"
+case $STATE in
+    kept) echo "secret = fixture-secret"; echo "attribute.account = account" >&2 ;;
+    failing) exit 1 ;;
+esac
+`, { mode: 0o755 });
+        const calls = path.join(stubs, "calls");
+        const request = { argv: ["secret-tool", "clear", "service", "fixture", "account", "account"], input: null };
+        const lifetime = { onDispose: () => () => {} };
+        const double = () => ({ exitCode: undefined, command: null, running: false, stdinEnabled: null });
+        const ctx = { Logic: producer, revisions: {}, current: null, writer: double(), searcher: double(), errors: { text: "" }, found: { text: "" }, console: { info: () => {}, warn: () => {} } };
+        ctx.root = ctx;
+        vm.createContext(ctx);
+        for (const name of ["revisionOf", "write", "written", "searched", "failure", "finish"]) {
+            const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
+            assert.equal(found.length, 1, `extractor: one actual SecretWriter.${name}`);
+            vm.runInContext(found[0][0], ctx);
+        }
+        for (const [code, state, want] of CLEARS) {
+            const results = [];
+            const ended = ctx.revisionOf("plugin");
+            Object.assign(ctx.searcher, double());
+            assert.equal(ctx.write(lifetime, "plugin", "account", "clear", request, result => results.push(result)), "ok");
+            same(ctx.writer.command, request.argv);
+            ctx.writer.exitCode = code;
+            ctx.written();
+            if (state === "none") {
+                assert.equal(ctx.searcher.running, false, "a failed clear runs no search");
+            } else {
+                assert.equal(results.length, 0, `clear exit=${code} search=${state} has not ended before its search`);
+                assert.equal(ctx.revisionOf("plugin"), ended, "the revision counts at the real end");
+                assert.equal(ctx.write(lifetime, "plugin", "account", "clear", request), "refused: secret=account reason=busy");
+                assert.equal(ctx.searcher.running, true);
+                if (state !== "unstarted") {
+                    fs.rmSync(calls, { force: true });
+                    const run = spawnSync(ctx.searcher.command[0], ctx.searcher.command.slice(1), { env: { PATH: stubs + ":/usr/bin:/bin", LC_ALL: "C", STATE: state, CALLS: calls }, encoding: "utf8" });
+                    assert.equal(fs.readFileSync(calls, "utf8"), "search service fixture account account\n", "the search asks for the clear's attributes and no unlock");
+                    assert.equal(run.stdout, "", "no byte of the search's stdout reaches the shell");
+                    ctx.searcher.exitCode = run.status;
+                    ctx.found.text = run.stderr;
+                }
+                ctx.searched();
+            }
+            assert.equal(JSON.stringify(results), JSON.stringify([want]), `clear exit=${code} search=${state}`);
+            assert.equal(ctx.current, null);
+            assert.equal(ctx.revisionOf("plugin"), ended + 1);
+        }
+    } finally {
+        fs.rmSync(stubs, { recursive: true, force: true });
     }
 }
 
@@ -260,6 +334,7 @@ verifyKeys(shotsSource, keySource);
 const logic = load(file);
 verify(logic);
 verifyCallers(logic, windowSource, pageSource);
+verifyWriter(writerSource);
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
 let controls = 0;
@@ -304,6 +379,17 @@ try {
     ]) {
         assert.equal(windowSource.split(needle).length, 2);
         assert.throws(() => verifyCallers(logic, windowSource.replace(needle, replacement), pageSource));
+        controls++;
+    }
+    // The exit-only judgement, a search whose failure reads as an absent
+    // item, and a search whose stdout the shell's pipe receives.
+    for (const [needle, replacement, cause] of [
+        ["if (writer.exitCode !== 0 || record.presence === null) return", "if (true) return", /clear exit=0 search=kept has not ended before its search/],
+        ["if (code !== 0) return finish(failure(code)", "if (false) return finish(failure(code)", /clear exit=0 search=failing/],
+        ['exec "$@" >/dev/null', 'exec "$@"', /no byte of the search's stdout/]
+    ]) {
+        assert.equal(writerSource.split(needle).length, 2);
+        assert.throws(() => verifyWriter(writerSource.replace(needle, () => replacement)), cause);
         controls++;
     }
     const needle = "text: Reply.line(modelData)";

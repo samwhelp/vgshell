@@ -3175,6 +3175,31 @@ expect_poll "the closed field of Replace leaves no input on the line" '[[]]' row
 settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Remove failed"
 expect_poll "Remove clears the account through secret-tool clear" "clear service vgs-notifications account slack:T0ACME" last_secret_call
 expect_poll "the write's end probes again: Acme reads Absent with Add key" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
+# Remove on a locked key store: `secret-tool clear` deletes unlocked items
+# only and still exits 0, so the core searches for the account again and
+# ends the write as `locked`. The stand-in keeps the entry, the line names
+# the lock under the key and still reads Locked with Replace and Remove.
+# Once the store is unlocked the same Remove deletes the key and the lock
+# line goes. The control is `scripts/test-settings-reply.js`, where a
+# writer that trusts the clear's exit code fails the same case.
+lock_line="The key store is locked. Unlock it and try again."
+locked_items="slack:T0ACME,locked;slack:T0GLOBEX,absent"
+expected_errors+=('secrets: clear=vgs\.notifications/slack:T0ACME failed locked' 'settings: vgs\.notifications/slackTokens/slack:T0ACME refused: secret write failed locked')
+acme_state() { awk '$1 == "slack:T0ACME" { print $2 }' "$shim/secret-tool.states"; }
+# The token lines' texts less the lock line, then how often it is drawn.
+drawn_less_lock() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; rows=json.load(sys.stdin); line=sys.argv[1]; print(json.dumps([[[t for t in r if t != line] for r in rows], sum(r.count(line) for r in rows)]))' "$lock_line"; }
+slack_states "slack:T0ACME locked;slack:T0GLOBEX absent"
+restart_notes "locked before Remove"
+expect_poll "the locked Acme line draws Locked with Replace and Remove" "$(want_rows drawn "$locked_items")" drawn_token_row
+settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "the click on the locked Acme's Remove failed"
+expect_poll "Remove on the locked store runs secret-tool clear" "$((calls_before + 4))" secret_calls
+expect_log "the core ends the clear of a kept key as locked" 1 'secrets: clear=vgs\.notifications/slack:T0ACME failed locked'
+expect "the locked store keeps the key" locked acme_state
+expect_poll "the line names the lock and still reads Locked with Replace and Remove" "[$(want_rows drawn "$locked_items"), 1]" drawn_less_lock
+slack_states "slack:T0ACME present;slack:T0GLOBEX absent"
+settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Remove after the unlock failed"
+expect_poll "Remove on the unlocked store runs secret-tool clear again" "$((calls_before + 5))" secret_calls
+expect_poll "the unlocked Remove deletes the key and the lock line goes" "[$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent"), 0]" drawn_less_lock
 settings_details
 expect "Details draws no token line" '[[]]' drawn_token_row
 # Both typed tokens start with the first, so one search finds either.
