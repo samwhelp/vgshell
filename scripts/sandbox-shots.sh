@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -134,9 +134,13 @@
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
 # Silence off: the clipboard's paste failure, a transient message, its
-# unsaved history, a lasting one, and the lock's warning that the computer
-# slept unlocked, sent through the lock's own unlock path, taken only when
-# named; focus is
+# unsaved history, a lasting one, a lasting one whose message holds a page
+# reference, and the lock's warning that the computer slept unlocked, sent
+# through the lock's own unlock path, taken only when named; page-links is
+# the acme.surfaces panel with a FormRow message holding a page reference
+# to the probe fixture, then, where the tree's FormRow forwards the
+# reference, the Settings window a click on its words opens on that page
+# through shell.surfaces.openPage, taken only when named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -302,7 +306,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -443,6 +447,7 @@ scene_ships() {
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
+    page-links) [[ $manager_scene == settings ]] && [[ -f $fixtures/acme.surfaces/Summoned.qml ]] && tree_has shell/Ui/feedback/LinkText.qml '(page:' ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     elevenlabs-voices) [[ $manager_scene == settings && $has_tab_pages == true ]] && tree_has shell/plugins/vgs.jarvis/backend/ElevenLabs.js 'async function voices(' && ships_plugin vgs.jarvis ;;
     jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
@@ -5795,6 +5800,32 @@ messages_clear() { # PLUGIN
   fi
   expect_poll "no message is left on screen" 0 messages_shown
 }
+page_links_text='[Probe page](page:acme.probe) holds the probe.'
+page_links_forward=false
+tree_has shell/Ui/controls/FormRow.qml 'signal warningPageActivated' && page_links_forward=true
+scene_page-links() { # MODE
+  local box layer x y
+  expect "the page link panel opens" ok ipc shell summon panel acme.surfaces '{}'
+  expect_poll "the page link panel is mapped" 1 layer_count vgs:panel
+  summon_drawn panel acme.surfaces || { fail "the page link panel never drew"; return; }
+  park_pointer
+  take "page-links-$1-panel"
+  if "$page_links_forward"; then
+    box="$(ipc smoke windowGeometry panel acme.surfaces LinkText "$page_links_text")" || box=unread
+    [[ $box == \[* ]] || { fail "the page link line is unreadable: $box"; return; }
+    layer="$(surface_box vgs:panel)" || { fail "the page link panel's box is unreadable"; return; }
+    read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + 8), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer")
+    hover "$x" "$y" || fail "the pointer did not reach the page link"
+    expect_poll "the pointer on the page link reaches its words" true ipc smoke readMatchingDescendant panel acme.surfaces LinkText text "$page_links_text" hoveredLink
+    click "$x" "$y" || fail "the click on the page link failed"
+    expect_poll "the page link opens the probe fixture's page" '"acme.probe"' settings_page
+    park_pointer
+    take "page-links-$1-opened"
+    settings_close
+  fi
+  ipc shell hide panel acme.surfaces >/dev/null || true
+  expect_poll "the page link panel is gone" 0 layer_count vgs:panel
+}
 scene_plugin-messages() { # MODE
   local probe silence_found=false
   if ! "$messages_toasts"; then
@@ -5822,6 +5853,13 @@ scene_plugin-messages() { # MODE
   expect_poll "the unsaved history shows" 1 messages_shown
   park_pointer
   take "plugin-messages-$1-lasting"
+  messages_clear vgs.clipboard
+  expect_poll "the clipboard history's store is ready for the page reference" '"ready"' ipc smoke readInstance service vgs.clipboard store
+  expect "the clipboard's message with a page reference is sent" "" ipc smoke invokeInstanceArgs service vgs.clipboard notice \
+    '{"args": ["Clipboard history is off", "Turn it on in [Settings > Clipboard](page:vgs.clipboard).", false]}'
+  expect_poll "the page reference message shows" 1 messages_shown
+  park_pointer
+  take "plugin-messages-$1-page-reference"
   messages_clear vgs.clipboard
   probe="$(plugin_enabled acme.probe)" || probe=unreadable
   [[ $probe != True ]] || expect "disabling the probe fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false
@@ -6511,6 +6549,30 @@ SH
       tree_rescan "the needs fixture is scanned"
       expect_poll "the needs fixture is listed" True plugin_known acme.needs ;;
     lock) lock_row_quiet ;;
+    page-links)
+      # The panel fixture draws one FormRow message holding a page
+      # reference to the probe fixture; its handler opens the page only in
+      # a tree whose FormRow forwards the reference.
+      for fixture in acme.probe acme.surfaces; do
+        mkdir -p "$home/.config/vgshell/plugins/$fixture"
+        cp -R -- "$fixtures/$fixture/." "$home/.config/vgshell/plugins/$fixture/"
+      done
+      python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$page_links_text" "$page_links_forward" <<'PYEDIT'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+marker = "    Item {\n        id: container\n"
+assert text.count(marker) == 1, "the menu anchor container must occur once"
+handler = "        onWarningPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)\n" if sys.argv[3] == "true" else ""
+row = "    FormRow {\n        width: parent.width\n        labelColumn: false\n        warning: " + repr(sys.argv[2]).replace("'", '"') + "\n        warningTone: \"muted\"\n" + handler + "    }\n"
+path.write_text(text.replace(marker, row + marker, 1))
+PYEDIT
+      tree_rescan "the page link fixtures are scanned"
+      for id in acme.probe acme.surfaces vgs.settings; do
+        expect_poll "$id is listed for the page link" True plugin_known "$id"
+        expect "enabling $id for the page link is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect_poll "$id is built for the page link" True record_exists "$id"
+      done ;;
     plugin-messages)
       # The clipboard's store needs the nested clipboard's tools, as the
       # clipboard scene does.
