@@ -49,8 +49,10 @@ import "Steps.js" as Steps
 // is done, with its state and the action its plugin offers to run it
 // again. The first offered step that is no danger draws as the page's one
 // primary Button, every other action as a RowAction, a danger one in the
-// danger tone; the Requirements button is the primary only while no step
-// holds it. A disabled plugin's setup actions take no press.
+// danger tone; the Requirements button is the primary only while a
+// required tool is missing or outdated and no step holds it, and a
+// RowAction under Optional tools while every tool it installs is optional.
+// A disabled plugin's setup actions take no press.
 //
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the README
@@ -205,7 +207,8 @@ FocusScope {
     // The tools a plugin needs, each with its state, and STEP, the one
     // action that installs or updates them (Steps.requirementStep), or null.
     // The page draws it on one tab: Setup when it has that tab, else
-    // Details. PRIMARY holds while its action is the page's main one.
+    // Details. PRIMARY holds while its action is the page's main one; an
+    // optional step's action is a RowAction.
     component Requirements: Section {
         id: tools
 
@@ -241,11 +244,21 @@ FocusScope {
                 inline: true
                 visible: tools.step !== null
                 hint: tools.step === null ? "" : tools.step.hint
-                Button {
-                    text: tools.step === null ? "" : tools.step.button
-                    iconName: tools.step === null ? "" : tools.step.icon
-                    variant: tools.primary ? "primary" : "secondary"
-                    onClicked: tools.install()
+                // A Row places only its visible child: the Button for a
+                // required tool, the RowAction while every tool is optional.
+                Row {
+                    Button {
+                        visible: tools.step !== null && !tools.step.optional
+                        text: visible ? tools.step.button : ""
+                        iconName: visible ? tools.step.icon : ""
+                        variant: tools.primary ? "primary" : "secondary"
+                        onClicked: tools.install()
+                    }
+                    RowAction {
+                        visible: tools.step !== null && tools.step.optional
+                        text: visible ? tools.step.button : ""
+                        onClicked: tools.install()
+                    }
                 }
             }
         }
@@ -869,7 +882,7 @@ FocusScope {
                     Requirements {
                         requirements: page.row !== null && page.hasSetup ? page.row.requirements : []
                         step: page.requirementStep
-                        primary: !Steps.stepHoldsPrimary(page.setupSections)
+                        primary: Steps.requirementPrimary(page.requirementStep, page.setupSections)
                         onInstall: page.panel.installRequirements(page.row.id)
                     }
                 }

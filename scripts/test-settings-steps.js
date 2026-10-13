@@ -664,14 +664,35 @@ function verify(logic) {
     const declared = { requirements: producer.normalRequirements(MANIFEST.requirements) };
     const requirements = producer.requirementRows(declared, ["acme-tool"], {});
     same(requirements.map(logic.requirementApplies), [true, false], "the install step applies to the missing requirement alone");
-    // requirementStep by what the scan read: [label, rows, the button or null].
+    // requirementStep by what the scan read: [label, rows, the step as
+    // [row label, button, optional] or null]. acme-tool is optional and
+    // acme-other required.
     const state = (name, value) => Object.assign({}, requirements.find(row => row.name === name), { state: value });
-    for (const [label, rows, button] of [
-        ["no step while every requirement is present", [state("acme-tool", "present")], null],
-        ["a missing requirement is installed", [state("acme-tool", "missing")], "Install all missing"],
-        ["an outdated requirement is updated", [state("acme-tool", "outdated"), state("acme-tool", "present")], "Update all outdated"],
-        ["a missing requirement beside an outdated one is installed first", [state("acme-tool", "outdated"), state("acme-tool", "missing")], "Install all missing"]])
-        same((step => step === null ? null : step.button)(logic.requirementStep(rows)), button, "requirementStep: " + label);
+    const MISSING = ["Missing", "Install all missing", false];
+    const OPTIONAL_MISSING = ["Optional tools", "Install optional tools", true];
+    for (const [label, rows, want] of [
+        ["no step while every requirement is present", [state("acme-tool", "present"), state("acme-other", "present")], null],
+        ["a missing required tool is installed", [state("acme-tool", "present"), state("acme-other", "missing")], MISSING],
+        ["an outdated required tool is updated", [state("acme-tool", "present"), state("acme-other", "outdated")], ["Outdated", "Update all outdated", false]],
+        ["a missing required tool beside an outdated one is installed first", [state("acme-tool", "outdated"), state("acme-other", "missing")], MISSING],
+        ["a missing required tool beside a missing optional one reads Missing", [state("acme-tool", "missing"), state("acme-other", "missing")], MISSING],
+        ["an outdated required tool beside a missing optional one reads Missing", [state("acme-tool", "missing"), state("acme-other", "outdated")], MISSING],
+        ["a missing optional tool alone is an optional install", [state("acme-tool", "missing"), state("acme-other", "present")], OPTIONAL_MISSING],
+        ["an outdated optional tool alone is an optional update", [state("acme-tool", "outdated"), state("acme-other", "present")], ["Optional tools", "Update optional tools", true]]])
+        same((step => step === null ? null : [step.label, step.button, step.optional])(logic.requirementStep(rows)), want, "requirementStep: " + label);
+    // requirementPrimary: the Requirements action is the page's primary
+    // only for a required tool while no step holds the primary; an
+    // optional install never is.
+    const holding = logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, { summary: WARN, model: KEY, browser: DONE }, []));
+    const free = logic.setupSections(STEPPED_TUIS, producer.statusRows(STEPPED, { summary: READY, model: NO_STEP, browser: DONE }, []));
+    const required = logic.requirementStep([state("acme-tool", "present"), state("acme-other", "missing")]);
+    const optional = logic.requirementStep([state("acme-tool", "missing"), state("acme-other", "present")]);
+    for (const [label, step, sections, want] of [
+        ["no step holds no primary", null, free, false],
+        ["a missing required tool is the primary while no step holds it", required, free, true],
+        ["a missing required tool yields the primary to a step", required, holding, false],
+        ["a missing optional tool is never the primary", optional, free, false]])
+        same(logic.requirementPrimary(step, sections), want, "requirementPrimary: " + label);
 }
 
 verify(load(file));
@@ -680,7 +701,10 @@ verify(load(file));
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
     ["an outdated requirement takes the step", 'return requirement.state !== "present";', 'return requirement.state === "missing";'],
-    ["only outdated requirements read as an update", 'if (lacking.some(function (requirement) { return requirement.state === "missing"; }))', "if (true)"],
+    ["an optional install reads Missing", "if (lacking.every(function (requirement) { return requirement.optional; }))", "if (false)", "a missing optional tool alone is an optional install"],
+    ["a required install reads as optional", "if (lacking.every(function (requirement) { return requirement.optional; }))", "if (lacking.some(function (requirement) { return requirement.optional; }))", "a missing required tool beside an outdated one is installed first"],
+    ["an optional install is the primary", "return step !== null && !step.optional && !stepHoldsPrimary(sections);", "return step !== null && !stepHoldsPrimary(sections);", "a missing optional tool is never the primary"],
+    ["only outdated requirements read as an update", 'var missing = lacking.some(function (requirement) { return requirement.state === "missing"; });', "var missing = true;"],
     ["a line drops its entry's link", "info: entry.info, link: entry.link, tone:", "info: entry.info, link: null, tone:"],
     ["a live hint is drawn", 'return entry === undefined || entry.report !== "reported" ? "" : entry.hint;', 'return "";'],
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],

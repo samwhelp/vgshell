@@ -29,15 +29,30 @@ function requirementApplies(requirement) {
 
 // What the Requirements section's step row draws for REQUIREMENTS, a plugin's
 // rows: null while the step applies to none, else { label, hint, button,
-// icon }, the install's words while one is missing and the update's once
-// each one the step applies to is outdated. Either button asks the core for
-// the one notice, which updates first and then installs.
+// icon, optional }, the install's words while one is missing and the
+// update's once each one the step applies to is outdated. While each one it
+// applies to is optional, `optional` holds and the step reads as a choice,
+// not as work the plugin needs (requirementPrimary). Either button asks the
+// core for the one notice, which updates first and then installs.
 function requirementStep(requirements) {
     var lacking = requirements.filter(requirementApplies);
     if (lacking.length === 0) return null;
-    if (lacking.some(function (requirement) { return requirement.state === "missing"; }))
-        return { label: "Missing", hint: "Review the missing tools before you install them", button: "Install all missing", icon: "download" };
-    return { label: "Outdated", hint: "Review the outdated tools before you update them", button: "Update all outdated", icon: "refresh-cw" };
+    var missing = lacking.some(function (requirement) { return requirement.state === "missing"; });
+    if (lacking.every(function (requirement) { return requirement.optional; }))
+        return missing
+            ? { label: "Optional tools", hint: "Review the optional tools before you install them", button: "Install optional tools", icon: "", optional: true }
+            : { label: "Optional tools", hint: "Review the outdated optional tools before you update them", button: "Update optional tools", icon: "", optional: true };
+    if (missing)
+        return { label: "Missing", hint: "Review the missing tools before you install them", button: "Install all missing", icon: "download", optional: false };
+    return { label: "Outdated", hint: "Review the outdated tools before you update them", button: "Update all outdated", icon: "refresh-cw", optional: false };
+}
+
+// Whether STEP, a page's requirementStep, holds the page's one primary
+// action for SECTIONS, its setupSections: while a required tool is missing
+// or outdated and no step holds the primary (stepHoldsPrimary). An
+// optional step draws as a row action.
+function requirementPrimary(step, sections) {
+    return step !== null && !step.optional && !stepHoldsPrimary(sections);
 }
 
 // The words a `presence` value reads as on the page.
@@ -255,9 +270,10 @@ function stepAsks(entry, keyed) {
 
 // Where step ENTRY draws among the Setup section's steps: 0 while it is
 // open (stepOpen), 1 while it is not done and its value offers its action,
-// such as an optional step a user may still take, and 2 for the rest, a
-// done step in the success tone among them, so every step a user can
-// still act on reads above every done one.
+// such as an optional step a user may still take, and 2 for the rest: a
+// done step in the success tone, and a step that is not done and offers no
+// action, such as one that waits on another step, which a user cannot act
+// on now. So every step a user can still act on reads above every other.
 function stepRank(entry) {
     if (stepOpen(entry)) return 0;
     return entry.tone !== "success" && statusStep(entry).offered ? 1 : 2;

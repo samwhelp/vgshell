@@ -469,6 +469,33 @@ Item {
             compare(fakeManager.installs, [data.id], "a press asks the manager to install the plugin's tools");
         }
 
+        // While every missing tool is optional the install is a choice:
+        // a RowAction under Optional tools, with no Missing row and no
+        // filled primary; a missing required tool keeps both.
+        function test_an_optional_install_is_a_row_action_data() {
+            return [
+                { tag: "a missing optional tool", id: "acme.optional", row: ["Optional tools", "Install optional tools"], primary: [] },
+                { tag: "a missing required tool", id: "acme.required", row: ["Missing", ""], primary: ["Install all missing"] }
+            ];
+        }
+        function test_an_optional_install_is_a_row_action(data) {
+            const window = opened();
+            window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            const requirements = descendants(pageOf(window)).find(item => item instanceof Section && item.visible && item.title === "Requirements");
+            // The step row is the section's one field outside a
+            // RequirementRow, each of which holds a field of its own.
+            const inRows = descendants(requirements).filter(item => item instanceof RequirementRow).reduce((all, row) => all.concat(descendants(row)), []);
+            const field = descendants(requirements).find(item => item instanceof Field && item.visible && inRows.indexOf(item) === -1);
+            const action = descendants(field).find(item => item instanceof RowAction && item.visible);
+            compare([field.label, action === undefined ? "" : action.text], data.row);
+            compare(descendants(pageOf(window)).filter(item => item instanceof Button && item.visible && item.variant === "primary").map(button => button.text), data.primary);
+            if (action === undefined) return;
+            tryVerify(() => action.height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(action);
+            compare(fakeManager.installs, [data.id], "a press asks the manager for the requirement notice");
+        }
+
         // A Requirements row's chip holds one state: a missing optional
         // tool reads Optional in the info tone, a missing required one
         // Missing in the danger tone, and an outdated one Outdated in the
