@@ -113,12 +113,12 @@ for fn in confirm choose input filter; do
   check "$fn with no terminal runs no gum" test ! -e "$tmp/gum"
 done
 on_tty 'vgs_tui_confirm "Remove it?" --default=false'
-check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" --default=false -- "$(confirm_prompt "Remove it?")")"
+check "a confirm on a terminal asks gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm "${confirm_margins[@]}" --default=false -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's yes" test "$status" == 0
 check "a confirm on a terminal starts with one blank line" starts_one_blank "$tmp/out"
 echo 1 >"$tmp/gum-exit"
 on_tty 'vgs_tui_confirm "Remove it?"'
-check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" -- "$(confirm_prompt "Remove it?")")"
+check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm "${confirm_margins[@]}" -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
 # Every colour a yes-or-no question draws, against the colour under it,

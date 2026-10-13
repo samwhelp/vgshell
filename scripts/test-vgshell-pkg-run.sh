@@ -123,6 +123,9 @@ PKG_ANSWERS=()
 sudo_path="$managers:$tmp/elevate-sudo"
 log_is() { [[ "$(cat -- "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n' "$(cat -- "$log")" "$1" >"$tmp/why"; return 1; }; }
 out_has() { grep -qF -- "$1" "$tmp/out"; }
+# The output's words in order, colour dropped, as a step wider than the
+# terminal shows them wrapped over several lines.
+out_has_words() { sed -E $'s/\e\\[[0-9;]*m//g' "$tmp/out" | tr -s '\r\n ' '   ' | grep -qF -- "$1"; }
 lines() { printf '%s\n' "$@"; }
 
 # Each row takes the tree it runs and answers 0 when every expectation holds.
@@ -211,7 +214,7 @@ row_home_directory() {
 # install behind the elevation command.
 row_update() {
   pkg "$1" "$managers" -- run update --manager mise pi npm:agent-browser
-  [[ $status == 0 ]] && out_has "env MISE_MINIMUM_RELEASE_AGE=0 mise use --global pi@latest npm:agent-browser@latest" &&
+  [[ $status == 0 ]] && out_has_words "env MISE_MINIMUM_RELEASE_AGE=0 mise use --global pi@latest npm:agent-browser@latest" &&
     log_is "mise [use] [--global] [pi@latest] [npm:agent-browser@latest]" || return 1
   pkg "$1" "$sudo_path" -- run update --manager pacman foo
   [[ $status == 0 ]] && out_has "sudo pacman -S --needed -- foo" && log_is "$(lines \

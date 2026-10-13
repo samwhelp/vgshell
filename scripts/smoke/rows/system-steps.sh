@@ -69,7 +69,7 @@ for unit in bluetooth.service tailscaled.service greetd.service; do
   device_reply systemctl 3 "" is-active --quiet "$unit"
   device_reply systemctl 0 not-found show --property=LoadState --value "$unit"
 done
-device_reply gum 0 "" confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$system_prompt"
+device_reply gum 0 "" confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" -- "$system_prompt"
 device_reply udevadm 0 "" control --reload
 device_reply udevadm 0 "" trigger --subsystem-match=hidraw --action=change --settle
 sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo replaced; fi; }
@@ -126,7 +126,7 @@ expect "the stand-in ran the rule's install as root" 1 grep -c -F -- "-- $system
 sentinel_restore "$system_bin/sudo"
 sentinel_restore "$shim/udevadm"
 expect "the tree's sudo is the sentinel again" sentinel sentinel_of "$system_bin/sudo"
-system_gum_argv="$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1:]]))' confirm --prompt.margin "0 0 0 0" --selected.margin "0 2 0 0" --unselected.margin "0 2 0 0" -- "$system_prompt")"
+system_gum_argv="$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1:]]))' confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" -- "$system_prompt")"
 expect "the step asked its one question through the gum stand-in" "$system_gum_argv" system_calls_since gum "$system_gum_before"
 expect "the udevadm stand-in reloaded the rules, then triggered hidraw" \
   '[["control", "--reload"], ["trigger", "--subsystem-match=hidraw", "--action=change", "--settle"]]' system_calls_since udevadm "$system_udevadm_before"

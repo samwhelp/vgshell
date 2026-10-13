@@ -443,7 +443,8 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
             clearSignIns();
             const result = signIn(folder, vendor, "new", "login-account", outcome);
             assert.equal(result.status, 1, vendor + " " + outcome);
-            const terminal = result.stdout + result.stderr;
+            // The terminal wraps a long path over lines at its content edge.
+            const terminal = (result.stdout + result.stderr).replace(/\x1b\[[0-9;:]*m/g, "").replace(/\s+/g, "");
             assert.equal(terminal.includes(log), false, "failed login does not refer to a log without its details");
             assert.equal(terminal.includes(log.replace(env.HOME, "~")), false, "the abbreviated log path is also absent");
             assert.equal(fs.existsSync(accountFile), false, "failed or unconfirmed login is not remembered");

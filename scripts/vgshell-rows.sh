@@ -50,6 +50,9 @@ base_env=(env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.
 # vgs_tui_confirm hands gum confirm for QUESTION with no theme colour: the
 # question, a blank line and the key help line under it.
 confirm_prompt() { printf '%s\n\n\033[22m\033[39m←→ toggle • enter submit • y %s • n %s\033[0m' "$1" "${2:-Yes}" "${3:-No}"; }
+# The margins vgs_tui_confirm hands gum confirm: the question and both
+# buttons at the content edge, column 3.
+confirm_margins=(--prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3")
 
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }

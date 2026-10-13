@@ -367,7 +367,7 @@ pipeline() {
     script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
   grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed 's/ --prompt.margin 0 0 0 0 --selected.margin 0 2 0 0 --unselected.margin 0 2 0 0//' >"$tmp/seq" || filtered=$?
+    sed "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
@@ -625,7 +625,10 @@ row_reboot_core() {
   printf 'btrfs\ntmpfs\n' >"$fix/fstypes"
   rm -f -- "${fix:?}/installed-asked"
   pipeline update.sh
-  assert "btrfs-progs with btrfs mounted asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated btrfs-progs, which takes effect after a reboot. Reboot now?"
+  # The question is wider than the content edges of an 80-column terminal,
+  # so its last word goes on a line of its own.
+  assert "btrfs-progs with btrfs mounted asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated btrfs-progs, which takes effect after a reboot. Reboot"
+  assert "the btrfs-progs reboot question ends on its wrapped line" has_call "now?"
   # Without the hook no package needs a reboot.
   reset_fix
   printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
@@ -787,7 +790,7 @@ log_tui() {
   status=${PIPESTATUS[1]}
   set -e
   grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed 's/ --prompt.margin 0 0 0 0 --selected.margin 0 2 0 0 --unselected.margin 0 2 0 0//' >"$tmp/seq" || filtered=$?
+    sed "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 # The first line of the output, without the typed keys the terminal echoed
