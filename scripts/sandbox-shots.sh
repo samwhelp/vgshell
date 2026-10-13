@@ -1194,7 +1194,8 @@ scene_setup_steps() { # MODE
 # The Settings window: the list opened from the gear, the pointer on the
 # gear; a search nothing matches; a plugin page with many grouped settings at its top, with a typed
 # value over its save bar, under the prompt the back button then raises, dragged down
-# its scroll bar, and with its Mode select open; a plugin with keys; the
+# its scroll bar, scrolled a third and two thirds down, which match on the
+# settled bar's region, and with its Mode select open; a plugin with keys; the
 # automations' page at its Status section; the Jarvis page with its
 # daemon ready; the Scratchpads page at its Pads section, holding one pad; the
 # title's menu open with the pointer on its first entry, and scrolled half
@@ -1263,15 +1264,17 @@ scene_settings() { # MODE
     drag "$tx" "$ty" "$tx" "$((ty + 120))" || fail "the drag on the page's thumb failed"
     hover "$tx" "$((ty + 120))" || fail "the hover on the dragged thumb failed"
     take "settings-$1-page-scrolled"
-    # The page moved one pixel and back restarts the bar's fade delay;
-    # take waits for the bar to settle, so both captures match on its
-    # region.
-    if area="$(settings_scroll)" && [[ $area == \{* ]] && at="$(python3 -c 'import json,sys; print(int(json.loads(sys.argv[1])["contentY"]))' "$area")" \
+    # Two captures of the page, each taken right after a scroll restarts
+    # the bar's fade delay, a third and two thirds down its content: take
+    # waits for the bar to settle, so both match on its region.
+    if area="$(settings_scroll)" && [[ $area == \{* ]] && [[ $(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["barVisible"])' "$area") == True ]] \
+      && at="$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); print(int(a["contentHeight"] - a["height"]))' "$area")" \
       && bar="$(settings_bar_box "$area")"; then
-      expect "the page moves one pixel up" "$((at - 1))" settings_scroll_set "$((at - 1))"
-      expect "the page moves back" "$at" settings_scroll_set "$at"
-      take "settings-$1-page-scrolled-again"
-      expect "the two page-scrolled captures match on the scroll bar's region" same shot_region_same "settings-$1-page-scrolled" "settings-$1-page-scrolled-again" "$bar"
+      expect "the page scrolls a third down" "$((at / 3))" settings_scroll_set "$((at / 3))"
+      take "settings-$1-page-third"
+      expect "the page scrolls two thirds down" "$((2 * at / 3))" settings_scroll_set "$((2 * at / 3))"
+      take "settings-$1-page-two-thirds"
+      expect "the two scrolled captures match on the scroll bar's region" same shot_region_same "settings-$1-page-third" "settings-$1-page-two-thirds" "$bar"
     else
       fail "the scrolled probe's page bar is unreadable: ${area:-} ${bar:-}"
     fi

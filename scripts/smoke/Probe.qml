@@ -1458,15 +1458,16 @@ Scope {
         function revealScopedText(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             return root.revealIn(root.instance(hostKey, id), root.scopedItem(hostKey, id, scopeType, scopeText, type, text));
         }
-        // The first shown Section titled `title` under an instance, as
-        // [top, bottom, contentY, height]: its span in its one shown scroll
-        // area's content and that area's scroll and height, for a reader
-        // that brings the whole section into view through scrollTo;
+        // The first shown Section, or a type built on it, titled `title`
+        // under an instance, as [top, bottom, contentY, height]: its span in
+        // its one shown scroll area's content and that area's scroll and
+        // height, for a reader that brings the whole section into view
+        // through scrollTo;
         // "absent" without such a section or scroll area.
         function sectionSpan(hostKey: string, id: string, title: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const section = root.descendants(item).find(child => root.typeName(child) === "Section" && child.visible && child.title === title);
+            const section = root.descendants(item).find(child => child instanceof Ui.Section && child.visible && child.title === title);
             const areas = root.shownScrollAreas(item);
             if (section === undefined || areas.length !== 1) return "absent";
             const flick = areas[0];
