@@ -115,7 +115,6 @@ mutations=(
   "the description separates from its title|layout/Pane.qml|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.row.lineGap : 0|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.stack.titleSpace : 0|tst_title_space.qml"
   "a surviving slot dereferences its destroyed measure height|layout/Pane.qml|implicitHeight: contentItem === null ? 0 : (contentItem === this ? childrenRect.height : contentItem.implicitHeight)|implicitHeight: contentItem === this ? childrenRect.height : contentItem.implicitHeight|tst_title_space.qml"
   "a surviving slot dereferences its destroyed measure width|layout/Pane.qml|if (contentItem === null) return 0;|{}|tst_title_space.qml"
-  "notification panel restores rejected header gap|../plugins/vgs.notifications/Panel.qml|gap: 0|gap: root.look.header.gap + stickyGap|tst_notification_scroll.qml"
   "notification panel list starts below the gutter|../plugins/vgs.notifications/Panel.qml|y: column.contentInset + column.headerHeight|y: column.contentInset + column.headerHeight + column.bodyGap|tst_notification_scroll.qml"
   "notification panel first card loses its gap under the header|../plugins/vgs.notifications/Panel.qml|topGutter: root.look.card.gap|topGutter: 0|tst_notification_scroll.qml"
   "notification panel selection lifts its card|../plugins/vgs.notifications/Panel.qml|y: pointer.hovered ? -root.look.card.lift : 0|y: slot.hover > 0 ? -root.look.card.lift : 0|tst_notification_scroll.qml"

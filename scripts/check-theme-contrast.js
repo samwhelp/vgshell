@@ -11,6 +11,7 @@
 //   ok       <name>
 //   ok       catalog/<name>
 //   short    catalog/<name>: <text> on <surface> ratio=<r> floor=4.5
+//   short    <name>: notifications.text.link on notifications.card.fill over <wallpaper> ratio=<r> floor=4.5
 //   order    catalog/<name>: <stronger> ratio=<r> below <weaker> ratio=<r>
 //   refused  catalog/<name>: <refusal>
 // The text hierarchy, each against color.background: color.textHeading is
@@ -20,6 +21,9 @@
 // The terminal's six colours and their bright forms are text, each against
 // palette.background, the terminal's background; color0, color7, color8 and
 // color15 also fill and dim, so they keep their source values.
+// A notice's page link is text on the notifications' glass card, whose look
+// the theme's accent and mode reach: judged over black and white, the
+// darkest and lightest wallpaper pixels the card can lie over.
 // Exit 0: every theme is readable. Exit 1: a shortfall, a hierarchy break
 // or a refusal was reported. Exit 2: bad invocation or a file cannot be read.
 "use strict";
@@ -31,6 +35,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const repo = path.join(__dirname, "..");
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
+const notifications = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
 
 function unreadable(file, cause) {
     console.error(`check-theme-contrast: unreadable: path=${file} error=${cause}`);
@@ -97,6 +102,21 @@ function terminalShortfalls(values, slots) {
     return out;
 }
 
+const NOTICE_WALLPAPERS = ["#000000", "#ffffff"];
+
+// The notice link's shortfalls on its card in the notifications look
+// LOOK resolves to.
+function noticeLinkShortfalls(look) {
+    const out = [];
+    for (const wallpaper of NOTICE_WALLPAPERS) {
+        const card = logic.overlay(logic.parseColor(look.card.fill), logic.parseColor(wallpaper));
+        const ratio = logic.contrastRatio(logic.overlay(logic.parseColor(look.text.link), card), card);
+        if (ratio < logic.READABILITY_FLOOR)
+            out.push({ text: "notifications.text.link", surface: `notifications.card.fill over ${wallpaper}`, ratio, floor: logic.READABILITY_FLOOR });
+    }
+    return out;
+}
+
 function hierarchyBreaks(values) {
     const out = [];
     for (const [stronger, weaker] of HIERARCHY) {
@@ -121,9 +141,15 @@ function checkPackage(label, dir) {
         console.log(`refused  ${label}: ${logic.refusalLine(terminal)}`);
         return 1;
     }
+    const look = logic.acceptAppearance(notifications.TOKENS, notifications.LIGHT, accepted.values);
+    if (!look.ok) {
+        console.log(`refused  ${label}: notifications ${logic.refusalLine(look)}`);
+        return 1;
+    }
     const shortfalls = logic.readabilityShortfalls(accepted.values);
     if (terminal.slots !== null)
         shortfalls.push(...terminalShortfalls(accepted.values, terminal.slots));
+    shortfalls.push(...noticeLinkShortfalls(look.values));
     const breaks = hierarchyBreaks(accepted.values);
     if (shortfalls.length === 0 && breaks.length === 0) {
         console.log(`ok       ${label}`);
@@ -157,7 +183,7 @@ function checkCatalog(themesDir) {
 function main() {
     const args = process.argv.slice(2);
     if (args.includes("--help")) {
-        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 24).join("\n") + "\n");
+        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 28).join("\n") + "\n");
         return 0;
     }
     if (args.length > 1) usage("arguments=too-many");

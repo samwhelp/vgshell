@@ -92,6 +92,12 @@ var TOKENS = {
         // strength. scripts/test-notifications-logic.js holds both text
         // roles to the reading floor over dark and light wallpapers.
         body: { size: length(13), color: color("alpha({text.foreground}, 0.8)") },
+        // A notice's page link in its body, underlined: the theme's accent
+        // where it reads at 4.5:1 on the card over any wallpaper, else the
+        // accent mixed halfway to the foreground where that reads, else the
+        // foreground. scripts/check-theme-contrast.js holds it to 4.5:1 in
+        // every shipped and catalogued theme.
+        link: color("readable({palette.accent}, {card.nearInk}, readable(mix({palette.accent}, {text.foreground}, 0.5), {card.nearInk}, {text.foreground}))"),
         label: { size: length(12), weight: weight(500), opacity: share(0.7) }
     },
 
@@ -141,7 +147,12 @@ var TOKENS = {
         // glass fill over it handed to GlassSurface of qs.Ui, which draws
         // the rest of the glass (Theme.glass).
         base: color("#101010"),
-        fill: color("alpha({card.base}, 0.8)"),
+        opacity: share(0.8),
+        fill: color("alpha({card.base}, {card.opacity})"),
+        // The card as drawn over the wallpaper nearest its text's ink:
+        // white under the dark card, black under the light one. Text that
+        // reads at 4.5:1 on it reads so over any wallpaper.
+        nearInk: color("mix(#ffffff, {card.base}, {card.opacity})"),
         width: length(420),
         gap: length(8),
         // The dot a toast morphs from, how far it drops in, how much the
@@ -330,7 +341,8 @@ var LIGHT = {
     },
     card: {
         base: "#f2f2f2",
-        fill: "alpha({card.base}, 0.85)"
+        opacity: 0.85,
+        nearInk: "mix(#000000, {card.base}, {card.opacity})"
     },
     // The edge light is white, brighter than the card's #f2f2f2 fill, so the
     // edge catches light as it does in dark mode. The reference's grey for

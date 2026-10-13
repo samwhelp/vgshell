@@ -110,6 +110,29 @@ try {
         assert.match(proc.stdout, /ok       catalog\//);
     });
 
+    // The notice link as e5d112688 drew it, the theme's accent alone, in a
+    // disposable copy of the check and the files it loads, judged on the
+    // shipped tree: the default's accent on its dark card over white and
+    // a light theme's on its light card over black fall short.
+    row("control: a notice link in the accent alone is a shortfall", dir => {
+        const copy = path.join(dir, "copy");
+        for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
+            "shell/Commons/Tokens.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
+            fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
+            fs.copyFileSync(path.join(repo, file), path.join(copy, file));
+        }
+        const look = path.join(copy, "shell", "plugins", "vgs.notifications", "Appearance.js");
+        const source = fs.readFileSync(look, "utf8");
+        const link = /link: color\("readable\(.*\)"\),/g;
+        assert.equal((source.match(link) || []).length, 1, "the planted link matches once");
+        fs.writeFileSync(look, source.replace(link, 'link: color("{palette.accent}"),'));
+        const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+            { encoding: "utf8", env: env(path.join(dir, "env")) });
+        assertStatus(proc, 1);
+        assert.match(proc.stdout, /^short    vgs: notifications\.text\.link on notifications\.card\.fill over #ffffff ratio=3\.35 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/flexoki-light: notifications\.text\.link on notifications\.card\.fill over #000000 ratio=4\.15 floor=4\.5$/m);
+    });
+
     row("direct package shortfall exits one", dir => {
         fs.mkdirSync(dir, { recursive: true });
         writeTheme(dir, "faint", { color: { textFaint: "#111111" } });

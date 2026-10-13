@@ -92,7 +92,7 @@ Item {
     // stripped and the page hint's words drawn as a link
     // (NotificationLogic.styledBody), and the workspace's custom emoji as
     // images (emojiSegments).
-    readonly property var bodySegments: Logic.emojiSegments(Logic.styledBody(body, app, appIcon, hintPage, look.palette.accent), emoji)
+    readonly property var bodySegments: Logic.emojiSegments(Logic.styledBody(body, app, appIcon, hintPage, look.text.link), emoji)
     readonly property bool singleLine: sanitizedBody.length === 0
     readonly property bool iconInSummary: singleLine && Logic.summaryStartsWithGlyph(summary)
     // NotificationLogic.enrich's reading of this sender, or null.
