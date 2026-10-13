@@ -581,7 +581,7 @@ type_keys "$first_card" || fail "typing $first_card after the terminal colour ch
 expect_poll "the selected card holds the changed color4" '"#00ff00ff"' selected_slot color4
 expect_poll "the selected card's foot follows the changed color4" '[]' expanded_foot
 expect "the selected catalog card is not installed" False selected_installed
-expect "a catalog card draws only its name and the typed filter beside the rail" "[\"Akane\", \"$first_card\"]" rest_texts
+expect "a catalog card draws only its name, the search hint and the typed filter beside the rail" "[\"Akane\", \"Type a theme name to search\", \"$first_card\"]" rest_texts
 
 # Paging: Home, Right, Left and End move the selection.
 type_keys -k Escape || fail "clearing the catalog-card filter failed"
