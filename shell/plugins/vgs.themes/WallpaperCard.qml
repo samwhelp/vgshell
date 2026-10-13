@@ -12,8 +12,9 @@ import "Files.js" as Files
 // name keeping the card's lean from each side, as the theme card's does,
 // and a side card up the slice's slanted axis from
 // `carousel.sliceName.inset` above its bottom edge, where the whole line
-// fits, in the card's layer over its dim wash, so the wash does not fade
-// the name. A Spinner turns
+// fits, its icon `stack.group` past the line's end on that axis, both in
+// the card's layer over its dim wash, so the wash fades neither. A
+// Spinner turns
 // over the card while the browser sets its image or runs its download.
 Item {
     id: root
@@ -31,6 +32,8 @@ Item {
     property Item foreground: null
 
     readonly property bool offer: modelData.kind !== "image"
+    // Whether this is a download or update card beside the centre one.
+    readonly property bool side: offer && !current
     readonly property bool named: !offer && typeof modelData.name === "string" && modelData.name !== ""
 
     anchors.fill: parent
@@ -42,13 +45,13 @@ Item {
 
         Column {
             anchors.centerIn: parent
-            // A side card's icon stands above its name's run.
-            anchors.verticalCenterOffset: root.offer && !root.current ? -parent.height / 4 : 0
             width: parent.width - 2 * Theme.angledCard.skew
             spacing: Theme.stack.group
 
             Icon {
+                id: mark
                 anchors.horizontalCenter: parent.horizontalCenter
+                visible: !root.side
                 name: root.modelData.kind === "download" ? "download" : root.modelData.kind === "update" ? "refresh-cw" : "image"
                 size: Theme.icon.size.xl
                 color: Theme.color.textMuted
@@ -72,17 +75,32 @@ Item {
     Label {
         readonly property real inset: Theme.carousel.sliceName.inset
         readonly property real lean: Math.atan2(Theme.angledCard.skew, Theme.carousel.sliceHeight)
+        id: sideName
         objectName: "offerName"
         parent: root.foreground ?? root
         role: "bodyStrong"
         x: (parent.width - parent.height * Math.tan(lean)) / 2 + inset * Math.sin(lean)
         y: parent.height - inset * Math.cos(lean) - height / 2
-        width: Math.min(implicitWidth, parent.height / Math.cos(lean) - 2 * inset)
+        width: Math.min(implicitWidth, parent.height / Math.cos(lean) - 2 * inset - Theme.stack.group - mark.size)
         transformOrigin: Item.Left
         rotation: lean * 180 / Math.PI - 90
-        visible: root.offer && !root.current
+        visible: root.side
         elide: Text.ElideRight
         text: root.offer ? root.modelData.label : ""
+    }
+
+    // The side card's icon stands upright past its name's end, its centre
+    // on the name's axis.
+    Icon {
+        readonly property real along: sideName.inset + sideName.width + Theme.stack.group + size / 2
+        objectName: "offerMark"
+        parent: sideName.parent
+        x: (parent.width - parent.height * Math.tan(sideName.lean)) / 2 + along * Math.sin(sideName.lean) - size / 2
+        y: parent.height - along * Math.cos(sideName.lean) - size / 2
+        visible: root.side
+        name: mark.name
+        size: mark.size
+        color: sideName.color
     }
 
     Image {

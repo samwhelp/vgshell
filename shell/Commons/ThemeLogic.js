@@ -54,6 +54,7 @@ var FUNCTIONS = {
     alpha: { args: ["color", "number"], result: "color" },
     contrast: { args: ["color"], result: "color" },
     readable: { args: ["color", "color", "color"], result: "color" },
+    discernible: { args: ["color", "color", "color"], result: "color" },
     mul: { args: ["same", "number"], result: "same" }
 };
 
@@ -286,6 +287,8 @@ var MODAL_FILL = "dialog.background";
 // Text beside the theme browser's rail sits on the scrim over the
 // wallpaper; a black wallpaper leaves it the darkest backdrop.
 var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive", "carousel.hintDanger"];
+// The open tab's indicator there is a mark, held to the boundary floor.
+var RAIL_MARK_ROLES = ["carousel.tabIndicator"];
 var RAIL_WALLPAPER = "#000000";
 
 function valueAt(values, path) {
@@ -302,9 +305,9 @@ function valueAt(values, path) {
 // and named `<fill> over <surface>`, then input boundaries, selected
 // indicators and knobs at 3, then the modal card's border and fill at 3 on
 // the scrim laid over each resting surface, a fill at least as light as
-// that dimmed surface passing at any ratio, then the rail text at 4.5 on
-// the scrim laid over a black wallpaper. Any other translucent colour has
-// no ratio and is a shortfall.
+// that dimmed surface passing at any ratio, then the rail text at 4.5 and
+// the rail's marks at 3 on the scrim laid over a black wallpaper. Any
+// other translucent colour has no ratio and is a shortfall.
 function readabilityShortfalls(values) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
@@ -329,6 +332,8 @@ function readabilityShortfalls(values) {
     }
     for (var w = 0; w < RAIL_TEXT_ROLES.length; w++)
         pairs.push([RAIL_TEXT_ROLES[w], MODAL_SCRIM, READABILITY_FLOOR, RAIL_WALLPAPER]);
+    for (var x = 0; x < RAIL_MARK_ROLES.length; x++)
+        pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
         var under = pairs[q][3];
@@ -568,12 +573,15 @@ function resolve(tokens, overrides) {
                 return fail("contrast-translucent", token, "colour=" + formatColor(args[0]));
             return contrastColor(args[0]);
         case "readable":
-            // The first colour where it reads as text on the opaque second
-            // one, else the third; a translucent text colour has no ratio
-            // and does not read.
+        case "discernible":
+            // The first colour where it meets its floor on the opaque
+            // second one, as text for `readable` and as a mark for
+            // `discernible`, else the third; a translucent first colour
+            // has no ratio and does not meet it.
             if (args[1].a < 1)
                 return fail("contrast-translucent", token, "colour=" + formatColor(args[1]));
-            return args[0].a === 1 && contrastRatio(args[0], args[1]) >= READABILITY_FLOOR ? args[0] : args[2];
+            var floor = tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;
+            return args[0].a === 1 && contrastRatio(args[0], args[1]) >= floor ? args[0] : args[2];
         case "mul":
             return args[0] * args[1];
         }

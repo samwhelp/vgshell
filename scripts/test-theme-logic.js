@@ -367,6 +367,8 @@ const DEFAULTS = [
     ["carousel.backdrop", "#000000ff"],
     ["carousel.hintActive", "#ffffffff"],
     ["carousel.hintDanger", "#f43f5eff"],
+    // The accent #ff5a36, luminance 0.288, reads 6.76:1 on black.
+    ["carousel.tabIndicator", "#ff5a36ff"],
     // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
     // white over black at full opacity blurred 4 pixels, dropped 2 pixels.
     ["carousel.sliceName.role", "h2"],
@@ -766,6 +768,18 @@ function verify(judge) {
     // the floor on that backdrop.
     assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })),
         [["carousel.hintDanger", "color.scrim over #000000", 4.5]]);
+    // The open tab's indicator on that backdrop is a mark at 3:1: the
+    // theme's accent forced onto it falls under the floor in latte.
+    assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { tabIndicator: "{color.accent}" } })),
+        [["carousel.tabIndicator", "color.scrim over #000000", 3]]);
+    // Each rule holds its own floor: the grey #6a6a6a, luminance 0.144,
+    // reads 3.88:1 on the default black backdrop, (0.144 + 0.05) / 0.05,
+    // so it is kept as a mark and not as text.
+    const floors = judge.accept(TOKENS, document({ carousel: {
+        hintDanger: "readable(#6a6a6a, {carousel.backdrop}, {carousel.hintActive})",
+        tabIndicator: "discernible(#6a6a6a, {carousel.backdrop}, {carousel.hintActive})" } }));
+    assert.equal(floors.ok, true, floors.ok ? "" : judge.refusalLine(floors));
+    assert.deepEqual([floors.values.carousel.hintDanger, floors.values.carousel.tabIndicator], ["#ffffffff", "#6a6a6aff"]);
     // A translucent danger has no ratio, so the line takes the fallback.
     const faintDanger = judge.accept(TOKENS, document({ carousel: { hintDanger: "readable(alpha(#ffffff, 0.5), {carousel.backdrop}, {carousel.hintActive})" } }));
     assert.equal(faintDanger.ok, true, faintDanger.ok ? "" : judge.refusalLine(faintDanger));
@@ -1432,6 +1446,20 @@ function verifyFailureLine(table) {
 }
 verifyFailureLine(TOKENS);
 
+// The open tab's indicator beside the rail keeps the theme's accent where
+// it reads 3:1 on the backdrop and draws carousel.hintActive where it
+// does not. The default accent reads 6.76:1 on black. catppuccin-latte's
+// accent #1b5ddf, luminance 0.134, reads 1.37:1 on its backdrop #7b7c7e,
+// (0.20 + 0.05) / (0.134 + 0.05), and the indicator draws black.
+function verifyTabIndicator(table) {
+    const judge = load(judgeFile);
+    const latte = judge.accept(table, document({ scheme: { mode: "light" }, palette: { background: "#eff1f5", foreground: "#4c4f69", accent: "#1b5ddf" } }));
+    assert.equal(latte.ok, true, latte.ok ? "" : judge.refusalLine(latte));
+    assert.equal(judge.defaults(table).values.carousel.tabIndicator, "#ff5a36ff", "a theme whose accent reads keeps it");
+    assert.equal(latte.values.carousel.tabIndicator, "#000000ff", "catppuccin-latte draws the label's ink");
+}
+verifyTabIndicator(TOKENS);
+
 // The failure line of each browser view leads with the danger mark, so
 // the state does not rest on the line's colour. This reads the view's
 // source: it holds that the mark is declared before the line in one row,
@@ -1465,6 +1493,8 @@ const TOKEN_CONTROLS = [
     ["bar scroll fade end", 'clear: color("alpha({bar.background}, 0)")', 'clear: color("alpha({bar.foreground}, 0)")', verifyBarScroll],
     ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll],
     ["failure line danger forced", 'hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})")', 'hintDanger: color("{color.danger}")', verifyFailureLine],
+    ["open tab indicator forced to the accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{color.accent}")', verifyTabIndicator],
+    ["open tab indicator without its accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{carousel.hintActive}")', verifyTabIndicator],
     ["failure line without its danger", 'hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})")', 'hintDanger: color("{carousel.hintActive}")', verifyFailureLine]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
@@ -1532,8 +1562,11 @@ const CONTROLS = [
     ["trailing text", "if (at !== text.length)", "if (false)"],
     ["unknown function", "if (!hasOwn(FUNCTIONS, tree.name))", "if (false)"],
     ["arity", "if (tree.args.length !== signature.args.length)", "if (false)"],
-    ["readable holds the floor", "contrastRatio(args[0], args[1]) >= READABILITY_FLOOR ? args[0] : args[2];", "contrastRatio(args[0], args[1]) >= 1 ? args[0] : args[2];"],
-    ["readable keeps a colour that reads", "contrastRatio(args[0], args[1]) >= READABILITY_FLOOR ? args[0] : args[2];", "contrastRatio(args[0], args[1]) >= 21 ? args[0] : args[2];"],
+    ["readable holds the text floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? BOUNDARY_FLOOR : BOUNDARY_FLOOR;'],
+    ["discernible holds the mark floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? READABILITY_FLOOR : 1;'],
+    ["discernible keeps a mark under the text floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? READABILITY_FLOOR : READABILITY_FLOOR;'],
+    ["a colour that meets its floor is kept", ">= floor ? args[0] : args[2];", ">= floor ? args[2] : args[2];"],
+    ["rail marks are judged", "pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);", ";"],
     ["readable refuses a translucent text colour", "return args[0].a === 1 && contrastRatio(", "return contrastRatio("],
     ["readable refuses a translucent backdrop", "if (args[1].a < 1)\n                return fail(\"contrast-translucent\"", "if (false)\n                return fail(\"contrast-translucent\""],
     ["unknown reference", "if (target === undefined)", "if (false)"],

@@ -18,7 +18,7 @@ Item {
     ScrollArea { id: scroll; width: 100; height: 50; Column { Repeater { model: 10; Rectangle { width: 80; height: 20; color: "transparent" } } } }
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
     Tabs { id: markedTabs; model: ["Themes", "Wallpapers"]; y: 624; hoverMark: true }
-    Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0" }
+    Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0"; indicatorColor: "#a0c0e0" }
     KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
     ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
@@ -128,6 +128,21 @@ Item {
             tryCompare(plain, "hovered", true);
             compare(findChild(plain.background, "hoverMark").visible, false);
             mouseMove(root, root.width - 1, root.height - 1);
+        }
+
+        // The open tab's indicator draws the colour the view hands the
+        // row, and the theme's where it hands none.
+        function test_open_tab_indicator_draws_the_handed_colour() {
+            handedTabs.currentIndex = 0;
+            compare(findChild(handedTabs.itemAt(0).background, "indicator").color, Qt.color("#a0c0e0"));
+            compare(findChild(tabs.itemAt(tabs.currentIndex).background, "indicator").color, Qt.color(Theme.tabs.indicatorColor));
+        }
+
+        // The track is a resting surface's line: a row with `hoverMark`
+        // draws none, so no stub shows between its tabs.
+        function test_a_marked_row_draws_no_track() {
+            compare(findChild(markedTabs.background, "track").visible, false);
+            compare(findChild(handedTabs.background, "track").visible, true);
         }
 
         function test_list_item_highlights_and_clicks() {

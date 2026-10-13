@@ -974,7 +974,9 @@ var TOKENS = {
     // mark: the theme's danger where it reads 4.5:1 on that backdrop, as
     // in each of the 74 dark catalog themes, 5.17:1 or more, and
     // `hintActive` where it does not, as in the 7 light ones, 1.36:1 in
-    // rose-pine to 3.81:1 in white (the same reading).
+    // rose-pine to 3.81:1 in white (the same reading). The open tab's
+    // indicator draws `tabIndicator`: the theme's accent where it reads
+    // 3:1 on that backdrop, and `hintActive` where it does not.
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -992,6 +994,7 @@ var TOKENS = {
         backdrop: color("alpha(mix({color.scrim}, #000000, 0.4), 1)"),
         hintActive: color("contrast({carousel.backdrop})"),
         hintDanger: color("readable({color.danger}, {carousel.backdrop}, {carousel.hintActive})"),
+        tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})"),
         sliceName: {
             role: textRole("h2"),
             inset: length("{space.xxl}"),

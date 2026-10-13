@@ -9,10 +9,13 @@ import qs.Ui
 // side, and the indicator under the open one. Hover lifts a closed tab's
 // label, a press fills the tab, and a disabled row fades. A view that
 // draws the row on something other than a resting surface hands it
-// `foreground`, `hover` and `active` label colours, and sets
+// `foreground`, `hover` and `active` label colours and the open tab's
+// `indicatorColor`, and sets
 // `hoverMark` where those colours are too near one another to tell
 // apart: a closed tab under the pointer then draws an indicator in its
-// label's colour. While the row holds the keyboard, Ctrl+Tab,
+// label's colour, and the row draws no track, whose colour is a resting
+// surface's border and would show as a stub between the tabs' own
+// lines. While the row holds the keyboard, Ctrl+Tab,
 // Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step the open tab, round
 // the ends.
 T.TabBar {
@@ -22,6 +25,7 @@ T.TabBar {
     property color foreground: Theme.tabs.foreground
     property color hover: Theme.tabs.hover
     property color active: Theme.tabs.active
+    property color indicatorColor: Theme.tabs.indicatorColor
     property bool hoverMark: false
 
     implicitWidth: contentItem.implicitWidth
@@ -60,11 +64,13 @@ T.TabBar {
 
     background: Item {
         Rectangle {
+            objectName: "track"
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: Theme.border.thin
             color: Theme.tabs.border
+            visible: !root.hoverMark
         }
     }
 
@@ -82,6 +88,7 @@ T.TabBar {
             readonly property color foreground: root.foreground
             readonly property color hover: root.hover
             readonly property color active: root.active
+            readonly property color indicatorColor: root.indicatorColor
             readonly property bool hoverMark: root.hoverMark
             text: String(modelData)
             implicitWidth: implicitContentWidth + leftPadding + rightPadding
@@ -112,7 +119,8 @@ T.TabBar {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     height: Theme.tabs.indicator
-                    color: Theme.tabs.indicatorColor
+                    objectName: "indicator"
+                    color: tab.indicatorColor
                     visible: tab.checked
                 }
                 FocusRing { target: tab; visible: tab.selectedFocus }

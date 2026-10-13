@@ -352,6 +352,7 @@ FocusScope {
                     foreground: Theme.carousel.hint
                     hover: Theme.carousel.hintActive
                     active: Theme.carousel.hintActive
+                    indicatorColor: Theme.carousel.tabIndicator
                     hoverMark: true
                     model: BrowserLogic.VIEWS.map(v => v.label)
                     currentIndex: 1
