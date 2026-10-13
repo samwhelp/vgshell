@@ -19,6 +19,8 @@
 #   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
 #                                    TITLE, then each LINE, wrapped to fit
 #                                    the terminal
+#   vgs_tui_clear                    clear the screen; the next block starts
+#                                    on its first row, with no blank line
 #   vgs_tui_text TEXT                TEXT in the terminal's own colour, each of
 #                                    its lines wrapped at the content edges
 #   vgs_tui_step TEXT                a bold accent line after a blank line
@@ -112,8 +114,18 @@ _vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }
 _vgs_tui_terminal() { # KEY
   _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "run this in a terminal"
 }
-_vgs_tui_prompt_gap() { printf '\n' >&2; }
-_vgs_tui_header_gap() { printf '\n'; }
+# _vgs_tui_gap_left marks a row that already stands where a block's blank
+# line would go: the blank line above a question, which gum leaves when it
+# erases the answered question, or the top of a cleared screen. The next
+# blank line is then not drawn, and every library write clears the mark. A
+# line a program the script runs itself writes does not clear it.
+_vgs_tui_gap_left=""
+_vgs_tui_gap() {
+  [[ -n $_vgs_tui_gap_left ]] || printf '\n'
+  _vgs_tui_gap_left=""
+}
+_vgs_tui_prompt_gap() { _vgs_tui_gap >&2; }
+_vgs_tui_header_gap() { _vgs_tui_gap; }
 
 # The header's content edge: its border and left padding, in columns. Every
 # line the library draws outside the box starts there and ends that far
@@ -181,6 +193,7 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT
 # edge in the SGR escape; an empty line has no indent.
 _vgs_tui_print() { # SGR TEXT [WIDTH]
   local lines=() line pad
+  _vgs_tui_gap_left=""
   _vgs_tui_lines lines "${3:-$(_vgs_tui_width)}" "$2"
   for line in "${lines[@]}"; do
     pad=""
@@ -207,17 +220,19 @@ vgs_tui_header() { # TITLE [LINE...]
   gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "$@"
 }
 
+vgs_tui_clear() { printf '\033[H\033[2J'; _vgs_tui_gap_left=1; }
+
 vgs_tui_text() { # TEXT
   _vgs_tui_print "" "$*"
 }
 
 vgs_tui_step() { # TEXT
-  printf '\n'
+  _vgs_tui_gap
   _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)"$'\033[1m' "$*"
 }
 
 vgs_tui_success() { # TEXT
-  printf '\n'
+  _vgs_tui_gap
   _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"
 }
 
@@ -252,7 +267,7 @@ vgs_tui_cancelled() { # TEXT
 # erases the screen from the cursor down. Checked in private tmux runs of
 # gum 2.0.2 for VGS-1492 on 2026-10-12.
 vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
-  local question="$1" flag previous="" yes=Yes no=No help lines=() margin
+  local question="$1" flag previous="" yes=Yes no=No help lines=() margin answer=0
   shift
   if [[ ${VGS_TUI_UNATTENDED:-} == 1 ]]; then
     printf '\n'
@@ -278,7 +293,9 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   # them; checked in a private tmux run for VGS-1475 on 2026-10-12. The
   # same left margin on both buttons puts Yes at the edge and keeps No
   # that far from it.
-  GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "$margin" --selected.margin "$margin" --unselected.margin "$margin" "$@" -- "$question"$'\n'"$help"
+  GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "$margin" --selected.margin "$margin" --unselected.margin "$margin" "$@" -- "$question"$'\n'"$help" || answer=$?
+  _vgs_tui_gap_left=1
+  return "$answer"
 }
 
 vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
@@ -325,6 +342,7 @@ vgs_tui_sudo_session() { # start|guard|end
   case "${1:-}" in
     start)
       local outer="${VGS_TUI_SUDO_SESSION:-}"
+      _vgs_tui_gap_left=""
       if [[ $outer =~ ^[123456789][0123456789]*$ ]] && kill -0 "$outer" 2>/dev/null; then
         sudo /usr/bin/true || _vgs_tui_refuse 1 "sudo=not-authorized" || return
         _vgs_tui_sudo_joined=1
@@ -432,6 +450,7 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   shift
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
     _vgs_tui_refuse 1 "logged=$file reason=open-failed" || return
+  _vgs_tui_gap_left=""
   "$@" 2>>"$file"
 }
 
@@ -448,6 +467,7 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
   exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
   [[ $- == *e* ]] && had_errexit=1
   set +e
+  _vgs_tui_gap_left=""
   width="$(_vgs_tui_width)"
   ( exec {fd}>&-; "$@" ) 2>&1 | {
     while LC_ALL=C IFS= read -r -N 1 char; do

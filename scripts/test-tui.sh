@@ -121,6 +121,17 @@ on_tty 'vgs_tui_confirm "Remove it?"'
 check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm "${confirm_margins[@]}" -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
+# gum erases an answered question but not the blank line above it, which
+# the next question or step keeps as its own.
+gap_after_questions() { on_tty 'vgs_tui_confirm "Remove it?"; vgs_tui_confirm "Sure?"; vgs_tui_step "Removing"'; starts_one_blank "$tmp/out"; }
+gap_after_text() {
+  on_tty 'vgs_tui_confirm "Remove it?"; vgs_tui_text "Kept."; vgs_tui_step "Removing"'
+  test "$(tr -d '\r' <"$tmp/out")" == $'\n'"${edge}Kept."$'\n\n'"$edge${esc}[32m${esc}[1mRemoving${esc}[0m"
+}
+check "two questions and a step after them share one blank line" gap_after_questions
+check "a step after a line under a question keeps its own blank line" gap_after_text
+cleared_step() { on_tty 'vgs_tui_clear; vgs_tui_step "Removing"'; test "$(tr -d '\r' <"$tmp/out")" == "${esc}[H${esc}[2J$edge${esc}[32m${esc}[1mRemoving${esc}[0m"; }
+check "a step on a cleared screen starts on its first row" cleared_step
 # Every colour a yes-or-no question draws, against the colour under it,
 # meets 4.5 to 1, the WCAG ratio for text, on vgs dark and flexoki-light.
 # The host's gum draws the question through the library on an 80-column
@@ -822,7 +833,7 @@ control joins-the-dead '&& kill -0 "$outer" 2>/dev/null; then' '; then'
 check "the joins-the-dead mutant fails a nested row" test "$(nested_rows quiet && echo green || echo red)" == red
 control unguarded 'guard) _vgs_tui_sudo_traps ;;' 'guard) ;;'
 check "the unguarded mutant fails a guard row" test "$(guard_rows quiet && echo green || echo red)" == red
-control no-header-blank "_vgs_tui_header_gap() { printf '\\n'; }" "_vgs_tui_header_gap() { :; }"
+control no-header-blank "_vgs_tui_header_gap() { _vgs_tui_gap; }" "_vgs_tui_header_gap() { :; }"
 run 'vgs_tui_header "-Title" "a line"'
 check "the no-header-blank mutant fails the header blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
 control no-bold-header "printf -v title '\\033[1m%s\\033[0m' \"\$title_line\"" 'title="$title_line"'
@@ -838,7 +849,13 @@ run 'vgs_tui_header "-Title" "a line"'
 check "the columns-loud-without-terminal mutant fails the quiet header row" test -s "$tmp/err"
 control header-always-fills '(( ${#line} + 6 > columns ))' 'true'
 check "the header-always-fills mutant fails the fitting header row" test "$(header_row 100 FITS && echo green || echo red)" == red
-control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
+control gap-never-left '  _vgs_tui_gap_left=1' '  :'
+check "the gap-never-left mutant fails the shared blank line row" test "$(gap_after_questions && echo green || echo red)" == red
+control gap-kept-after-text '  local lines=() line pad' '  local lines=() line pad _vgs_tui_gap_left'
+check "the gap-kept-after-text mutant fails the blank line after text row" test "$(gap_after_text && echo green || echo red)" == red
+control clear-leaves-blank "printf '\\033[H\\033[2J'; _vgs_tui_gap_left=1; }" "printf '\\033[H\\033[2J'; }"
+check "the clear-leaves-blank mutant fails the cleared screen row" test "$(cleared_step && echo green || echo red)" == red
+control no-prompt-blank "_vgs_tui_prompt_gap() { _vgs_tui_gap >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
 control confirm-margins-at-zero 'margin="0 0 0 $_vgs_tui_edge"' 'margin="0 0 0 0"'

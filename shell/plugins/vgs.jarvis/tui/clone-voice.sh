@@ -2,8 +2,8 @@
 # The core presents this script from a private copy of the whole plugin.
 # It refuses before the header unless the Large local voice tier can host
 # the clone, then asks consent. A No explains what was kept and waits for a
-# key, then it downloads the model, records ten seconds and publishes the
-# checked recording.
+# key. After consent it clears the screen, downloads the model, records ten
+# seconds and publishes the checked recording.
 set -euo pipefail
 # The recording log and state directory hold a user's voice setup evidence.
 umask 077
@@ -37,6 +37,11 @@ vgs_tui_header "Set up cloned voice" \
   "\"Don't use this model to do bad things. Prompts are sourced from freely available data on the internet.\""
 vgs_tui_confirm "Have you read Resemble AI's text above?" || declined
 vgs_tui_confirm "Is the voice you will record your own, or do you have the speaker's permission?" || declined
+# The download and the recording start on a cleared screen under the title
+# alone: below the logo and the consent text they would overflow the window
+# and scroll part of the logo off its top.
+vgs_tui_clear
+vgs_tui_header "Set up cloned voice"
 vgs_tui_step "Downloading the model"
 if ! vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone install; then
   details
