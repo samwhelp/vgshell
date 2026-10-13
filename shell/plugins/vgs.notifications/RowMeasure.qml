@@ -163,9 +163,9 @@ ColumnLayout {
             // Keep the original Text's font and line box while using Label's
             // shared capital placement. No typography role changes this title.
             font.variableAxes: ({})
-            font.letterSpacing: 0
+            font.letterSpacing: rowCard.look.text.title.letterSpacing
             font.capitalization: Font.MixedCase
-            lineHeight: 1
+            lineHeight: rowCard.look.text.title.lineHeight
             lineHeightMode: Text.ProportionalHeight
             style: Text.Raised
             styleColor: rowCard.look.text.summaryShadow

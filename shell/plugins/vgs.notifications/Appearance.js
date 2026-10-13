@@ -85,7 +85,7 @@ var TOKENS = {
         lift: color("readable(#000000, {text.foreground}, alpha(#000000, 0))"),
         shadow: color("mix(alpha(#000000, 0), {text.lift}, 0.45)"),
         summaryShadow: color("mix(alpha(#000000, 0), {text.lift}, 0.4)"),
-        title: { size: length(14), weight: weight(700) },
+        title: { size: length(14), weight: weight(700), letterSpacing: offset(0), lineHeight: number(1, 0.8, 3) },
         // The subtitle is the inbox header's count and the label a
         // control's text, chrome at the 12 px floor
         // (shell/Commons/Tokens.js).
@@ -198,9 +198,9 @@ var TOKENS = {
     // media starts its text at the same x, `card.pad + size + card.gapIcon`
     // in, and a one-line card is as tall as a card of a summary and one
     // body line. An image is cropped to the square with corners of
-    // `radius`, an application icon is drawn `icon` wide in the middle, a
-    // hinted Lucide icon `glyph` wide in the middle, and people fill it as
-    // faces.
+    // `radius`, an application icon is drawn `icon` wide and a hinted
+    // Lucide icon `glyph` wide, both on the first text line's capitals;
+    // people fill it as faces.
     media: { size: length(40), icon: length(40), radius: length(8), glyph: length(28) },
 
     // The people a notification names, as faces in the media slot, laid

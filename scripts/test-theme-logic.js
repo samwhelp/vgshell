@@ -1569,8 +1569,11 @@ for (const site of LED_LINES) {
     const levelled = source => ledIcon(source).length === 1 && ledIcon(source)[0].includes(binding) && !/anchors\.(?:centerIn|verticalCenter):/.test(ledIcon(source)[0]);
     const siteSource = fs.readFileSync(path.join(repo, site.file), "utf8");
     assert.equal(levelled(siteSource), true, `${site.file} centres its leading icon on its line's capitals`);
-    const centred = site.binding ? siteSource.replace(binding, site.centred)
-        : siteSource.replace(new RegExp(`y: [^\\n;{}]*${binding.replace(/[.()]/g, "\\$&")}`), "anchors.verticalCenter: parent.verticalCenter");
+    const targetBlock = ledIcon(siteSource)[0];
+    const centredBlock = site.binding ? targetBlock.replace(binding, site.centred)
+        : targetBlock.replace(new RegExp(`y: [^\\n;{}]*${binding.replace(/[.()]/g, "\\$&")}`), "anchors.verticalCenter: parent.verticalCenter");
+    assert.notEqual(centredBlock, targetBlock, `control: ${site.file} replaces the target icon's binding`);
+    const centred = siteSource.replace(targetBlock, centredBlock);
     assert.notEqual(centred, siteSource, `control: ${site.file} holds the call to replace`);
     assert.equal(levelled(centred), false, `control: ${site.file} with the icon on the row centre must fail the check`);
 }

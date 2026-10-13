@@ -9,7 +9,7 @@ import "NotificationLogic.js" as Logic
 // `faces`, the people `names` holds through the AvatarGroup of qs.Ui, one
 // person as a circle that fills the slot; `thumbnail`, the image `source`
 // cropped to the square with the slot's corner radius; `icon`, the
-// application icon `source` drawn at the slot's icon size in the middle;
+// application icon `source` drawn at the slot's icon size;
 // `glyph`, the Lucide icon `glyph` names at the slot's glyph size in
 // `glyphColor`, the x-vgs-icon hint's.
 Item {
