@@ -995,7 +995,9 @@ settings_drag_page_down() { # LABEL
     read -r tx ty < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")")
     drag "$tx" "$ty" "$tx" "$((ty + 120))" || { fail "the drag on $1's thumb failed"; return 1; }
     hover "$tx" "$((ty + 120))" || { fail "the hover on $1's dragged thumb failed"; return 1; }
-    return 0
+    expect_poll "the drag on $1's thumb scrolls it down" False settings_at_top
+    [[ $(settings_at_top) == False ]]
+    return
   fi
   fail "$1 scroll area is unreadable: ${area:-}"
   return 1
@@ -1013,11 +1015,20 @@ a = json.loads(sys.argv[1])
 over = a["contentHeight"] - a["height"] >= 0.5
 print(("overflows" if over else "fits") if over == a["barVisible"] else "contentHeight=%s height=%s barVisible=%s" % (a["contentHeight"], a["height"], a["barVisible"]))' "$area" || echo "area=$area"
 }
+# settings_page_settled: `settled` once settings_page_fit reads overflows or
+# fits, else that reading: a card still growing toward its page holds its
+# bar hidden over an overflow (Pane.cardGrowing).
+settings_page_settled() {
+  local fit
+  fit="$(settings_page_fit)"
+  case $fit in overflows | fits) echo settled ;; *) echo "$fit" ;; esac
+}
 # settings_scrolled_shot MODE NAME LABEL: the shown page dragged down its
 # bar as settings-MODE-NAME-scrolled when it overflows its view; a page that
 # fits takes no scrolled shot, since a drag there moves nothing.
 settings_scrolled_shot() {
   local fit
+  expect_poll "$3's fit settles" settled settings_page_settled
   fit="$(settings_page_fit)"
   case $fit in
     overflows) if settings_drag_page_down "$3"; then take "settings-$1-$2-scrolled"; fi ;;
@@ -1129,15 +1140,16 @@ slack_section() {
 # step_offered ID KEY: whether plugin ID's Settings page offers the step of
 # its status entry KEY.
 step_offered() { status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print(str(bool(r["action"] and r["action"]["offered"])).lower())'; }
-# step_shot MODE ID KEY LABEL NAME: plugin ID's page with the action LABEL
-# of its entry KEY scrolled into view, as setup-MODE-NAME. A host where the
-# step is not offered, such as one whose scene stood in the command the
-# button installs, skips the shot and says so.
+# step_shot MODE ID KEY LABEL NAME: plugin ID's page, on the tab that draws
+# its setup steps, with the action LABEL of its entry KEY scrolled into
+# view, as setup-MODE-NAME. A host where the step is not offered, such as
+# one whose scene stood in the command the button installs, skips the shot
+# and says so.
 step_shot() {
-  local shown offered=false _
+  local shown offered=false control _
   expect "the window opens the $2 page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$2"
   expect_poll "the $2 page is shown" "\"$2\"" settings_page
-  page_details
+  page_setup
   # expect_poll's own window, 5 s at 0.2 s.
   for _ in $(seq 1 25); do
     [[ $(step_offered "$2" "$3") == true ]] && { offered=true; break; }
@@ -1147,7 +1159,13 @@ step_shot() {
     ok "skipped setup-$1-$5: $2 offers no $4 here"
     return 0
   fi
-  shown="$(ipc smoke revealText "$settings_kind" vgs.settings RowAction "$4")" || shown=unread
+  # The page draws its first open step's action as its one primary Button
+  # and every other as a RowAction (Steps.markPrimary), and reveals only a
+  # shown one, so the step's action is whichever of the two is revealed.
+  for control in Button RowAction; do
+    shown="$(ipc smoke revealText "$settings_kind" vgs.settings "$control" "$4")" || shown=unread
+    [[ $shown != absent ]] && break
+  done
   [[ $shown =~ ^[0-9.]+$ ]] || { fail "the $4 button was not revealed: $shown"; return 0; }
   park_pointer
   take "setup-$1-$5"
@@ -1205,7 +1223,7 @@ scene_setup_steps() { # MODE
 settings_empty() { [[ $(ipc smoke itemGeometry "$settings_kind" vgs.settings Label 'No plugin matches "zzqxv"') == \[* ]] && echo shown || echo hidden; }
 scene_settings() { # MODE
   # A section shot keeps its heading margin px below the area's top edge.
-  local area at bar tx ty title x y section start end height half margin=12
+  local area at bar title x y section start end height half margin=12
   click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
   expect_poll "the gear opens the Settings window" 1 settings_count
   expect_poll "the Settings window holds the keyboard" true ipc smoke activeFocusIn "$settings_kind" vgs.settings
@@ -1259,10 +1277,11 @@ scene_settings() { # MODE
       fail "the probe's Gap field took no edit"
     fi
   fi
-  if area="$(settings_scroll)" && [[ $area == \{* ]]; then
-    read -r tx ty < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["thumb"]))' "$area")")
-    drag "$tx" "$ty" "$tx" "$((ty + 120))" || fail "the drag on the page's thumb failed"
-    hover "$tx" "$((ty + 120))" || fail "the hover on the dragged thumb failed"
+  # The page opened again grows its card toward its content, and the card
+  # holds its bar hidden until it lands (Pane.cardGrowing), so the thumb is
+  # dragged once the page reads as overflowing with its bar shown.
+  expect_poll "the probe's page overflows its view with its bar shown" overflows settings_page_fit
+  if [[ $(settings_page_fit) == overflows ]] && settings_drag_page_down "the probe's page"; then
     take "settings-$1-page-scrolled"
     # Two captures of the page, each taken right after a scroll restarts
     # the bar's fade delay, a third and two thirds down its content: take
@@ -1278,8 +1297,6 @@ scene_settings() { # MODE
     else
       fail "the scrolled probe's page bar is unreadable: ${area:-} ${bar:-}"
     fi
-  else
-    fail "the probe's page scroll area is unreadable: ${area:-}"
   fi
   park_pointer
   # The probe's Label preset select, scrolled into view and opened by a click on
@@ -1360,7 +1377,9 @@ EOF
     expect_poll "vgs.ai-usage is built" True record_exists vgs.ai-usage
     expect "the window opens the AI Usage page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.ai-usage
     expect_poll "the AI Usage page is shown" '"vgs.ai-usage"' settings_page
-    page_details
+    # Sign-in's entries each declare a step, which the page draws on the tab
+    # that holds its setup.
+    page_setup
     expect_poll "the AI Usage sign-in rows are reported" True page_reported vgs.ai-usage
     # The Sign-in section's heading at the top.
     if section="$(settings_section Sign-in SectionHeader Sign-in)"; then
