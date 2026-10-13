@@ -116,6 +116,11 @@
 # Without voxtype, a click on the widget starts no recording and offers
 # voxtype and its bridge in the requirement notice; Not now closes it, and
 # a click after it raises the notice again.
+# The stand-in's lock: an ended daemon its parent has not reaped, planted
+# in voxtype.lock, holds nothing, so the row's own daemon starts beside it
+# and reads idle, and a second daemon beside that live one is refused. Its
+# control: a copy of the stand-in that judges the holder by signal 0
+# refuses the daemon beside the same planted holder.
 # inputs: scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/rows/capabilities.sh shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml
 set -euo pipefail
 
@@ -1500,6 +1505,58 @@ expect_poll "nothing is offered after the stop-other control" none voice_setup_o
 expect "the shell is still the one that ran before the step" "$voice_shell_started" voice_shell_start
 expect "disabling Voice after the setup rows is allowed" ok ipc shell setPluginEnabled vgs.voice false
 expect_poll "disabling Voice after the setup rows ends the core's daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
+# The stand-in's lock beside an ended holder: a child that ended under a
+# parent that never reaps it is written to voxtype.lock. It reads state Z
+# and still takes signal 0. Control first, while the lock names it: a copy
+# of the stand-in whose daemon_pid is the signal 0 check refuses its
+# daemon. The stand-in then starts its daemon over the same lock, and
+# refuses a second one beside that live daemon.
+voice_zombie_file="$sandbox/voice-zombie-pid"
+voice_signal0="$sandbox/voice-signal0"
+voice_zombie_state() { { awk '{ print $3 }' "/proc/$(cat -- "$voice_zombie_file")/stat" || echo gone; } 2>/dev/null; }
+voice_zombie_signal() { if kill -0 "$(cat -- "$voice_zombie_file")" 2>/dev/null; then echo taken; else echo refused; fi; }
+# voice_daemon_try STUB NOTES: the exit of STUB's daemon, ended after 20
+# seconds when it starts, and what it noted.
+voice_daemon_try() { # STUB NOTES
+  local status=0
+  timeout 20 "${shell_env[@]}" PATH="$shell_start_path" "$1" daemon >>"$sandbox/voice-own-daemon.log" 2>&1 || status=$?
+  echo "exit=$status notes=$(tr '\n' ' ' <"$2" | sed 's/ $//')"
+}
+rm -rf -- "${voice_signal0:?}"
+mkdir -p -- "$voice_signal0/bin"
+python3 - "$repo/scripts/smoke/fixtures/voxtype/voxtype" "$voice_signal0/bin/voxtype" <<'PY'
+from pathlib import Path
+import sys
+s = Path(sys.argv[1]).read_text()
+opening = "daemon_pid() {\n"
+assert s.count(opening) == 1
+start = s.index(opening); end = s.index("\n}\n", start) + 3
+signal0 = opening + '  local pid\n  pid="$(cat -- "$lock" 2>/dev/null)" && [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && printf \'%s\\n\' "$pid"\n}\n'
+assert s[start:end] != signal0
+Path(sys.argv[2]).write_text(s[:start] + signal0 + s[end:])
+PY
+chmod 755 "$voice_signal0/bin/voxtype"
+rm -f -- "${voice_zombie_file:?}"
+bash -c 'true & printf "%s\n" "$!" >"$1"; exec sleep 600' _ "$voice_zombie_file" &
+voice_zombie_parent=$!
+expect_poll "the planted lock holder has ended and is not reaped" Z voice_zombie_state
+expect "the planted lock holder still takes signal 0" taken voice_zombie_signal
+cp -- "$voice_zombie_file" "$rt_dir/voxtype/voxtype.lock"
+voice_forget
+expect "control: the signal 0 copy refuses its daemon beside the planted holder" "exit=1 notes=refused" voice_daemon_try "$voice_signal0/bin/voxtype" "$voice_signal0/voxtype-daemon.log"
+expect "the planted holder is still unreaped after the control" Z voice_zombie_state
+expect "the planted holder is still the lock's after the control" "$(cat -- "$voice_zombie_file")" cat -- "$rt_dir/voxtype/voxtype.lock"
+voice_own_daemon
+expect_poll "the stand-in reads idle beside the planted holder" idle voice_own_state
+expect "the stand-in started its daemon beside the planted holder" started voice_noted
+voice_forget
+expect "a second daemon beside the live one is refused" "exit=1 notes=refused" voice_daemon_try "$voice_stub" "$voice_notes"
+expect "the live daemon still answers after the refusal" idle voice_own_state
+voice_own_end
+expect_poll "the row's own daemon is gone after the lock case" "daemon=0 follower=0 other=0 children=0" dictation_processes
+kill -TERM "$voice_zombie_parent" 2>/dev/null || true
+wait "$voice_zombie_parent" 2>/dev/null || true
+rm -rf -- "${voice_zombie_file:?}" "${voice_signal0:?}"
 cp -- "$voice_pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 voice_engine_removed
 rm -f -- "${voice_installed:?}" "${voice_cap:?}" "${voice_words:?}" "${voice_transcribing:?}"
