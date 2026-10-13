@@ -552,6 +552,7 @@ tree_with() {
   chmod +x "$tree/bin/vgshell"
   ln -s -- "$repo/bin/lib" "$tree/bin/lib"
   ln -s -- "${TREE_SHELL:-$repo/shell}" "$tree/shell"
+  cp -- "$repo/VERSION" "$tree/VERSION"
   copy="$tree/bin/vgshell"
 }
 delays_needle='supervise_delays=(0.5 1 2 4 8)'

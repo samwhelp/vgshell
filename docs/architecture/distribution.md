@@ -40,6 +40,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 ### Version
 
 - Do read the version from `VERSION` beside `bin/`, never from a package manager; `scripts/test-vgshell-version.sh` pins it.
+- Do report the checkout's describe form beside the running shell's start reading in `vgshell version`, with `restart=needed|none`; no running shell prints `running=none`. `version --json` adds `running` and `restart`, both null with no shell.
 
 ### Release tarball
 

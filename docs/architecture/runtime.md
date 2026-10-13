@@ -18,6 +18,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Do exit a shell through the runner, never `Qt.quit()` from the root; `Qt.exit` does nothing while the root is still loading. Review holds it.
 - Do read the shell's pid from the lock file for every command that contacts it, and exit 69 on no pid, a dead pid or a failed call. `scripts/test-vgshell.sh` pins it.
 - Do judge every `qs ipc call` reply by its text through `bin/lib/ipc-reply.sh`; `qs ipc call` exits 0 when the client fails. `scripts/test-ipc-reply.sh` pins it.
+- Do retain the runner's version reading at each shell start, log it as `shell: version=<version>` and answer it through `shell version` IPC without a process per call.
 - Do answer a reply that grows with the plugin set through `IpcPages`. `scripts/test-ipc-reply.sh` pins it.
 - Do send a JSON list argument inside an object, never as a bare list; `qs ipc call` strips the brackets of an argument that opens with `[`. Gap: no check sends a bare list.
 - Do check the preflight floor before the lock; a raised floor reaches every package recipe through `scripts/check-packaging.js`.

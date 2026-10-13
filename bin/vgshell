@@ -246,7 +246,7 @@
 # `hyprctl reload` now. docs/architecture/hyprland.md.
 #
 # `--version` and `version` read VERSION beside bin/, one line X.Y.Z, and
-# never contact the shell. In a git checkout of this tree, one whose
+# never start a shell. In a git checkout of this tree, one whose
 # top-level directory is the tree itself, they print the describe form
 # `vgshell X.Y.Z.r<N>.g<hash>`: X.Y.Z is the newest reachable release tag's,
 # a tag v<X.Y.Z>, and N counts the commits since it; with no release tag
@@ -254,7 +254,10 @@
 # 7 hex digits, more only when 7 are ambiguous. Elsewhere they print
 # `vgshell <VERSION>`. `version --json` prints
 # `{"version":"<VERSION>","describe":"X.Y.Z.r<N>.g<hash>"}`, describe null
-# outside a checkout. Refusals, with nothing on stdout: version=missing or
+# outside a checkout. `version` adds `running=<version> restart=needed|none`
+# from the guarded shell's start reading, or `running=none` with no shell.
+# Its JSON adds `running` and `restart`, both null with no shell. `--version`
+# reads only this tree. Refusals, with nothing on stdout: version=missing or
 # version=malformed path=<file>, tag=<tag> reason=not-a-version for a tag
 # of v, digits and dots that is not v<X.Y.Z>, and git=describe or
 # git=rev-list path=<tree> for a failed git call, a checkout with no commit
@@ -1882,22 +1885,40 @@ describe_of() { # VERSION_TEXT REV
 }
 
 # Prints the version in FORMAT, text or json, as the header states.
-version_report() { # FORMAT
-  local version describe=""
+version_report() { # FORMAT [COMMAND]: loaded is the runner's start reading
+  local version describe="" running="" restart="" pid
   version="$(version_line)" || exit 1
   if tree_is_checkout; then
     describe="$(describe_of "$version" HEAD)" || exit 1
+  fi
+  if [[ $1 == loaded ]]; then
+    printf '%s\n' "${describe:-$version}"
+    return
+  fi
+  if [[ ${2:-} == version ]] && pid="$(shell_pid 2>/dev/null)"; then
+    running="$(ipc shell version)" || exit $?
+    [[ $running =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.r[0-9]+\.g[0-9a-f]+)?$ ]] || refuse 69 "ipc=shell.version reason=malformed-reply"
+    restart=needed
+    [[ $running != "${describe:-$version}" ]] || restart=none
   fi
   if [[ $1 == json ]]; then
     # Both values matched the grammars above, digits, dots, r, g and hex
     # alone, so neither needs JSON escaping.
     if [[ -n $describe ]]; then
-      printf '{"version":"%s","describe":"%s"}\n' "$version" "$describe"
+      printf '{"version":"%s","describe":"%s"' "$version" "$describe"
     else
-      printf '{"version":"%s","describe":null}\n' "$version"
+      printf '{"version":"%s","describe":null' "$version"
+    fi
+    if [[ -n $running ]]; then
+      printf ',"running":"%s","restart":"%s"}\n' "$running" "$restart"
+    else
+      printf ',"running":null,"restart":null}\n'
     fi
   else
     printf 'vgshell %s\n' "${describe:-$version}"
+    if [[ ${2:-} == version ]]; then
+      if [[ -n $running ]]; then printf 'running=%s restart=%s\n' "$running" "$restart"; else printf 'running=none\n'; fi
+    fi
   fi
 }
 
@@ -2299,7 +2320,8 @@ process.stdin.setEncoding("utf8").on("data", d => { text += d; }).on("end", () =
 # One start of the shell under the held instance lock. The lock file is
 # emptied first, since the child appends its pid through descriptor 9.
 shell_launch() {
-  local stale
+  local stale loaded
+  loaded="$(version_report loaded)" || exit 1
   # The shell watches files in the first two directories and the floating
   # TUIs' exit records in the third from its start. A watch on a file whose
   # directory is absent never fires once the directory appears, and a
@@ -2343,6 +2365,7 @@ shell_launch() {
   # with SIGKILL takes the shell with it and never leaves a guarded shell
   # with the lock free.
   # A Quickshell reload while the session lock is live can unlock it.
+  export VGSHELL_VERSION="$loaded"
   (
     printf '%s\n' "$BASHPID" >&9
     exec 9>&-
@@ -2850,7 +2873,7 @@ case "$cmd" in
     format=text
     if [[ $cmd == version && ${1:-} == --json ]]; then format=json; shift; fi
     if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
-    version_report "$format"
+    version_report "$format" "$cmd"
     ;;
   *)
     printf 'vgshell: refused: command=%s\n' "${cmd:-missing}" >&2; try_help; exit 2

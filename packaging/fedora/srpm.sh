@@ -84,9 +84,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
 top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" && [[ $top == "$root" ]] ||
   refuse 1 "checkout=missing path=$root" "srpm.sh builds from the git checkout it sits in"
 
-# `vgshell version --json` prints {"version":"X.Y.Z","describe":"X.Y.Z.rN.gHASH"}.
+# The version report also carries the running shell and restart readings.
 version_json="$("$root/bin/vgshell" version --json)" || refuse 1 "vgshell=version path=$root/bin/vgshell"
-[[ $version_json =~ ^\{\"version\":\"([0-9.]+)\",\"describe\":\"([0-9.]+)\.r([0-9]+)\.g([0-9a-f]+)\"\}$ ]] ||
+[[ $version_json =~ ^\{\"version\":\"([0-9.]+)\",\"describe\":\"([0-9.]+)\.r([0-9]+)\.g([0-9a-f]+)\",\"running\":(null|\"[0-9a-fgr.]+\"),\"restart\":(null|\"needed\"|\"none\")\}$ ]] ||
   refuse 1 "describe=unreadable" "vgshell version --json printed: $version_json"
 version="${BASH_REMATCH[1]}" tag_version="${BASH_REMATCH[2]}" count="${BASH_REMATCH[3]}" hash="${BASH_REMATCH[4]}"
 [[ $version =~ $version_re ]] || refuse 1 "version=malformed value=$version"

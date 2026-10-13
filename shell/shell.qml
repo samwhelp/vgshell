@@ -36,6 +36,10 @@ ShellRoot {
 
     readonly property bool guarded: Quickshell.env("VGSHELL_RUNNER_PID") === String(Quickshell.processId)
     readonly property string guardRefusal: "refused: guard=unowned pid=" + Quickshell.processId
+    // env() reads a string or null (Quickshell 0.3.1 reference:
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/Quickshell/#env).
+    // The runner reads its tree once per child; IPC keeps that start reading.
+    readonly property string startedVersion: guarded ? (Quickshell.env("VGSHELL_VERSION") || "") : ""
 
     // The reply of a state-changing call: `reply()` from the guarded
     // instance, the guard refusal from any other.
@@ -44,6 +48,7 @@ ShellRoot {
     }
 
     Component.onCompleted: {
+        console.info("shell: version=" + (startedVersion || "unavailable"));
         if (!guarded) console.error("shell: refusing to draw; start it with `vgshell run`, VGSHELL_RUNNER_PID=" + JSON.stringify(Quickshell.env("VGSHELL_RUNNER_PID")) + " pid=" + Quickshell.processId);
     }
 
@@ -132,6 +137,7 @@ ShellRoot {
         target: "shell"
 
         function ping(): string { return "ok"; }
+        function version(): string { return root.startedVersion || "refused: version=unavailable"; }
         function guarded(): bool { return root.guarded; }
         function locked(): bool { return Capabilities.sessionLock.lockRequested; }
         // Every plugin row: the reply grows with the plugin set, so it

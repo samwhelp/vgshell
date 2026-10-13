@@ -21,8 +21,9 @@ exported="$tmp/version-export"; version_tree "$exported"
 INST_BIN="$exported/bin/vgshell" inst "--version in an exported tree prints VERSION" "$cfg" "$rt_empty" 0 "vgshell $want_version" "" --version
 check "--version prints one line on stdout" test "$(<"$tmp/out")" == "vgshell $want_version"
 check "--version prints nothing on stderr" test ! -s "$tmp/err"
-INST_BIN="$exported/bin/vgshell" inst "version prints the same line" "$cfg" "$rt_empty" 0 "vgshell $want_version" "" version
-INST_BIN="$exported/bin/vgshell" inst "version --json outside a checkout has a null describe" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":null}" "" version --json
+INST_BIN="$exported/bin/vgshell" inst "version reports no running shell" "$cfg" "$rt_empty" 0 "running=none" "" version
+check "version keeps its tree version line" has_line "vgshell $want_version"
+INST_BIN="$exported/bin/vgshell" inst "version --json outside a checkout has a null describe" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":null,\"running\":null,\"restart\":null}" "" version --json
 
 # The export sits untracked inside a repository with a commit, so git
 # finds that repository's top level above the tree.
@@ -34,7 +35,7 @@ INST_BIN="$foreign/vgshell/bin/vgshell" inst "an export inside another repositor
 # GIT_DIR alone makes git take the working directory for the top level.
 check "a caller's GIT_DIR makes plain git call the export a checkout" test "$("${base_env[@]}" GIT_DIR="$foreign/.git" git -C "$exported" rev-parse --show-toplevel)" == "$exported"
 saved_env=("${base_env[@]}"); base_env+=(GIT_DIR="$foreign/.git")
-INST_BIN="$exported/bin/vgshell" inst "a caller's GIT_DIR never gives the export a describe" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":null}" "" version --json
+INST_BIN="$exported/bin/vgshell" inst "a caller's GIT_DIR never gives the export a describe" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":null,\"running\":null,\"restart\":null}" "" version --json
 base_env=("${saved_env[@]}")
 
 checkout="$tmp/version-checkout"; version_tree "$checkout"
@@ -44,12 +45,55 @@ for note in two three; do
 done
 hash="$(g -C "$checkout" rev-parse --short HEAD)"
 INST_BIN="$checkout/bin/vgshell" inst "a checkout with no release tag counts every commit" "$cfg" "$rt_empty" 0 "vgshell $want_version.r3.g$hash" "" --version
-INST_BIN="$checkout/bin/vgshell" inst "version --json in a checkout carries the describe form" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":\"$want_version.r3.g$hash\"}" "" version --json
+INST_BIN="$checkout/bin/vgshell" inst "version --json in a checkout carries the describe form" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":\"$want_version.r3.g$hash\",\"running\":null,\"restart\":null}" "" version --json
 # A repository's core.abbrev of 12 would lengthen git's own abbreviation;
 # the describe form keeps 7 hex digits, the AUR -git package convention.
 g -C "$checkout" config core.abbrev 12
 check "the fixture's own git abbreviates to 12 digits" test "$(g -C "$checkout" rev-parse --short HEAD)" == "$(g -C "$checkout" rev-parse HEAD | cut -c1-12)"
 INST_BIN="$checkout/bin/vgshell" inst "a checkout's describe keeps a 7-digit hash under core.abbrev=12" "$cfg" "$rt_empty" 0 "vgshell $want_version.r3.g${hash:0:7}" "" --version
+
+# The owner and overseer parse running/restart. The stand-in answers only
+# the read-only IPC call; the lock names a process this suite still owns.
+cat >"$tmp/qs" <<'SH'
+#!/usr/bin/env bash
+[[ $1 == ipc && $2 == --pid && $4 == call && $5 == shell && $6 == version ]] || exit 1
+printf '%s\n' "$STUB_REPLY"
+SH
+chmod +x "$tmp/qs"
+env -i PATH="$PATH" sleep 300 &
+version_pid=$!
+trap 'kill "$version_pid" 2>/dev/null || :; wait "$version_pid" 2>/dev/null || :; rows_cleanup' EXIT
+rt_version="$tmp/rt-version"; mkdir -p "$rt_version"
+printf '%s\n' "$version_pid" >"$rt_version/vgshell.lock"
+checkout_describe="$want_version.r3.g${hash:0:7}"
+version_running_is() { # RUNNING RESTART: empty arguments mean JSON null
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if (d["running"], d["restart"]) == (sys.argv[2] or None, sys.argv[3] or None) else 1)' "$tmp/out" "$1" "$2"
+}
+for state in equal different absent; do
+  running="$checkout_describe" restart=none rt="$rt_version"
+  case "$state" in
+    different) running=9.8.7.r1.gabcdef0; restart=needed ;;
+    absent) running=""; restart=""; rt="$rt_empty" ;;
+  esac
+  INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "version text reads $state" "$cfg" "$rt" 0 "running=${running:-none}${restart:+ restart=$restart}" "" version
+  check "version keeps its checkout line ($state)" has_line "vgshell $checkout_describe"
+  INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "version JSON reads $state" "$cfg" "$rt" 0 "$any_out" "" version --json
+  check "version JSON reports running/restart ($state)" version_running_is "$running" "$restart"
+done
+
+# Remove the comparison in a disposable copy. The same JSON assertion
+# must reject its answer for a different running commit.
+comparison="$tmp/version-comparison"; cp -R -- "$checkout" "$comparison"
+python3 - "$comparison/bin/vgshell" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); text = p.read_text()
+old = '[[ $running != "${describe:-$version}" ]] || restart=none'
+assert text.count(old) == 1
+p.write_text(text.replace(old, 'restart=none'))
+PY
+INST_BIN="$comparison/bin/vgshell" INST_REPLY=9.8.7.r1.gabcdef0 inst "control: comparison mutant answers" "$cfg" "$rt_version" 0 "$any_out" "" version --json
+if version_running_is 9.8.7.r1.gabcdef0 needed; then fail "control: the restart assertion accepts a removed comparison"; else ok "control: the restart assertion rejects a removed comparison"; fi
+INST_BIN="$checkout/bin/vgshell" INST_REPLY='not-a-version' inst "a malformed running answer is unavailable" "$cfg" "$rt_version" 69 "" 'vgshell: refused: ipc=shell.version reason=malformed-reply' version --json
 
 # nightly and v3-beta sit on HEAD, nearer than v0.0.9: a describe that
 # counted them would name them.
@@ -61,7 +105,7 @@ done
 g -C "$tagged" tag nightly; g -C "$tagged" tag v3-beta
 hash="$(g -C "$tagged" rev-parse --short HEAD)"
 INST_BIN="$tagged/bin/vgshell" inst "a checkout prints the release tag's version and the distance from it" "$cfg" "$rt_empty" 0 "vgshell 0.0.9.r2.g$hash" "" --version
-INST_BIN="$tagged/bin/vgshell" inst "version --json keeps VERSION beside the tag's describe form" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":\"0.0.9.r2.g$hash\"}" "" version --json
+INST_BIN="$tagged/bin/vgshell" inst "version --json keeps VERSION beside the tag's describe form" "$cfg" "$rt_empty" 0 "{\"version\":\"$want_version\",\"describe\":\"0.0.9.r2.g$hash\",\"running\":null,\"restart\":null}" "" version --json
 g -C "$tagged" config core.abbrev 12
 INST_BIN="$tagged/bin/vgshell" inst "a tagged describe keeps a 7-digit hash under core.abbrev=12" "$cfg" "$rt_empty" 0 "vgshell 0.0.9.r2.g${hash:0:7}" "" --version
 g -C "$tagged" tag v3.0

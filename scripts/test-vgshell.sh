@@ -332,6 +332,7 @@ lock_mutant_state() { # NAME NEEDLE REPLACEMENT
   local dir="$tmp/lock-mutant-$1" record=""
   mkdir -p "$dir/bin" "$dir/shell" "$dir/rt"
   ln -s -- "$repo/bin/lib" "$dir/bin/lib"
+  cp -- "$repo/VERSION" "$dir/VERSION"
   python3 - "$repo/bin/vgshell" "$dir/bin/vgshell" "$2" "$3" <<'PY' || { echo "edit-failed"; return; }
 import sys
 source, target, old, new = sys.argv[1:]
@@ -355,6 +356,7 @@ done
 watcher_mutant="$tmp/watcher-mutant"; mkdir -p "$watcher_mutant/bin" "$watcher_mutant/shell"
 cp -- "$repo/bin/vgshell" "$watcher_mutant/bin/vgshell"; chmod +x "$watcher_mutant/bin/vgshell"
 ln -s -- "$repo/bin/lib" "$watcher_mutant/bin/lib"
+cp -- "$repo/VERSION" "$watcher_mutant/VERSION"
 python3 - "$watcher_mutant/bin/vgshell" <<'PY'
 import pathlib
 import sys
@@ -389,6 +391,7 @@ fi
 reconnect_mutant="$tmp/reconnect-mutant"; mkdir -p "$reconnect_mutant/bin" "$reconnect_mutant/shell"
 cp -- "$repo/bin/vgshell" "$reconnect_mutant/bin/vgshell"; chmod +x "$reconnect_mutant/bin/vgshell"
 ln -s -- "$repo/bin/lib" "$reconnect_mutant/bin/lib"
+cp -- "$repo/VERSION" "$reconnect_mutant/VERSION"
 python3 - "$reconnect_mutant/bin/vgshell" <<'PY'
 import pathlib
 import sys
@@ -527,6 +530,7 @@ pre_copy() { # NEEDLE REPLACEMENT [NEEDLE REPLACEMENT...]
   mkdir -p -- "$copy/bin" "$copy/shell"
   cp -- "$repo/bin/vgshell" "$copy/bin/vgshell"
   ln -s -- "$repo/bin/lib" "$copy/bin/lib"
+  cp -- "$repo/VERSION" "$copy/VERSION"
   python3 - "$copy/bin/vgshell" "$@" <<'PY' || return 1
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])

@@ -6,7 +6,9 @@
 # dispatches nothing. Controls use copies of the tree: one runs the runner
 # in the foreground and does not return inside the ceiling; one skips the
 # running-shell check and does not answer `ok running` on the second start.
-# inputs: bin/vgshell shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js
+# The version contract reads the startup log and IPC answer. Its control
+# changes only the IPC value in the existing skip-running copy.
+# inputs: bin/vgshell shell/shell.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js
 set -euo pipefail
 
 # Ceiling on latency_start_ms, the wall time from `vgshell start` to its
@@ -83,6 +85,16 @@ welcome_record() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(
 welcome_state() { welcome_record | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 consent_title() { ipc shell lent | py_reply 'import json,sys; c=json.load(sys.stdin)["notices"]["consent"]; print(None if c is None else c["title"])'; }
 file_exists() { [[ -f $1 ]] && echo true || echo false; }
+start_version_log() { awk 'index($0, "shell: version=") { print substr($0, index($0, "shell: version=") + length("shell: version=")) }' "$instance_log"; }
+start_version_contract() { # TREE
+  local version log="$sandbox/start-version-${1##*/}-assertion.log"
+  version="$("${shell_env[@]}" "$1/bin/vgshell" --version)" || return
+  version="${version#vgshell }"
+  (failures=0 behaviour_failures=0
+   expect "the IPC version is the tree loaded at start" "$version" ipc shell version >"$log"
+   expect "the startup log names that version once" "$version" start_version_log >>"$log"
+   echo "$failures")
+}
 
 welcome_found=absent
 [[ -e $welcome_seen ]] && welcome_found=present
@@ -113,6 +125,7 @@ if [[ $start_reply =~ ^ok\ pid=([0-9]+)$ ]]; then
   expect "the runner is Hyprland's child" "$compositor_pid" parent_of "$shell_pid"
 fi
 expect "start writes the run log" true file_exists "$start_log"
+expect "the shell's startup log and IPC name its loaded version" 0 start_version_contract "$repo"
 expect_poll "start shows the welcome state as unseen" unseen welcome_state
 expect_poll "start shows the welcome consent title" "Welcome to VGS" consent_title
 expect "one runner belongs to Hyprland after start" 1 runner_count
@@ -136,7 +149,10 @@ fi
 
 if copy_tree skip-running && edit_tree skip-running bin/vgshell \
     'if pid="$(shell_pid 2>/dev/null)"; then' \
-    'if false && pid="$(shell_pid 2>/dev/null)"; then'; then
+    'if false && pid="$(shell_pid 2>/dev/null)"; then' \
+  && edit_tree skip-running shell/shell.qml \
+    'function version(): string { return root.startedVersion || "refused: version=unavailable"; }' \
+    'function version(): string { return "0.0.0"; }'; then
   stop_shell || :
   start_and_check "control setup starts the skip-running copy" "$sandbox/tree-skip-running"
   if [[ $start_reply =~ ^ok\ pid=([0-9]+)$ ]]; then
@@ -145,6 +161,7 @@ if copy_tree skip-running && edit_tree skip-running bin/vgshell \
     shell_tree="$sandbox/tree-skip-running"
     shell_log="$home/.local/state/vgshell/run.log"
     shell_answers "$sandbox/tree-skip-running" "$shell_log" || :
+    expect "control: a changed IPC version fails the startup contract" 1 start_version_contract "$sandbox/tree-skip-running"
   fi
   skipped="$(running_start "$sandbox/tree-skip-running")"
   if [[ $skipped != ok\ running* ]]; then ok "control: skipping the running check does not answer ok running"; else fail "control: skipping the running check answered $skipped"; fi

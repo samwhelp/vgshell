@@ -156,7 +156,7 @@ mkdir -p -- "$home/vgshell/bin"
 cat >"$home/vgshell/bin/vgshell" <<'EOF'
 #!/usr/bin/env bash
 if [[ $* == *'version --json' ]]; then
-  node -e 'console.log(JSON.stringify({version: process.env.STUB_VERSION, describe: process.env.STUB_DESCRIBE ?? null}))'
+  node -e 'console.log(JSON.stringify({version: process.env.STUB_VERSION, describe: process.env.STUB_DESCRIBE ?? null, running: null, restart: null}))'
   exit 0
 fi
 if [[ $* == *--version ]]; then echo "vgshell ${STUB_DISPLAY:-${STUB_DESCRIBE:-$STUB_VERSION}}"; exit 0; fi
