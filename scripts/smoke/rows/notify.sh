@@ -125,7 +125,7 @@ burst="$(ipc acme.probe invoke notify-burst '9 {"title": "Probe burst", "urgency
 expect "a burst past the run ceiling ends in busy" busy-last burst_shape "$burst" 8
 # The hub fans out each delivery in one turn. Once the fixture has heard
 # every accepted message, its card exists and dismiss-all cannot pass it.
-notify_total="$(py_reply 'import sys; print(int(sys.argv[1]) + sys.argv[2].split(",").count("ok"))' "$notify_before" "$burst")" || notify_total="unread"
+notify_total="$(py_reply 'import sys; print(int(sys.argv[1]) + sys.stdin.read().strip().split(",").count("ok"))' "$notify_before" <<<"$burst")" || notify_total="unread"
 expect_poll "every accepted burst message arrived before cleanup" "$notify_total" probe_notified
 
 # A dismissed transient card goes to History as a lasting one does. The
