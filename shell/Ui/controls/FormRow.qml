@@ -225,7 +225,7 @@ Item {
         visible: labelTip.shown && labelTip.inPlace && root.labelColumn
         standard: Theme.tooltip
         elevation: "tight"
-        x: root.valueX
+        x: slot.x
         y: root.boxHeight + Theme.field.gap
         width: Math.min(root.valueRoom, Math.min(Math.ceil(explainerText.implicitWidth), Theme.tooltip.maxWidth) + 2 * Theme.tooltip.paddingX)
         height: explainerText.height + 2 * Theme.tooltip.paddingY
