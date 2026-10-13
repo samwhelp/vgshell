@@ -744,4 +744,4 @@ world(async () => {
 }, standins => {
     fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-copilot/copilot-stub.js"), path.join(standins, "copilot"));
     fs.chmodSync(path.join(standins, "copilot"), 0o700);
-}, 900000);
+});

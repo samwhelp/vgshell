@@ -705,4 +705,4 @@ world(async () => {
 }, standins => {
     fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-pi/pi-stub.js"), path.join(standins, "pi"));
     fs.chmodSync(path.join(standins, "pi"), 0o700);
-}, 900000);
+});

@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
+const { runBounded } = require("./bounded.js");
 const { standins } = require("./audio.js");
 const { closure } = require("../../../bin/lib/qml-library.js");
 
@@ -50,8 +51,7 @@ function missingImportControl(root) {
 
 // Run the real suite and a missing-parent control in a private source export.
 // The export owns its tmp directory; no existing worktree tmp is removed.
-function freshSuite(tree, suite, root, timeoutMs = 180000) {
-    assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, "fresh-suite: timeout=positive-safe-integer");
+function freshSuite(tree, suite, root) {
     const clone = path.join(root, "f");
     const relative = "scripts/test-jarvis-" + suite + ".js";
     missingImportControl(root);
@@ -59,7 +59,7 @@ function freshSuite(tree, suite, root, timeoutMs = 180000) {
         "shell/plugins/vgs.jarvis/backend"])
         fs.mkdirSync(path.join(clone, folder), { recursive: true });
     copyLibraries(tree, clone, libraries);
-    for (const file of [relative, "scripts/fixtures/jarvis/prepare.js", "scripts/lib/jarvis-env.sh",
+    for (const file of [relative, "scripts/fixtures/jarvis/prepare.js", "scripts/fixtures/jarvis/bounded.js", "scripts/lib/jarvis-env.sh",
         "bin/lib/qml-library.js", "bin/lib/judge-files.js", "bin/lib/anchored.js", "bin/lib/account-folders.js",
         "shell/plugins/vgs.jarvis/backend/session-runner.js",
         "shell/plugins/vgs.jarvis/backend/jarvisd.js", "shell/plugins/vgs.jarvis/backend/Tasks.js",
@@ -79,10 +79,10 @@ function freshSuite(tree, suite, root, timeoutMs = 180000) {
     // The base package a home layout copies (backend/Core.js basePackage).
     fs.cpSync(path.join(tree, ".agents/skills/jarvis"), path.join(clone, ".agents/skills/jarvis"), { recursive: true });
     const file = path.join(clone, relative);
-    const run = () => cp.spawnSync(process.execPath, [file, "--fresh"], {
+    const run = () => runBounded(process.execPath, [file, "--fresh"], {
         cwd: clone, env: { PATH: "/usr/bin:/bin", HOME: clone, LC_ALL: "C",
             JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
-        encoding: "utf8", timeout: timeoutMs
+        capture: true
     });
     assert.equal(fs.existsSync(path.join(clone, "tmp")), false);
     const good = run();

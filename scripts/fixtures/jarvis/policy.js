@@ -7,8 +7,9 @@ const path = require("node:path");
 const cp = require("node:child_process");
 const tree = path.resolve(__dirname, "../../..");
 const { FILES: CORE_FILES, useTree, scratchTree } = require("./core.js");
+const { runBounded } = require("./bounded.js");
 
-function world(main, prepareStandins, timeout = 60000) {
+function world(main, prepareStandins) {
     if (process.argv[2] === "--inside") return main();
     const parent = path.join(tree, "tmp");
     fs.mkdirSync(parent, { recursive: true });
@@ -17,13 +18,9 @@ function world(main, prepareStandins, timeout = 60000) {
         const standins = path.join(root, "standins");
         fs.mkdirSync(standins);
         if (prepareStandins !== undefined) prepareStandins(standins);
-        const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
-            standins, "--", "node", process.argv[1], "--inside", ...process.argv.slice(2)], {
-            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: parent },
-            encoding: "utf8", timeout
-        });
-        process.stdout.write(result.stdout || "");
-        process.stderr.write(result.stderr || "");
+        const result = runBounded("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
+            standins, "--", "node", process.argv[1], "--inside", ...process.argv.slice(2)],
+            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: parent } });
         if (result.error) throw result.error;
         assert.equal(result.signal, null);
         process.exitCode = result.status;

@@ -2420,4 +2420,4 @@ world(async () => {
             await new Promise(resolve => server.instance.close(resolve));
         }
     }
-}, folder => { standins(folder); audioStandins(folder); }, 480000)?.catch(error => { console.error(error); process.exitCode = 1; });
+}, folder => { standins(folder); audioStandins(folder); })?.catch(error => { console.error(error); process.exitCode = 1; });

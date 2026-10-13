@@ -8,6 +8,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { once } = require("node:events");
 const { freshSuite, shellState } = require("./fixtures/jarvis/prepare.js");
+const { runBounded, hungWorldControl } = require("./fixtures/jarvis/bounded.js");
 const { instrument, chainedEngine } = require("./fixtures/jarvis/scripted.js");
 const { standins } = require("./fixtures/jarvis/audio.js");
 const desktopFixture = require("./fixtures/jarvis/desktop.js");
@@ -1926,28 +1927,25 @@ async function main() {
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.mkdtempSync(path.join(parent, "jd-"));
     try {
-        // node --fresh completed in 31.23s on 2026-10-02: daemon-duration-diagnostic-VGS-662.log.
-        // The outer export can report the inner suite failure before its own bound.
         // The export copies this tree's suite inputs and a read outside them
         // fails there, so its run is the one run of every case and control;
         // freshSuite fails with that run's output when a case fails.
+        const launcher = path.join(tree, "scripts/lib/jarvis-env.sh");
+        const env = { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") };
         if (process.argv[2] !== "--fresh") {
-            freshSuite(tree, "daemon", root, 360000);
+            // Here, not in the export's run, so the row prints the control's line.
+            fs.mkdirSync(path.join(root, "hung"));
+            hungWorldControl(launcher, path.join(root, "hung"), env);
+            freshSuite(tree, "daemon", root);
             return;
         }
-        const launcher = path.join(tree, "scripts/lib/jarvis-env.sh");
         standins(path.join(root, "standins"));
         desktopFixture.standins(path.join(root, "standins"));
         for (const name of ["playerctl", "notify-send"]) {
             fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/desktop-tool.py"), path.join(root, "standins", name));
             fs.chmodSync(path.join(root, "standins", name), 0o700);
         }
-        const result = cp.spawnSync("/bin/bash", [launcher, path.join(root, "standins"), "--", "node", __filename, "--inside"],
-            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
-                // Bounds a hung world, not a latency: the suite runs real children.
-                encoding: "utf8", timeout: 180000 });
-        process.stdout.write(result.stdout || "");
-        process.stderr.write(result.stderr || "");
+        const result = runBounded("/bin/bash", [launcher, path.join(root, "standins"), "--", "node", __filename, "--inside"], { env });
         if (result.error) throw result.error;
         assert.equal(result.signal, null);
         process.exitCode = result.status;

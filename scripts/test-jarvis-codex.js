@@ -786,4 +786,4 @@ world(async () => {
 }, standins => {
     fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-codex/codex-stub.js"), path.join(standins, "codex"));
     fs.chmodSync(path.join(standins, "codex"), 0o700);
-}, 300000);
+});

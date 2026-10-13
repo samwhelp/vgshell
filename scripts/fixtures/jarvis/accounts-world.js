@@ -11,6 +11,7 @@ const path = require("node:path");
 const cp = require("node:child_process");
 const tree = path.resolve(__dirname, "../../..");
 const { FILES: CORE_FILES, useTree, scratchTree } = require("./core.js");
+const { runBounded } = require("./bounded.js");
 const prefix = `#!/usr/bin/env node
 const fs=require("node:fs"), path=require("node:path");
 const state=process.env.XDG_STATE_HOME;
@@ -185,12 +186,9 @@ function world(main) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "ja-")));
     try {
         standins(path.join(root, "standins"));
-        const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
-            path.join(root, "standins"), "--", "node", process.argv[1], "--inside"], {
-            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: parent },
-            encoding: "utf8", timeout: 120000 });
-        process.stdout.write(result.stdout || "");
-        process.stderr.write(result.stderr || "");
+        const result = runBounded("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
+            path.join(root, "standins"), "--", "node", process.argv[1], "--inside"],
+            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: parent } });
         if (result.error) throw result.error;
         assert.equal(result.signal, null);
         process.exitCode = result.status;
