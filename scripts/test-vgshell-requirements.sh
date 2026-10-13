@@ -164,7 +164,7 @@ row_offer_no_terminal() {
 }
 row_offer_declined() {
   req "$1" terminal n "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
-  [[ $status == 0 ]] && log_is "" && grep -qF "Install now? [y/N]" "$tmp/out" && out_has "install: vgshell pkg run install --manager aur need-two"
+  [[ $status == 0 ]] && log_is "" && grep -qF "Install now? [y/N]" "$tmp/out" && out_has "   │ vgshell pkg run install --manager aur need-two"
 }
 # y installs each manager's packages as argv, pacman's behind one sudo
 # session and paru's with none. A running shell hears the landing as
@@ -352,7 +352,7 @@ inst "doctor refuses a user file the config judge refuses" "$tmp/cfg-bad" "$rt_e
 # against it.
 declare -a CONTROLS=(
   "add reports the missing requirements" vgshell '  offer_requirements "$id"' '' row_offer_no_terminal
-  "add asks only on a terminal" vgshell '  [[ -t 0 ]] || return 0' '' row_offer_no_terminal
+  "add asks only on a terminal" vgshell '  if ! [[ -t 0 ]]; then' '  if false; then' row_offer_no_terminal
   "add installs only on yes" vgshell '    *) return 0 ;;' '    *) ;;' row_offer_declined
   "a run asks for the rescan" vgshell-pkg '            rescanShell();' '' row_run_rescans
   "doctor reports enabled plugins only" vgshell-plugin-judge '.filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId))' '' row_doctor

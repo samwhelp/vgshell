@@ -29,6 +29,7 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 
 ### Floating TUIs
 
+- Do show commands through `bin/lib/tui.sh`'s `vgs_tui_commands`, after a plain sentence that says what the step changes. `scripts/test-tui.sh` pins the block.
 - Do launch every flow that asks the user anything, a password or a y/N, through `bin/vgshell-tui`, and hand `present` everything it needs in argv. `scripts/test-vgshell-tui.sh` pins it.
 - Do fork the terminal with `setsid -f`; Quickshell kills its children when the shell stops, and a restart during an install must not kill the install. `scripts/test-vgshell-tui.sh` pins it.
 - Do run a plugin's script from a private copy of its whole published snapshot; a restart removes old snapshots while a script may still read its plugin's files. `scripts/test-vgshell-tui.sh` pins it.

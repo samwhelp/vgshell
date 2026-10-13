@@ -96,7 +96,7 @@ row_theme_url() {
     && gum_asked "Git URL of the theme: " \
     && gum_confirmed "Apply theme moss now?" \
     && out_has "ok added=moss path=$cfg/vgshell/themes/moss" \
-    && out_has "apply: vgshell theme apply moss" \
+    && out_has "   │ vgshell theme apply moss" \
     && ! out_holds "ok theme=moss" \
     && ! theme_file
 }
@@ -107,7 +107,7 @@ row_theme_apply_yes() {
     && gum_asked "Git URL of the theme: " \
     && gum_confirmed "Apply theme moss now?" \
     && out_has "ok added=moss path=$cfg/vgshell/themes/moss" \
-    && out_has "apply: vgshell theme apply moss" \
+    && out_has "   │ vgshell theme apply moss" \
     && out_has "ok theme=moss state=applied shell=applied" \
     && theme_file
 }
@@ -116,7 +116,7 @@ row_theme_arg_no_offer() {
   run_theme_add_arg "$1" || return 1
   out_has "ok added=moss path=$cfg/vgshell/themes/moss" \
     && [[ ! -e $gum_args.confirm ]] \
-    && ! out_holds "apply:" \
+    && ! out_holds "│ vgshell theme apply" \
     && ! theme_file
 }
 row_theme_refused_no_offer() {
@@ -127,7 +127,7 @@ row_theme_refused_no_offer() {
     && gum_asked "Git URL of the theme: " \
     && [[ ! -e $gum_args.confirm ]] \
     && out_has "vgshell: refused: theme=moss reason=exists path=$cfg/vgshell/themes/moss" \
-    && ! out_holds "apply:" \
+    && ! out_holds "│ vgshell theme apply" \
     && ! theme_file
 }
 row_empty_url() {

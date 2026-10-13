@@ -1250,8 +1250,8 @@ plugin_add() { # URL
 # a terminal the question whether to run them now. The judge reads the
 # manifest and the scan reads PATH and D-Bus names; no plugin code runs (D007).
 offer_requirements() { # ID
-  local scan report line answer
-  local -a installs=() words
+  local scan report line answer shown
+  local -a installs=() words commands=()
   scan="$(plugin_scan)" || exit 1
   report="$(node "$judge" unmet "$1" <<<"$scan")" || exit 1
   while IFS= read -r line; do
@@ -1265,9 +1265,17 @@ offer_requirements() { # ID
   # word, so a copied line never runs more than vgshell.
   for line in "${installs[@]}"; do
     read -ra words <<<"$line"
-    printf 'install:%s\n' "$(printf ' %q' vgshell "${words[@]}")"
+    printf -v shown '%q ' vgshell "${words[@]}"
+    commands+=("${shown% }")
   done
-  [[ -t 0 ]] || return 0
+  if ! [[ -t 0 ]]; then
+    printf 'install: %s\n' "${commands[@]}"
+    return 0
+  fi
+  # shellcheck source=lib/tui.sh
+  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
+  vgs_tui_step 'Install the software that this plugin needs.'
+  vgs_tui_commands "${commands[@]}"
   printf 'Install now? [y/N] ' >&2
   read -r answer || answer=""
   case "$answer" in
@@ -1715,11 +1723,13 @@ theme_add() { # URL
 # After an interactive theme add: show the apply command and, on a yes,
 # run it through the same judged path a user would run by hand.
 offer_theme_apply() { # NAME
-  local name="$1" status=0
+  local name="$1" status=0 shown
   [[ -n $name ]] || return 0
-  printf 'apply:%s\n' "$(printf ' %q' vgshell theme apply "$name")"
   # shellcheck source=lib/tui.sh
   source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
+  vgs_tui_step "Change the desktop appearance to the $name theme."
+  printf -v shown '%q ' vgshell theme apply "$name"
+  vgs_tui_commands "${shown% }"
   vgs_tui_confirm "Apply theme $name now?" --default=false || status=$?
   case "$status" in
     0) ;;

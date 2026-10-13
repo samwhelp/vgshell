@@ -23,6 +23,9 @@
 #                                    on its first row, with no blank line
 #   vgs_tui_text TEXT                TEXT in the terminal's own colour, each of
 #                                    its lines wrapped at the content edges
+#   vgs_tui_commands COMMAND...      a left-marked block, one blank marked row
+#                                    between commands; wraps at spaces with
+#                                    a continuation mark, never inside a word
 #   vgs_tui_step TEXT                a bold accent line after a blank line
 #   vgs_tui_success TEXT             a success line after a blank line
 #   vgs_tui_warn TEXT                a warning line on stderr
@@ -155,8 +158,8 @@ _vgs_tui_visible() { # VAR TEXT: TEXT's columns, its SGR escapes taking none
 # ARRAY gets TEXT's lines broken to WIDTH columns at the last space that
 # fits. The spaces at a break are dropped, so no continuation starts with
 # one; a line's own leading spaces stay, and a word wider than WIDTH breaks
-# inside it.
-_vgs_tui_lines() { # ARRAY WIDTH TEXT
+# inside it, unless MODE is commands, which keeps each word whole.
+_vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
   local -n _vgs_tui_out="$1"
   local width="$2" text="$3" line rest lead word gap cur cur_n word_n started more=1
   _vgs_tui_out=()
@@ -174,7 +177,7 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT
         cur+="$gap$word" cur_n=$(( cur_n + ${#gap} + word_n ))
       else
         if [[ -n $started ]]; then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi
-        while (( cur_n + word_n > width )); do
+        while [[ ${4:-text} != commands ]] && (( cur_n + word_n > width )); do
           if [[ $word =~ ^$_vgs_tui_sgr_rule ]]; then
             cur+="${BASH_REMATCH[0]}" word="${word#"${BASH_REMATCH[0]}"}"
           elif (( cur_n == width )); then
@@ -228,6 +231,23 @@ vgs_tui_clear() { printf '\033[H\033[2J'; _vgs_tui_gap_left=1; }
 
 vgs_tui_text() { # TEXT
   _vgs_tui_print "" "$*"
+}
+
+vgs_tui_commands() { # COMMAND...
+  local lines=() command line width first=1 continued pad
+  width=$(( $(_vgs_tui_width) - 4 ))
+  (( width > 0 )) || width=1
+  printf -v pad '%*s' "$_vgs_tui_edge" ''
+  _vgs_tui_gap_left=""
+  for command; do
+    (( first )) || printf '%s│\n' "$pad"
+    first=0 continued=""
+    _vgs_tui_lines lines "$width" "$command" commands
+    for line in "${lines[@]}"; do
+      printf '%s│ %s%s\n' "$pad" "$continued" "$line"
+      continued='↳ '
+    done
+  done
 }
 
 vgs_tui_step() { # TEXT

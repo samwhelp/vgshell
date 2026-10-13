@@ -64,7 +64,9 @@ if [[ $elevator == sudo ]]; then
 fi
 for k in "${!starts[@]}"; do
   step=("${prefix[@]}" "${args[@]:${starts[k]}:${counts[k]}}")
-  vgs_tui_step "${step[*]}"
+  vgs_tui_step 'Run this step to make the selected software change.'
+  printf -v shown '%q ' "${step[@]}"
+  vgs_tui_commands "${shown% }"
   status=0
   "${step[@]}" || status=$?
   # The sudo session's EXIT trap drops the credential on the way out.

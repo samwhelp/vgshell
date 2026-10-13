@@ -125,7 +125,11 @@ log_is() { [[ "$(cat -- "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n
 out_has() { grep -qF -- "$1" "$tmp/out"; }
 # The output's words in order, colour dropped, as a step wider than the
 # terminal shows them wrapped over several lines.
-out_has_words() { sed -E $'s/\e\\[[0-9;]*m//g' "$tmp/out" | tr -s '\r\n ' '   ' | grep -qF -- "$1"; }
+out_has_words() {
+  local output
+  output="$(sed -E $'s/\e\\[[0-9;]*m//g; s/^   │ (↳ )?//' "$tmp/out" | tr -s '\r\n ' '   ')" || return
+  grep -qF -- "$1" <<<"$output"
+}
 lines() { printf '%s\n' "$@"; }
 
 # Each row takes the tree it runs and answers 0 when every expectation holds.
@@ -139,7 +143,7 @@ row_shell_process() {
 }
 row_pacman_install() {
   pkg "$1" "$sudo_path" -- run install --manager pacman foo bar
-  [[ $status == 0 ]] && out_has "sudo pacman -S --needed -- foo bar" && log_is "$(lines \
+  [[ $status == 0 ]] && out_has "   │ sudo pacman -S --needed -- foo bar" && log_is "$(lines \
     "sudo [-k]" "sudo [/usr/bin/true]" \
     "sudo [pacman] [-S] [--needed] [--] [foo] [bar]" "pacman [-S] [--needed] [--] [foo] [bar]" \
     "sudo [-k]")"
@@ -338,6 +342,7 @@ control elevates-in-shell bin/lib/judge-files.js 'if (process.env.VGSHELL_RUNNER
 control no-sudo-session bin/lib/pkg-run.sh $'if [[ $elevator == sudo ]]; then\n  vgs_tui_sudo_session start' $'if false; then\n  vgs_tui_sudo_session start' apt_upgrade
 control runs-past-failure bin/lib/pkg-run.sh '[[ $status -eq 0 ]] || exit "$status"' ':' first_failure
 control shell-string bin/lib/pkg-run.sh '  "${step[@]}" || status=$?' '  bash -c "${step[*]}" || status=$?' literal_name
+control bare-command bin/lib/pkg-run.sh '  vgs_tui_commands "${shown% }"' '  vgs_tui_text "${shown% }"' pacman_install
 control caller-directory bin/vgshell-pkg 'stdio: "inherit", cwd: process.env.HOME || "/" });' 'stdio: "inherit" });' home_directory
 control update-keeps-version shell/Core/PackageManagers.js 'update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],' 'update: [["{bin}", "use", "--global", "{names}"]],' update
 control always-elevates bin/vgshell-pkg '    if (!plan.elevate) return null;' '    if (false) return null;' aur_unelevated

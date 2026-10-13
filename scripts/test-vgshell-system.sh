@@ -325,6 +325,51 @@ step_state() { # STEP: the state status --json reads for it
 # each COMMAND as one line, and the credential dropped at the end.
 session() { printf '%s\n' -k /usr/bin/true "$@" -k; }
 p() { printf '%s' "$bin/$1"; }
+descriptions_complete() { # FILE: each declared step has apply and undo copy
+  python3 - "$1" <<'PY'
+import pathlib, re, sys
+
+source = pathlib.Path(sys.argv[1]).read_text()
+steps = re.search(r"^steps=\(([^\n]+)\)$", source, re.M).group(1).split()
+assert "tailscale-operator" in steps
+descriptions = dict(re.findall(r"^  \[([^]]+)\]='([^']*)'$", source, re.M))
+for step in steps:
+    for verb in ("apply", "undo"):
+        assert descriptions.get(verb + ":" + step, "").strip(), (verb, step)
+PY
+}
+shown_commands() { # the shared block's commands, with display wrapping removed
+  python3 - "$tmp/out" <<'PY'
+import pathlib, re, sys
+
+text = re.sub(r"\x1b\[[0-9;:]*m", "", pathlib.Path(sys.argv[1]).read_text())
+current = ""
+for line in text.splitlines():
+    if line == "   │":
+        if current:
+            print(current)
+            current = ""
+    elif line.startswith("   │ ↳ "):
+        current += " " + line[7:]
+    elif line.startswith("   │ "):
+        current = line[5:]
+if current:
+    print(current)
+PY
+}
+description_precedes_commands() { # VERB STEP: copy is present before the block
+  python3 - "$source_file" "$tmp/out" "$1:$2" <<'PY'
+import pathlib, re, sys
+
+source, output = (pathlib.Path(p).read_text() for p in sys.argv[1:3])
+descriptions = dict(re.findall(r"^  \[([^]]+)\]='([^']*)'$", source, re.M))
+plain = re.sub(r"\x1b\[[0-9;:]*m", "", output)
+assert "│" in plain
+before = " ".join(plain.split("│", 1)[0].split())
+assert " ".join(descriptions[sys.argv[3]].split()) in before
+PY
+}
+check "every system step has its own apply and undo description" descriptions_complete "$source_file"
 place "$source_file"
 
 # vgshell's own refusal of a subcommand it does not route.
@@ -429,7 +474,7 @@ tty_env=()
 fresh
 run_tty "apply apple-displays succeeds" 0 apply apple-displays
 hash="$(sha256sum <"$rule_src")"; hash="${hash%% *}"
-check "apply shows the rule's install before asking" out_has "  sudo $(p install) -m 0644 -o root -g root -T -- $rule_src $rule"
+check "apply shows the rule's install before asking" grep -qxF -- "sudo $(p install) -m 0644 -o root -g root -T -- $rule_src $rule" < <(shown_commands)
 check "apply asks one question" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm "${confirm_margins[@]}" -- "$(confirm_prompt "Run these commands as root?")")"
 check "apple-displays runs its commands in one sudo session" test "$(sudo_calls)" == "$(session \
   "-- $(p install) -d -m 0755 -o root -g root -- $records" \
@@ -586,6 +631,7 @@ check "printing that the socket serves reads ready and runs no sudo" no_sudo
 # still names the caller.
 fresh
 run_tty "apply tailscale-operator succeeds" 0 apply tailscale-operator
+check "the step's description precedes the Tailscale commands" description_precedes_commands apply tailscale-operator
 check "tailscale-operator records, then sets the caller" test "$(sudo_calls)" == "$(session \
   "-- $(p install) -d -m 0755 -o root -g root -- $records" \
   "-- $(p tee) -- $records/.tailscale-operator" \
@@ -662,7 +708,7 @@ tree_snapshot >"$tmp/after-tree"
 check "capture before consent writes nothing" untouched
 check "capture before consent runs no sudo" no_sudo
 run_tty "capture apply grants the resolved binary" 0 apply bandwhich-capture
-check "capture apply shows the capability command before asking" out_has "  sudo $(p setcap) $(printf '%q' "$capture_want") $bin/bandwhich"
+check "capture apply shows the capability command before asking" grep -qxF -- "sudo $(p setcap) $(printf '%q' "$capture_want") $bin/bandwhich" < <(shown_commands)
 check "capture records before the stand-in grants capabilities" test "$(sudo_calls)" == "$(session \
   "-- $(p install) -d -m 0755 -o root -g root -- $records" \
   "-- $(p tee) -- $records/.bandwhich-capture" \
@@ -768,7 +814,7 @@ check "greeter writes its files, makes its directories, reloads and enables gree
   "-- $(p install) -d -m 0700 -o 958 -g 958 -- $greeter_dir/state" \
   "-- $(p systemctl) daemon-reload" \
   "-- $(p systemctl) enable greetd.service")"
-check "apply shows the greetd configuration it writes before asking" out_has "  sudo $(p tee) -- $root/etc/greetd/.vgshell.toml <<<"
+check "apply shows the greetd configuration it writes before asking" grep -qF -- "sudo $(p tee) -- $root/etc/greetd/.vgshell.toml <<<" < <(shown_commands)
 check "the greetd configuration names the VGS PAM service, the greeter account and the greeter's command" holds_text "$greeter_toml" "$want_toml"
 check "the PAM service is the shipped file byte for byte" cmp -s -- "$greeter_src/vgs-greeter.pam" "$greeter_pam"
 check "the drop-in runs greetd with the VGS configuration" holds_text "$greeter_dropin" "$want_dropin"
@@ -1138,6 +1184,11 @@ control() { # NAME NEEDLE REPLACEMENT
   place "$copy"
   fresh
 }
+control description-missing '[apply:tailscale-operator]=' '[apply:missing]='
+check "the missing-description control fails the step coverage check" test "$(descriptions_complete "$helper" && echo green || echo red)" == red
+control description-unused '  vgs_tui_step "${step_description[$verb:$step]}"' '  vgs_tui_step "$step"'
+run_tty "the unused-description control runs the step" 0 apply tailscale-operator
+check "the unused-description control fails the popup check" test "$(description_precedes_commands apply tailscale-operator && echo green || echo red)" == red
 control writes-before-question '  # A root command is never answered for the user, unattended or not.' '  vgs_tui_sudo_session start; mode=run; plan "$verb" "$step"; mode=show
   # A root command is never answered for the user, unattended or not.'
 printf '1\n' >"$tmp/gum-answer"

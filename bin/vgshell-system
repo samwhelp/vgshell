@@ -216,6 +216,28 @@ boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
 steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine)
+declare -A step_description=(
+  [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
+  [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
+  [apply:i2c-dev]='Enable brightness controls for external displays. This lets VGS change their brightness.'
+  [undo:i2c-dev]='Remove the display control access that VGS enabled during this start of the computer. This removes that access to external display controls.'
+  [apply:service-bluetooth]='Start Bluetooth and enable it when the computer starts. This lets VGS connect your Bluetooth devices.'
+  [undo:service-bluetooth]='Undo the Bluetooth service changes that VGS made. This restores when the service starts.'
+  [apply:service-tailscaled]='Start Tailscale and enable it when the computer starts. This lets VGS connect this computer to your private network.'
+  [undo:service-tailscaled]='Undo the Tailscale service changes that VGS made. This restores when the service starts.'
+  [apply:service-cups]='Start the print service and enable it when the computer starts. This lets VGS manage your printers and print jobs.'
+  [undo:service-cups]='Undo the print service changes that VGS made. This restores when the service starts.'
+  [apply:tailscale-operator]='Tailscale lets only the administrator change it. This lets VGS connect and disconnect for you without a password.'
+  [undo:tailscale-operator]='Restore the Tailscale access setting that VGS changed. Your account will need its previous permission to connect and disconnect.'
+  [apply:greeter]='Set VGS as the login screen for the next start of the computer. This lets you sign in through VGS when the computer starts.'
+  [undo:greeter]='Undo the login screen changes that VGS made. This removes the VGS login screen setup and restores how the computer starts.'
+  [apply:bandwhich-capture]='Give the network monitor access to connection details. This lets VGS show which applications use your network.'
+  [undo:bandwhich-capture]='Remove the network monitor access that VGS granted. This stops that access to application connection details.'
+  [apply:reboot-notice]='Turn off the CachyOS reboot notice. VGS shows when a restart is needed after an update.'
+  [undo:reboot-notice]='Restore the CachyOS reboot notice that VGS turned off. CachyOS can show its own restart notice again.'
+  [apply:voxtype-engine]='Enable the speech engine for dictation. This lets VGS turn your speech into text.'
+  [undo:voxtype-engine]='Disable the speech engine that VGS enabled. Dictation will need another speech engine.'
+)
 capture_caps=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin
 
 # Character classes spelled out: a range follows the collation of the
@@ -1251,7 +1273,7 @@ plan() { # VERB STEP
 # Shows VERB's plan for STEP, asks once, then under one sudo session and
 # the record directory's lock plans again and runs it.
 confirm_and_run() { # VERB STEP
-  local verb="$1" step="$2" planned make_dir="" install line answer=0 lock
+  local verb="$1" step="$2" planned make_dir="" install answer=0 lock commands=()
   mode=show shown=""
   plan "$verb" "$step"
   planned="$shown"
@@ -1261,8 +1283,10 @@ confirm_and_run() { # VERB STEP
   fi
   # shellcheck source=lib/tui.sh
   source "$lib_dir/tui.sh" || refuse 1 "library=missing path=$lib_dir/tui.sh"
-  vgs_tui_step "vgshell system $verb $step runs, as root:"
-  while IFS= read -r line; do printf '  %s\n' "$line"; done <<<"$make_dir${planned%$'\n'}"
+  vgs_tui_step "${step_description[$verb:$step]}"
+  vgs_tui_text 'These commands run as root:'
+  mapfile -t commands <<<"$make_dir${planned%$'\n'}"
+  vgs_tui_commands "${commands[@]}"
   # A root command is never answered for the user, unattended or not.
   VGS_TUI_UNATTENDED='' vgs_tui_confirm "Run these commands as root?" || answer=$?
   case "$answer" in

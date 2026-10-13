@@ -99,6 +99,66 @@ check "a header is one bordered gum style with a bold title" test "$(cat "$tmp/g
 check "a header starts with one blank line" starts_one_blank "$tmp/out"
 check "a header with no terminal writes nothing on stderr" test ! -s "$tmp/err"
 
+# Command blocks are an output format: the reader can recover each command
+# after removing the left mark, separators and continuation marks.
+command_rows() { # QUIET: the same contract also judges the old-form control
+  local columns kind row command snippet red=0 token rows=() commands=()
+  printf -v token '%100s' ''; token="${token// /x}"
+  rows=("80|normal" "120|normal" "80|wide-word")
+  for row in "${rows[@]}"; do
+    IFS='|' read -r columns kind <<<"$row"
+    commands=("sudo install -m 0644 -o root -g root -T -- /usr/share/vgshell/config/system/udev/60-vgs-apple-displays.rules /etc/udev/rules.d/60-vgs-apple-displays.rules"
+      "sudo mv -fT -- /var/lib/vgshell/system/.tailscale-operator /var/lib/vgshell/system/tailscale-operator"
+      "printf %s \$(touch commands-ran); \`touch commands-ran\`; * > file")
+    [[ $kind != wide-word ]] || commands=("curl https://example.invalid/$token --output file")
+    printf -v snippet 'stty cols %s; cd %q; vgs_tui_commands ' "$columns" "$tmp"
+    for command in "${commands[@]}"; do printf -v snippet '%s%q ' "$snippet" "$command"; done
+    on_tty_capture "$snippet"
+    if [[ $status == 0 ]] && python3 - "$tmp/captured" "$columns" "$kind" "${commands[@]}" <<'PY'
+import pathlib, sys
+
+lines = pathlib.Path(sys.argv[1]).read_text().replace("\r\n", "\n").splitlines()
+columns, kind, expected = int(sys.argv[2]), sys.argv[3], sys.argv[4:]
+assert lines and all(line.startswith("   │") for line in lines)
+assert lines[0] != "   │" and lines[-1] != "   │"
+assert sum(line == "   │" for line in lines) == len(expected) - 1
+commands, current = [], ""
+continued = False
+for line in lines:
+    if line == "   │":
+        commands.append(current)
+        current = ""
+        continue
+    assert line.startswith("   │ ")
+    text = line[5:]
+    if text.startswith("↳ "):
+        assert current
+        current += " " + text[2:]
+        continued = True
+    else:
+        assert not current
+        current = text
+    if kind == "normal":
+        assert len(line) <= columns - 3
+commands.append(current)
+assert commands == expected, (commands, expected)
+assert continued
+if kind == "wide-word":
+    assert any(len(line) > columns for line in lines)
+PY
+    then
+      [[ $1 == quiet ]] || ok "command block $row preserves commands and marks every row"
+    else
+      red=$((red + 1))
+      [[ $1 == quiet ]] || fail "command block $row: exit=$status"
+    fi
+    if [[ -e $tmp/commands-ran ]]; then red=$((red + 1)); fi
+  done
+  return "$red"
+}
+command_rows loud || true
+check "shell metacharacters in a command block stay inert" test ! -e "$tmp/commands-ran"
+
 # Questions need the terminal; unattended, confirm answers yes and asks nothing.
 rm -f -- "$tmp/gum"
 run 'vgs_tui_confirm "Remove it?" --default=false' VGS_TUI_UNATTENDED=1
@@ -834,6 +894,8 @@ control() { # NAME NEEDLE REPLACEMENT: LIB names the copy
   copy_with "$1" "$lib" "$2" "$3"
   LIB="$copy"
 }
+control bare-commands "printf '%s│ %s%s\\n'" "printf '%s%s%s\\n'"
+check "the old bare form fails the command block contract" test "$(command_rows quiet && echo green || echo red)" == red
 control no-terminal-check '_vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }' '_vgs_tui_has_terminal() { true; }'
 rm -f -- "$tmp/gum"
 run 'vgs_tui_choose a b'
