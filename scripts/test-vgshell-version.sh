@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Controls for `vgshell --version` and `vgshell version [--json]`: the VERSION
+# Controls for `vgshell --version [--json]` and `vgshell version [--json]`: the VERSION
 # read, the describe form in a checkout, the checkout test and the
 # refusals. Rows run copies of bin/vgshell in trees under $tmp, never this
 # repository's own checkout. An exported tree holds bin/ and VERSION and no
@@ -57,6 +57,7 @@ INST_BIN="$checkout/bin/vgshell" inst "a checkout's describe keeps a 7-digit has
 cat >"$tmp/qs" <<'SH'
 #!/usr/bin/env bash
 [[ $1 == ipc && $2 == --pid && $4 == call && $5 == shell && $6 == version ]] || exit 1
+printf '%s\n' "$*" >>"$STUB_ARGS"
 printf '%s\n' "$STUB_REPLY"
 SH
 chmod +x "$tmp/qs"
@@ -79,6 +80,34 @@ for state in equal different absent; do
   check "version keeps its checkout line ($state)" has_line "vgshell $checkout_describe"
   INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "version JSON reads $state" "$cfg" "$rt" 0 "$any_out" "" version --json
   check "version JSON reports running/restart ($state)" version_running_is "$running" "$restart"
+  : >"$tmp/args"
+  INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "Arch's --version reads the checkout ($state)" "$cfg" "$rt" 0 "vgshell $checkout_describe" "" --version
+  check "Arch's --version prints one line ($state)" test "$(<"$tmp/out")" == "vgshell $checkout_describe"
+  INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "Fedora's --version --json reads the checkout ($state)" "$cfg" "$rt" 0 "{\"version\":\"$want_version\",\"describe\":\"$checkout_describe\",\"running\":null,\"restart\":null}" "" --version --json
+  check "the package forms make no IPC call ($state)" test ! -s "$tmp/args"
+done
+
+# Route the package forms through the user report in a disposable copy.
+# The package assertions must reject its running-shell reading.
+package_control="$tmp/version-package-control"; cp -R -- "$checkout" "$package_control"
+python3 - "$package_control/bin/vgshell" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); text = p.read_text()
+old = 'version_report "$format" "$cmd"'
+assert text.count(old) == 1
+p.write_text(text.replace(old, 'version_report "$format" version'))
+PY
+for args in '--version' '--version --json'; do
+  read -r -a words <<<"$args"
+  : >"$tmp/args"
+  INST_BIN="$package_control/bin/vgshell" INST_REPLY=9.8.7.r1.gabcdef0 inst "control: package form $args answers" "$cfg" "$rt_version" 0 "$any_out" "" "${words[@]}"
+  case "$args" in
+    --version)
+      if [[ $(<"$tmp/out") == "vgshell $checkout_describe" ]]; then fail "control: Arch assertion accepts a running-shell line"; else ok "control: Arch assertion rejects a running-shell line"; fi ;;
+    *)
+      if version_running_is "" ""; then fail "control: Fedora assertion accepts a running-shell reading"; else ok "control: Fedora assertion rejects a running-shell reading"; fi ;;
+  esac
+  if [[ ! -s $tmp/args ]]; then fail "control: package assertion accepts an IPC call ($args)"; else ok "control: package assertion rejects an IPC call ($args)"; fi
 done
 
 # Remove the comparison in a disposable copy. The same JSON assertion
@@ -121,7 +150,7 @@ for text in '0.1\n' '0.1.0' 'v0.1.0\n' '0.1.0\n0.2.0\n' '0.1.0\n\n'; do
   printf '%b' "$text" >"$bad/VERSION"
   INST_BIN="$bad/bin/vgshell" inst "a VERSION of [$text] is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: version=malformed path=$bad/VERSION" --version
 done
-for args in 'version extra' '--version extra' '--version --json' 'version --json extra'; do
+for args in 'version extra' '--version extra' '--version --json extra' 'version --json extra'; do
   read -r -a words <<<"$args"
   INST_BIN="$exported/bin/vgshell" inst "$args is a bad invocation" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=${words[-1]}" "${words[@]}"
 done

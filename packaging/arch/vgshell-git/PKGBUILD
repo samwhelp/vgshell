@@ -125,7 +125,7 @@ prepare() {
 pkgver() {
   local out
   cd "$srcdir/vgshell"
-  out="$(./bin/vgshell version)" || return 1
+  out="$(./bin/vgshell --version)" || return 1
   out="${out#vgshell }"
   if [[ ! $out =~ ^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+\.g[0-9a-f]+$ ]]; then
     printf 'vgshell-git: refused: pkgver=%s\n' "$out" >&2
