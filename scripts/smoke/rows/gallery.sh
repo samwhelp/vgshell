@@ -12,6 +12,18 @@ set -euo pipefail
 expect "the gallery summons over IPC" ok ipc shell summon window vgs.gallery '{}'
 expect_poll "the gallery maps one window" 1 window_count "VGS Components"
 expect "the gallery maps no layer surface" 0 layer_count vgs:panel
+# A native text query must find the same rendered heading as its declared
+# Label query. Exact native class-name matching misses this inherited Text.
+gallery_native_title_geometry() {
+  local declared
+  declared="$(ipc smoke shownWindowGeometry window vgs.gallery Label 'VGS Components')" || return
+  if [[ $declared != \[* ]]; then printf '%s\n' "$declared"; return; fi
+  ipc smoke shownWindowGeometry window vgs.gallery QQuickText "${1:-VGS Components}" | py_reply 'import json,sys
+native=json.load(sys.stdin); declared=json.loads(sys.argv[1])
+print(native == declared and native[2] > 0 and native[3] > 0)' "$declared"
+}
+geometry expect_poll "the native text query reads the Gallery label geometry" True gallery_native_title_geometry
+expect "control: a missing native text query returns absent" absent gallery_native_title_geometry 'Missing native title'
 # The real modal's shared scrim prevents the page from taking a wheel or
 # a repeated launcher click. Escape remains the dialog's dismissal path.
 ipc smoke revealText window vgs.gallery Button 'Open modal dialog' >/dev/null

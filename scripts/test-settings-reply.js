@@ -341,7 +341,7 @@ function verifyKeys(shots, key) {
     const ctx = { Plugins: { built: { window: [{ id: "vgs.settings", instance: { children: [field] } }] } }, IpcPages: { answer: text => text } };
     ctx.root = ctx;
     vm.createContext(ctx);
-    for (const name of ["json", "instance", "descendants", "reads", "labelledBox", "windowBox", "typeName"]) {
+    for (const name of ["json", "instance", "descendants", "reads", "labelledBox", "windowBox", "typeName", "matchesType"]) {
         const functions = [...probeSource.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(functions.length, 1, `extractor: one actual Probe.${name}`);
         vm.runInContext(functions[0][0], ctx);

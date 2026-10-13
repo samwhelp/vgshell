@@ -492,7 +492,7 @@ Scope {
     function textItem(hostKey, id, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
-        const found = root.descendants(item).find(child => root.typeName(child) === type && child.text === text && child.visible && child.enabled);
+        const found = root.descendants(item).find(child => root.matchesType(child, type) && child.text === text && child.visible && child.enabled);
         return found === undefined ? null : found;
     }
 
@@ -501,7 +501,7 @@ Scope {
     function layerItem(id, type, property, value) {
         for (const entry of Layers.entries.filter(e => e.pluginId === id))
             for (const screen of Object.keys(entry.screens).sort()) {
-                const found = root.descendants(entry.screens[screen]).find(child => root.typeName(child) === type && String(child[property]) === value && child.visible && child.enabled);
+                const found = root.descendants(entry.screens[screen]).find(child => root.matchesType(child, type) && String(child[property]) === value && child.visible && child.enabled);
                 if (found !== undefined) return found;
             }
         return null;
@@ -516,9 +516,9 @@ Scope {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
         const draws = node => root.descendants(node).some(child => child instanceof Text && child.visible && child.text === scopeText);
-        const scope = root.descendants(item).find(child => root.typeName(child) === scopeType && child.visible && draws(child));
+        const scope = root.descendants(item).find(child => root.matchesType(child, scopeType) && child.visible && draws(child));
         if (scope === undefined) return null;
-        const found = root.descendants(scope).find(child => root.typeName(child) === type && root.reads(child, text) && child.visible && child.enabled);
+        const found = root.descendants(scope).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && child.enabled);
         return found === undefined ? null : found;
     }
 
@@ -537,11 +537,11 @@ Scope {
             if (popup === null || popup === undefined || !popup.visible) continue;
             let within = popup.contentItem;
             if (scopeType !== "") {
-                const scope = root.descendants(within).find(child => root.typeName(child) === scopeType && root.visibleInTree(child) && draws(child));
+                const scope = root.descendants(within).find(child => root.matchesType(child, scopeType) && root.visibleInTree(child) && draws(child));
                 if (scope === undefined) continue;
                 within = scope;
             }
-            const found = root.descendants(within).find(child => root.typeName(child) === type && root.reads(child, text) && root.visibleInTree(child) && child.enabled);
+            const found = root.descendants(within).find(child => root.matchesType(child, type) && root.reads(child, text) && root.visibleInTree(child) && child.enabled);
             if (found !== undefined) return found;
         }
         return null;
@@ -560,7 +560,7 @@ Scope {
     function labelledBox(hostKey, id, type, text, enabledOnly) {
         const item = root.instance(hostKey, id);
         if (item === null) return "absent";
-        const found = root.descendants(item).find(child => root.typeName(child) === type && root.reads(child, text) && child.visible && (child.enabled || !enabledOnly));
+        const found = root.descendants(item).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && (child.enabled || !enabledOnly));
         return found === undefined ? "absent" : root.json(root.windowBox(found));
     }
 
@@ -717,6 +717,12 @@ Scope {
     // its own) removed.
     function typeName(item) {
         return String(item).split("(")[0].replace(/(_QML(TYPE)?_\d+)+$/, "");
+    }
+
+    // A native Text query includes QML types that inherit Text, as the
+    // scope's text reader above does. Declared component queries stay exact.
+    function matchesType(item, type) {
+        return type === "QQuickText" ? item instanceof Text : typeName(item) === type;
     }
 
     // How many instances of plugin `id` the core records under `hostKey`.
@@ -1165,7 +1171,7 @@ Scope {
             const out = [];
             for (const entry of Layers.entries.filter(e => e.pluginId === id))
                 for (const screen of Object.keys(entry.screens).sort())
-                    for (const item of root.descendants(entry.screens[screen]).filter(i => root.typeName(i) === type)) {
+                    for (const item of root.descendants(entry.screens[screen]).filter(i => root.matchesType(i, type))) {
                         const at = item.mapToGlobal(0, 0);
                         const values = {};
                         // A colour reads as its #aarrggbb name, not its channels.
@@ -1180,7 +1186,7 @@ Scope {
             let total = 0;
             for (const entry of Layers.entries.filter(e => e.pluginId === id))
                 for (const screen of Object.keys(entry.screens).sort()) {
-                    for (const item of root.descendants(entry.screens[screen]).filter(i => root.typeName(i) === type && i.visible))
+                    for (const item of root.descendants(entry.screens[screen]).filter(i => root.matchesType(i, type) && i.visible))
                         if (String(item[property]).indexOf(needle) !== -1) total += 1;
                 }
             return total;
@@ -1193,7 +1199,7 @@ Scope {
             let total = 0;
             for (const entry of Layers.entries.filter(e => e.pluginId === id))
                 for (const screen of Object.keys(entry.screens).sort())
-                    for (const holder of root.descendants(entry.screens[screen]).filter(i => root.typeName(i) === scope && String(i[property]) === value))
+                    for (const holder of root.descendants(entry.screens[screen]).filter(i => root.matchesType(i, scope) && String(i[property]) === value))
                         for (const item of root.descendants(holder).filter(i => i instanceof Text && i.visible))
                             if (item.text.indexOf(needle) !== -1) total += 1;
             return total;
@@ -1206,7 +1212,7 @@ Scope {
         function grabLayerItem(id: string, type: string, property: string, value: string, path: string): string {
             for (const entry of Layers.entries.filter(e => e.pluginId === id))
                 for (const screen of Object.keys(entry.screens).sort())
-                    for (const item of root.descendants(entry.screens[screen]).filter(i => root.typeName(i) === type && String(i[property]) === value)) {
+                    for (const item of root.descendants(entry.screens[screen]).filter(i => root.matchesType(i, type) && String(i[property]) === value)) {
                         root.grab = "pending " + path;
                         if (!item.grabToImage(result => root.grab = (result.saveToFile(path) ? "saved " : "unsaved ") + path)) {
                             root.grab = "";
@@ -1330,7 +1336,7 @@ Scope {
             const keyTitle = root.descendants(dialog).find(child => root.typeName(child) === "Label" && child.visible && child.role === "eyebrow");
             const hasAncestor = (item, type) => {
                 for (let p = item.parent; p !== null; p = p.parent)
-                    if (root.typeName(p) === type) return true;
+                    if (root.matchesType(p, type)) return true;
                 return false;
             };
             const inKeyRow = item => (item.parent !== null && root.descendants(item.parent).some(child => root.typeName(child) === "KeyCaps")) || hasAncestor(item, "KeyCaps") || hasAncestor(item, "Kbd");
@@ -1461,7 +1467,7 @@ Scope {
         function revealText(hostKey: string, id: string, type: string, text: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const target = root.descendants(item).find(child => root.typeName(child) === type && root.reads(child, text) && child.visible && child.enabled);
+            const target = root.descendants(item).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && child.enabled);
             return root.revealIn(item, target === undefined ? null : target);
         }
         // revealText for the item scopedItem finds, such as one row's
@@ -2038,7 +2044,7 @@ Scope {
                 const own = node instanceof Text && node.visible && node.text !== "" ? [node.text] : [];
                 return own.concat(...Array.from(node.children || []).map(texts));
             };
-            return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(texts));
+            return root.json(root.descendants(item).filter(child => root.matchesType(child, type)).map(texts));
         }
         // Every item named `type` under an instance, in tree order, as the
         // colours its visible descendants named `childType` fill with,
@@ -2046,8 +2052,8 @@ Scope {
         function itemColours(hostKey: string, id: string, type: string, childType: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(found =>
-                root.descendants(found).filter(child => child !== found && child.visible && root.typeName(child) === childType).map(child => ThemeLogic.formatColor(child.color))));
+            return root.json(root.descendants(item).filter(child => root.matchesType(child, type)).map(found =>
+                root.descendants(found).filter(child => child !== found && child.visible && root.matchesType(child, childType)).map(child => ThemeLogic.formatColor(child.color))));
         }
         // A test-owned Binding removes the fade for the reference capture.
         // Restoring it gives the same Panel its original layer expression.
@@ -2109,7 +2115,7 @@ Scope {
         function labelledGeometry(hostKey: string, id: string, type: string, label: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const found = root.descendants(item).find(child => root.typeName(child) === type && child.label === label && child.visible && child.enabled);
+            const found = root.descendants(item).find(child => root.matchesType(child, type) && child.label === label && child.visible && child.enabled);
             return root.geometry(found === undefined ? null : found);
         }
         // Every Image under an instance, in tree order, as the local path it
@@ -2506,7 +2512,7 @@ Scope {
         function textInk(hostKey: string, id: string, type: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            return root.json(root.descendants(item).filter(child => root.typeName(child) === type && child instanceof Text && root.visibleInTree(child)).map(child => {
+            return root.json(root.descendants(item).filter(child => root.matchesType(child, type) && child instanceof Text && root.visibleInTree(child)).map(child => {
                 inkMetrics.font = child.font;
                 inkMetrics.text = child.text;
                 const rect = inkMetrics.tightBoundingRect;
@@ -2520,7 +2526,7 @@ Scope {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const names = properties === "" ? [] : properties.split(",");
-            return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(child => {
+            return root.json(root.descendants(item).filter(child => root.matchesType(child, type)).map(child => {
                 const values = {};
                 // A dotted name reads through an attached object, as `Accessible.name`.
                 for (const name of names) {
@@ -2537,7 +2543,7 @@ Scope {
         function forceInputWidth(hostKey: string, id: string, type: string, width: real): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const input = root.descendants(item).find(child => root.typeName(child) === type && child.visible && child.maximumWidth !== undefined);
+            const input = root.descendants(item).find(child => root.matchesType(child, type) && child.visible && child.maximumWidth !== undefined);
             if (input === undefined) return "absent";
             const constraint = Array.from(input.data).find(child => root.typeName(child) === "InputWidth");
             if (constraint === undefined) return "constraint-absent";
@@ -2548,7 +2554,7 @@ Scope {
         function readDescendant(hostKey: string, id: string, type: string, property: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const found = root.descendants(item).find(child => root.typeName(child) === type);
+            const found = root.descendants(item).find(child => root.matchesType(child, type));
             if (found === undefined) return "absent";
             const json = root.json(found[property]);
             return json === undefined ? "undefined" : json;
@@ -2556,7 +2562,7 @@ Scope {
         function readMatchingDescendant(hostKey: string, id: string, type: string, key: string, value: string, property: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const found = root.descendants(item).find(child => root.typeName(child) === type && String(child[key]) === value);
+            const found = root.descendants(item).find(child => root.matchesType(child, type) && String(child[key]) === value);
             if (found === undefined) return "absent";
             const json = root.json(found[property]);
             return json === undefined ? "undefined" : json;
@@ -2597,7 +2603,7 @@ Scope {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const placed = child => { for (let at = child.parent; at !== null && at !== item; at = at.parent) if (!at.visible) return false; return true; };
-            const found = root.descendants(item).find(child => root.typeName(child) === type && placed(child));
+            const found = root.descendants(item).find(child => root.matchesType(child, type) && placed(child));
             if (found === undefined) return "absent";
             const json = root.json(found[property]);
             return json === undefined ? "undefined" : json;
@@ -2646,7 +2652,7 @@ Scope {
             const focused = root.descendants(item).filter(child => child.activeFocus);
             if (focused.length === 0) return false;
             for (let at = focused[focused.length - 1]; at !== null && at !== undefined && at !== item; at = at.parent)
-                if (root.typeName(at) === type) return true;
+                if (root.matchesType(at, type)) return true;
             return false;
         }
         function activeFocusIn(hostKey: string, id: string): bool {
@@ -2974,7 +2980,7 @@ Scope {
                 for (const child of Array.from(node.children || [])) count += texts(child);
                 return count;
             };
-            const found = root.descendants(item).find(child => root.typeName(child) === type && shown(child));
+            const found = root.descendants(item).find(child => root.matchesType(child, type) && shown(child));
             return found === undefined ? 0 : texts(found);
         }
         // Count visible ImageText items under items named `type` that hold
@@ -2992,7 +2998,7 @@ Scope {
                     if (segment.image !== undefined && segment.image !== "") return true;
                 return false;
             };
-            const found = root.descendants(item).find(child => root.typeName(child) === type && shown(child));
+            const found = root.descendants(item).find(child => root.matchesType(child, type) && shown(child));
             if (found === undefined) return 0;
             return root.descendants(found).filter(child => root.typeName(child) === "ImageText" && shown(child) && hasImage(child)).length;
         }
