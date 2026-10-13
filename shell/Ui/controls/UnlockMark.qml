@@ -13,8 +13,13 @@ import qs.Ui
 // toggle's reason; under the pointer the toggle's own reason shows, since
 // the mark lies inside the toggle and a second tooltip would repeat it.
 // `room` is the width the toggle keeps after its body for the mark, 0
-// without it. The mark is a toggle's own part, so an IconButton, which
-// extends Button, holds none: Button cannot contain its own kind.
+// without it. When the lock clears with the keyboard on the mark, as a
+// step that unlocks at once does, the focus goes back to the toggle with
+// the reason the mark held, before the mark goes: Qt would otherwise move
+// it to the enclosing focus scope (QQuickItem::setParentItem clears the
+// focus of an item it unparents). The mark is a toggle's own part, so an
+// IconButton, which extends Button, holds none: Button cannot contain its
+// own kind.
 Loader {
     id: root
 
@@ -24,6 +29,7 @@ Loader {
     required property real centreY
     readonly property bool valid: shaped(control.unlock)
     readonly property real room: item !== null ? Theme.stack.inline + item.width : 0
+    readonly property bool wanted: control.lock.locked && valid
 
     function shaped(unlock) {
         if (unlock === null || unlock === undefined) return false;
@@ -32,7 +38,15 @@ Loader {
         return false;
     }
 
-    active: control.lock.locked && valid
+    // Set here, never bound, so the focus moves before the mark goes.
+    function follow() {
+        if (!wanted && item !== null && item.activeFocus) control.forceActiveFocus(item.focusReason);
+        active = wanted;
+    }
+    onWantedChanged: follow()
+    Component.onCompleted: follow()
+
+    active: false
     x: bodyEnd + Theme.stack.inline
     y: Math.round(centreY - height / 2)
     // Over the toggle's shield (DisabledReason), which takes every other

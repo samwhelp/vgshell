@@ -53,6 +53,14 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.liftedOpaque(fill, glass.glass.solidLift)));
     }
 
+    // COLOR, a colour or a colour string, at the disabled opacity: what a
+    // locked control's part draws (DisabledReason), so a focus ring the
+    // part holds keeps its own full strength.
+    function faded(color) {
+        const c = typeof color === "string" ? Qt.color(color) : color;
+        return toColor(ThemeLogic.formatColor({ r: c.r, g: c.g, b: c.b, a: c.a * opacity.disabled }));
+    }
+
     // What a row's hover, or its press while PRESSED, draws: while every
     // surface draws glass, the glass highlight (Glass.js); else FILL, the
     // row's own token.

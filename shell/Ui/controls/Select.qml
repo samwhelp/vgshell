@@ -164,10 +164,9 @@ T.AbstractButton {
 
     background: Rectangle {
         radius: Theme.textField.radius
-        opacity: lockState.fade
-        color: Theme.textField.background
+        color: lockState.faded(Theme.textField.background)
         border.width: Theme.textField.border
-        border.color: root.outline
+        border.color: lockState.faded(root.outline)
         // Resetting retained focus must clear the drawn border immediately.
         FocusRing { id: focusRing; target: root }
     }

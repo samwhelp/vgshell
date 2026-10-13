@@ -74,8 +74,7 @@ T.Switch {
         implicitHeight: root.sizeTokens.height
         y: root.contentItem.indicatorY(height)
         radius: Theme.toggle.radius
-        opacity: lockState.fade
-        color: root.checked ? (root.down ? Theme.toggle.onPressed : root.hovered ? Theme.toggle.onHover : Theme.toggle.on) : root.down ? Theme.toggle.offPressed : root.hovered ? Theme.toggle.offHover : Theme.toggle.off
+        color: lockState.faded(root.checked ? (root.down ? Theme.toggle.onPressed : root.hovered ? Theme.toggle.onHover : Theme.toggle.on) : root.down ? Theme.toggle.offPressed : root.hovered ? Theme.toggle.offHover : Theme.toggle.off)
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
 
         Rectangle {
@@ -85,6 +84,7 @@ T.Switch {
             y: inset
             x: inset + root.visualPosition * (parent.width - width - 2 * inset)
             radius: Theme.toggle.radius
+            opacity: lockState.fade
             color: root.checked ? Theme.toggle.knobOn : Theme.toggle.knobOff
             Behavior on x { enabled: !root.down; NumberAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         }

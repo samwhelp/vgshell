@@ -95,10 +95,9 @@ T.Button {
     background: Rectangle {
         implicitHeight: root.controlHeight
         radius: Theme.button.radius
-        opacity: lockState.fade
-        color: root.fill
+        color: lockState.faded(root.fill)
         border.width: Theme.button.border
-        border.color: root.checked ? Theme.button.checked.border : root.tokens.border
+        border.color: lockState.faded(root.checked ? Theme.button.checked.border : root.tokens.border)
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }

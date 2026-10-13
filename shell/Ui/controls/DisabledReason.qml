@@ -11,18 +11,27 @@ import qs.Ui
 // the control hands it first. `KeyNavLogic.activate` refuses a locked
 // control too, since a `Keys.onReturnPressed` handler runs before
 // `Keys.onPressed` and stops it (a qml-unit run, 2026-10-13). The control
-// draws no hover or press while locked, and its drawn parts bind `fade`,
-// the disabled opacity, while the control itself stays opaque, so an
-// unlock mark it holds (UnlockMark) draws at full strength. The reason
-// shows in the shared Tooltip on hover and on keyboard focus of the
-// control, built only while locked. A control the plain Qt `enabled`
-// disables is not locked: it keeps its own fade and shows no reason.
+// draws no hover or press while locked. Its drawn parts fade while the
+// control itself stays opaque, so an unlock mark it holds (UnlockMark)
+// draws at full strength: a part that holds the control's FocusRing draws
+// its fill and border through `faded`, the colour at the disabled
+// opacity, so the ring on it keeps its full strength, and a part with no
+// ring binds `fade`, the disabled opacity. The reason shows in the shared
+// Tooltip on hover and on keyboard focus of the control, built only while
+// locked, and is the control's accessible description. A control the
+// plain Qt `enabled` disables is not locked: it keeps its own fade and
+// shows no reason.
 Item {
     id: root
 
     required property Item control
     readonly property bool locked: control.enabled && control.disabledReason !== ""
     readonly property real fade: locked ? Theme.opacity.disabled : 1
+
+    // `color` as a locked part draws it (Theme.faded).
+    function faded(color) {
+        return locked ? Theme.faded(color) : color;
+    }
 
     // Whether a locked control takes `event`, so the control never acts.
     function takeKey(event) {
@@ -40,6 +49,13 @@ Item {
         anchors.fill: parent
         enabled: root.locked
         acceptedButtons: Qt.AllButtons
+    }
+
+    Binding {
+        target: root.control
+        property: "Accessible.description"
+        value: root.control.disabledReason
+        when: root.locked
     }
 
     Loader {

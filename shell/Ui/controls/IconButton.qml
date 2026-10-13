@@ -41,11 +41,10 @@ Button {
     background: Rectangle {
         implicitHeight: root.controlHeight
         radius: Theme.button.radius
-        opacity: root.lock.fade
-        color: root.down ? (root.checked ? Theme.button.checked.pressed : root.tokens.pressed)
-            : root.checked ? Theme.button.checked.background : root.tokens.background
+        color: root.lock.faded(root.down ? (root.checked ? Theme.button.checked.pressed : root.tokens.pressed)
+            : root.checked ? Theme.button.checked.background : root.tokens.background)
         border.width: Theme.button.border
-        border.color: root.checked ? Theme.button.checked.border : root.tokens.border
+        border.color: root.lock.faded(root.checked ? Theme.button.checked.border : root.tokens.border)
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }

@@ -6,12 +6,14 @@ import qs.Unit
 
 // A `disabledReason` disables a control and says why. While locked, each
 // control stays a Tab stop, shows the reason in the shared Tooltip on
-// hover and on keyboard focus, and takes no click, Space, Return, Enter,
-// Up or Down; it draws its parts faded and no hover, and the control
-// itself stays opaque. A toggle given `unlock` draws a lock-open mark
+// hover and on keyboard focus, names it as its accessible description,
+// and takes no click, Space, Return, Enter, Up or Down; it draws its parts
+// faded and no hover, while the control itself and its focus ring stay
+// opaque. A toggle given `unlock` draws a lock-open mark
 // `stack.inline` after its body, inside its own width, that runs the step
 // on a click, Space or Return and shows the reason with the keyboard on
-// it; a toggle without a step draws none, and a control that is no toggle
+// it; a step that unlocks at once leaves the keyboard focus on the toggle,
+// with its ring; a toggle without a step draws none, and a control that is no toggle
 // takes no `unlock`. An empty reason leaves the control as it was. Pane
 // hands its header switch the reason and the step, the mark ending on the
 // content edge, and Field hands its control the reason. The tooltip waits
@@ -25,6 +27,8 @@ Item {
     readonly property string reason: "Sign in to your VPN account to turn on this switch"
     property int runs: 0
     readonly property var step: ({ label: "Sign in", run: () => { root.runs += 1; } })
+    // A step that unlocks its toggle at once.
+    property string unlockerReason: reason
 
     Column {
         spacing: 8
@@ -39,6 +43,7 @@ Item {
         Switch { id: free; text: "Free" }
         Field { id: field; label: "Field"; width: 300; disabledReason: root.reason; Switch { id: fielded } }
     }
+    Switch { id: unlocker; x: 320; text: "Unlocker"; disabledReason: root.unlockerReason; unlock: ({ label: "Sign in", run: () => { root.unlockerReason = ""; } }) }
     Pane { id: pane; y: 420; width: 400; height: 120; title: "VPN"; switchShown: true; switchDisabledReason: root.reason; switchUnlock: root.step }
 
     Component { id: spyComponent; SignalSpy {} }
@@ -51,6 +56,7 @@ Item {
             UnitTheme.reset();
             compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
             root.runs = 0;
+            root.unlockerReason = root.reason;
             away();
             root.forceActiveFocus();
         }
@@ -72,6 +78,7 @@ Item {
 
         function reasonTip(control) { return descendants(control).find(item => item.objectName === "disabledReasonTip") || null; }
         function markOf(control) { return descendants(control).find(item => item.iconName === "lock-open") || null; }
+        function ringOf(control) { return descendants(control).find(item => item.target === control && item.extent !== undefined) || null; }
         function ownTip(button) { return button.data.find(child => child.anchorItem !== undefined && child.side !== undefined); }
 
         // The opacity an item draws at: its own times every ancestor's.
@@ -155,12 +162,14 @@ Item {
         // The parts fade and draw no hover; the control and its mark stay
         // opaque.
         function test_a_locked_control_draws_faded_with_no_hover() {
+            const faded = token => Qt.color(token).a * Theme.opacity.disabled;
             compare(sw.opacity, 1);
-            compare(sw.indicator.opacity, Theme.opacity.disabled);
+            tryVerify(() => Math.abs(sw.indicator.color.a - faded(Theme.toggle.off)) < 0.01, 1000, "the track draws faded: " + sw.indicator.color);
+            compare(drawnOpacity(sw.indicator.children[0]), Theme.opacity.disabled, "the knob draws faded");
             compare(sw.contentItem.opacity, Theme.opacity.disabled);
-            compare(button.background.opacity, Theme.opacity.disabled);
+            tryVerify(() => Math.abs(button.background.color.a - faded(Theme.button.variant.primary.background)) < 0.01, 1000, "the fill draws faded: " + button.background.color);
             compare(button.contentItem.opacity, Theme.opacity.disabled);
-            compare(select.background.opacity, Theme.opacity.disabled);
+            verify(Math.abs(select.background.border.color.a - faded(select.outline)) < 0.01, "the select's outline draws faded");
             compare(drawnOpacity(markOf(sw)), 1, "the mark draws at full strength");
             // Each drawn state reads `hovered`, which a locked control
             // never sets.
@@ -170,6 +179,48 @@ Item {
             mouseMove(button, 4, button.height / 2);
             tryCompare(reasonTip(button), "opened", true);
             compare(button.hovered, false, "a locked button draws no hover");
+        }
+
+        // The ring a keyboard user lands on draws at full strength on a
+        // locked control, whose parts draw faded under it.
+        function test_a_locked_control_keeps_its_focus_ring_data() {
+            return locked_data().filter(row => row.control !== bare && row.control !== fielded);
+        }
+        function test_a_locked_control_keeps_its_focus_ring(data) {
+            const control = data.control;
+            const ring = ringOf(control);
+            verify(ring !== null, "the control holds its ring");
+            control.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(ring, "visible", true);
+            compare(drawnOpacity(ring), 1, "the ring draws at full strength");
+            root.forceActiveFocus();
+        }
+
+        // The reason is the control's accessible description while locked,
+        // and only then.
+        function test_a_locked_control_names_its_reason_to_assistive_technology() {
+            for (const control of [sw, box, toggle, button, icon, select, pane.headerSwitch])
+                compare(control.Accessible.description, root.reason, String(control));
+            compare(free.Accessible.description, "");
+            sw.disabledReason = "";
+            compare(sw.Accessible.description, "");
+            sw.disabledReason = Qt.binding(() => root.reason);
+        }
+
+        // A step that unlocks at once, from the keyboard on the mark,
+        // leaves the focus on the toggle with the reason the mark held, so
+        // its ring shows and the next Tab goes on from it.
+        function test_an_unlock_leaves_the_focus_on_the_toggle() {
+            const mark = markOf(unlocker);
+            verify(mark !== null, "the toggle draws its mark");
+            mark.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(root.unlockerReason, "", "the step ran");
+            compare(markOf(unlocker), null, "the mark is gone");
+            compare(unlocker.activeFocus, true, "the toggle holds the focus");
+            compare(unlocker.visualFocus, true, "with the keyboard's reason");
+            tryCompare(ringOf(unlocker), "visible", true);
+            root.forceActiveFocus();
         }
 
         // Where each toggle's body ends, read from its parts.
