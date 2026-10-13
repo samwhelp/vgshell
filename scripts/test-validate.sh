@@ -541,7 +541,7 @@ settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
 settings_reply_row='node scripts/test-settings-reply.js'
 settings_steps_row='node scripts/test-settings-steps.js'
 cases=(
-  "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-displays-logic.js"
+  "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
   "sysmon-logic|shell/plugins/vgs.sysmon/SysmonLogic.js|logic|node scripts/test-sysmon-logic.js"
   "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-timestamp.js\nnode scripts/test-updates-logic.js\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js\nnode scripts/test-cloud-sync-logic.js'
