@@ -475,7 +475,7 @@ fi
 ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.json ]] || return 1; done; }
 scene_ships() {
   case $1 in
-    sysmon) ships_plugin vgs.sysmon ;;
+    sysmon) ships_plugin vgs.sysmon vgs.settings ;;
     tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
@@ -484,7 +484,7 @@ scene_ships() {
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
     focus-open) ships_plugin vgs.settings vgs.network vgs.system ;;
-    flyout-titles) ships_plugin vgs.sysmon vgs.network vgs.sound vgs.updates ;;
+    flyout-titles) ships_plugin vgs.sysmon vgs.settings vgs.network vgs.sound vgs.updates ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
     screensaver) ships_plugin vgs.screensaver ;;
@@ -6887,16 +6887,38 @@ PY
   esac
 done
 
+sysmon_shot_placed() { ipc shell listShellConfig | py_reply 'import json,sys; l=json.load(sys.stdin)["bar"]["layout"]; print(" ".join(e["id"] for s in ("left","center","right") for e in l.get(s,[])))'; }
+# The bar holds System Monitor alone, placed by the shell's own placement
+# write: a bar.layout entry holds an id and no setting
+# (ConfigLogic.configError). A disabled plugin's entry draws nothing and its
+# removal is refused, so it stays.
+sysmon_shot_layout() {
+  local placed id reply
+  placed="$(sysmon_shot_placed)" || { fail "the bar layout is unreadable"; return; }
+  [[ $placed != vgs.sysmon ]] || return 0
+  for id in $placed; do
+    [[ $id != vgs.sysmon ]] || continue
+    reply="$(ipc shell setPluginPlaced "$id" false)" || reply="unanswered"
+    [[ $reply == ok || $reply == "refused: placed=$id reason=disabled" ]] || fail "the bar gives up $id for the sysmon shots: got $reply"
+  done
+  expect "System Monitor is placed" ok ipc shell setPluginPlaced vgs.sysmon true
+  expect "System Monitor sits at the right" ok ipc shell movePluginWidget vgs.sysmon right 0
+  expect_poll "the sysmon layout settles" true ipc smoke configSettled
+  # Every write answers with the judge's verdict on the user file as the
+  # shell last read it: a refused layout answers user-config=malformed here.
+  expect "the judge accepts the written bar layout" ok ipc shell setPluginEnabled vgs.sysmon true
+}
+# Each setting goes into the plugin's row through the Settings window's own
+# write, the one its fields call.
 sysmon_shot_settings() { # MASK CPU_TEMP GPU_TEMP UNIT SWAP
-  local expected
-  python3 - "$home/.config/vgshell/shell.json" "$@" <<'PYS'
-import json,os,sys
-p=sys.argv[1]; mask=int(sys.argv[2]); d=json.load(open(p))
-settings={'showCpu':bool(mask&1),'showMemory':bool(mask&2),'showGpu':bool(mask&4),'cpuTemperature':sys.argv[3]=='true','gpuTemperature':sys.argv[4]=='true','memoryUnit':sys.argv[5],'showSwap':sys.argv[6]=='true'}
-d['bar']['layout']={'left':[], 'center':[], 'right':[{'id':'vgs.sysmon',**settings}]}
-d['plugins']=[r for r in d.get('plugins',[]) if r['id']!='vgs.sysmon']+[{'id':'vgs.sysmon',**settings}]
-json.dump(d,open(p+'.new','w'));os.replace(p+'.new',p)
-PYS
+  local expected key value
+  sysmon_shot_layout
+  expect "Settings opens for the sysmon settings" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  while read -r key value; do
+    expect "Settings writes System Monitor's $key" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting "{\"id\":\"vgs.sysmon\",\"key\":\"$key\",\"value\":$value}"
+  done < <(python3 -c 'import json,sys;m=int(sys.argv[1])
+for k,v in [("showCpu",bool(m&1)),("showMemory",bool(m&2)),("showGpu",bool(m&4)),("cpuTemperature",sys.argv[2]=="true"),("gpuTemperature",sys.argv[3]=="true"),("memoryUnit",sys.argv[4]),("showSwap",sys.argv[5]=="true")]: print(k,json.dumps(v))' "$@")
+  settings_close
   expect_poll "the sysmon configuration settles" true ipc smoke configSettled
   expected="$(python3 -c 'import json,sys;m=int(sys.argv[1]);print(json.dumps([bool(m&1),bool(m&2),bool(m&4),sys.argv[2]=="true",sys.argv[3]=="true",sys.argv[4],sys.argv[5]=="true"]))' "$@")" || { fail "the sysmon shot settings are unreadable"; return; }
   expect_poll "the sysmon widget has current toggles" "$expected" sysmon_shot_toggles
