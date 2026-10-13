@@ -159,10 +159,12 @@ class Secrets {
     // longer. Jarvis clears only an item it stored itself; an item another
     // program stored, which Use keyring item remembered, stays in the
     // keyring and is only forgotten. secret-tool clear takes attributes and
-    // reads no secret; it has no time limit, as a locked keyring asks the
-    // user to unlock it. An item already absent takes no clear, so a key
-    // deleted elsewhere still leaves the list. The item goes first: a
-    // failed clear keeps the reference, and the page still lists the key.
+    // reads no secret. It deletes unlocked items only and asks for no
+    // unlock, so its exit status proves nothing: the reference goes only
+    // once a second presence read finds the item absent, and a key the
+    // keyring still holds fails with that presence, such as key=locked. An
+    // item already absent takes no clear, so a key deleted elsewhere still
+    // leaves the list.
     removeKey(provider, account) {
         const refs = this.references();
         const found = refs.filter(item => item.provider === provider && item.account === account);
@@ -170,8 +172,11 @@ class Secrets {
         const ref = found[0];
         const sorted = attributes => JSON.stringify(Object.entries(attributes).sort());
         const own = sorted(ref.attributes) === sorted(ownReference(provider, account, ref.origin).attributes);
-        if (own && this.presence(ref).value !== "absent")
-            this.run("secret-tool", ["clear", ...this.attributes(ref)], { timeout: 0 }).fill(0);
+        if (own && this.presence(ref).value !== "absent") {
+            this.run("secret-tool", ["clear", ...this.attributes(ref)]).fill(0);
+            const left = this.presence(ref).value;
+            if (left !== "absent") fail("key=" + left);
+        }
         this.#write(JSON.stringify(refs.filter(item => item !== ref)) + "\n");
         return own;
     }

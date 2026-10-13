@@ -286,6 +286,23 @@ console.log(wanted);
             assert.deepEqual([absent.status, absent.stdout, absent.stderr], [1, "", "jarvis-keys: key=unknown\n"]);
             assert.deepEqual([keyring(before), store.references()], [[], stored], "an unknown key changes nothing");
             cases++;
+            // A locked keyring keeps its item whatever clear exits with:
+            // the removal fails, the key stays listed and no line says
+            // removed, on the verb and on the screen.
+            mode("locked");
+            before = calls("secret-calls");
+            const locked = run("remove-key", "openai", "test");
+            assert.deepEqual([locked.status, locked.stdout, locked.stderr], [1, "", "jarvis-keys: key=locked\n"]);
+            assert.deepEqual([keyring(before), store.presence(openai).value, store.references()], [[clear], "locked", stored], "a locked key stays");
+            provider("openai\ttest");
+            const refused = tui(folder, script, ["--no-key"]);
+            assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+            assert.match(logged(), /jarvis-keys: key=locked/);
+            assert.doesNotMatch(logged(), /removed=/);
+            assert.deepEqual(store.references(), stored, "the screen keeps a locked key");
+            safe(refused.stdout + refused.stderr + logged());
+            cases++;
+            mode("present");
             // The screen asks once, naming the key, before the verb runs.
             provider("openai\ttest");
             before = calls("secret-calls");
@@ -436,7 +453,8 @@ console.log(wanted);
     assert.throws(() => removal(plugin, unaskedCopy), assert.AssertionError, "removal must ask first");
     controls++;
     for (const [name, file, needle, replacement, check] of [
-        ["removal-leaves-keyring-item", "backend/Secrets.js", 'this.run("secret-tool", ["clear", ...this.attributes(ref)], { timeout: 0 }).fill(0);', "void 0;", removal],
+        ["removal-leaves-keyring-item", "backend/Secrets.js", 'this.run("secret-tool", ["clear", ...this.attributes(ref)]).fill(0);', "void 0;", removal],
+        ["removal-trusts-clear", "backend/Secrets.js", 'if (left !== "absent") fail("key=" + left);', "void left;", removal],
         ["removal-leaves-reference", "backend/Secrets.js", "refs.filter(item => item !== ref)", "refs", removal],
         ["removal-clears-absent", "backend/Secrets.js", 'if (own && this.presence(ref).value !== "absent")', "if (own)", removal],
         ["removal-clears-foreign", "backend/Secrets.js", "const own = sorted(ref.attributes) === sorted(ownReference(provider, account, ref.origin).attributes);", "const own = true;", removal],

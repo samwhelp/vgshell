@@ -48,7 +48,11 @@ elif args[0] == "store":
         sys.exit(6)
     print(key)  # A noisy storage helper must still expose no value.
 elif args[0] == "clear":
-    (root / "bus-mode").write_text("absent")  # The one item busctl answers for is gone.
+    # libsecret's clear deletes unlocked items only: the one item busctl
+    # answers for goes unless it is locked.
+    mode = root / "bus-mode"
+    if not mode.exists() or mode.read_text().strip() == "present":
+        mode.write_text("absent")
 else:
     print("test-key-must-stay-private")
     print("test-key-must-stay-private", file=sys.stderr)
