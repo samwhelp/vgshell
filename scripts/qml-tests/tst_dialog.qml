@@ -493,6 +493,35 @@ Item {
             compare(blocked.buttons()[0].activeFocus, true);
         }
 
+        // A page reference in the message is a link inside the message's
+        // paragraph: the message keeps a plain message's height and its
+        // gap to the content, so every paragraph gap of the dialog stays
+        // the one the card gives, and the link reports its page.
+        function test_a_message_page_reference_is_a_link_in_the_message_paragraph() {
+            const make = message => Qt.createQmlObject("import QtQuick\nimport qs.Ui\nDialog {\n"
+                + "    property alias note: note\n"
+                + "    title: \"Hide Launcher?\"\n"
+                + "    message: " + JSON.stringify(message) + "\n"
+                + "    actions: [{ label: \"Cancel\", role: \"cancel\" }, { label: \"Hide\", role: \"accept\" }]\n"
+                + "    Label { id: note; text: \"Its shortcuts still work.\" }\n"
+                + "}", root);
+            const linked = make("Launcher leaves the bar. Turn it on again on its [page in Plugins](page:acme.launcher/Setup).");
+            const plain = make("Launcher leaves the bar. Turn it on again on its page in Plugins.");
+            const asked = [];
+            linked.messagePageActivated.connect((page, tab) => asked.push(page + "/" + tab));
+            const gap = of => of.note.mapToItem(of, 0, 0).y - (messageLabel(of).mapToItem(of, 0, 0).y + messageLabel(of).height);
+            tryVerify(() => messageLabel(linked).width > 0 && messageLabel(plain).width > 0, 1000, "the dialogs are laid out");
+            compare(messageLabel(linked).linked, true, "the reference's words are a link");
+            compare(linked.Accessible.description, plain.message, "the message reads as its words");
+            compare(messageLabel(linked).height, messageLabel(plain).height, "the link adds no height to the message");
+            compare(gap(linked), gap(plain), "the content keeps a plain message's gap");
+            compare(linked.height, plain.height);
+            messageLabel(linked).clicked();
+            compare(asked, ["acme.launcher/Setup"]);
+            linked.destroy();
+            plain.destroy();
+        }
+
         function test_content_sits_between_the_message_and_the_actions() {
             compare(extra.visible, true);
             const top = extra.mapToItem(dialog, 0, 0).y;

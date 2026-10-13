@@ -11,7 +11,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // report the answer and the dialog hides nothing. Its card takes the
 // presses and the hover that land on it and that no control in it takes,
 // and the wheel while `modal` holds, so nothing under it answers, such as a
-// scrim that rejects the dialog on a click away.
+// scrim that rejects the dialog on a click away. A page reference in the
+// message (LinkText) is a link in the message's own paragraph, a Tab stop
+// before the actions, and activating it emits `messagePageActivated`.
 //
 // `actions` is a list of `{ label, role, variant, enabled, focused }`. `role` is
 // `accept` or `cancel`, and pressing the action emits `accepted` or
@@ -61,6 +63,7 @@ FocusScope {
     }
     signal accepted()
     signal rejected()
+    signal messagePageActivated(string page, string tab)
 
     function entryOf(action) {
         let role = action.role;
@@ -183,7 +186,7 @@ FocusScope {
     implicitHeight: pane.implicitHeight
     Accessible.role: Accessible.Dialog
     Accessible.name: title
-    Accessible.description: message
+    Accessible.description: messageLabel.plain
 
     // A scope gives the focus back to the child that last held it; the
     // initial focus item or the accept action takes it instead, so an
@@ -263,13 +266,14 @@ FocusScope {
         titleRole: Theme.dialog.titleRole
         titleWrapMode: Text.Wrap
         subtitle: [
-            Label {
+            LinkText {
                 id: messageLabel
                 role: Theme.dialog.bodyRole
                 text: root.message
                 visible: text !== ""
                 width: parent.width
                 wrapMode: Text.Wrap
+                onPageActivated: (page, tab) => root.messagePageActivated(page, tab)
             }
         ]
 
