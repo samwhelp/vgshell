@@ -300,10 +300,32 @@ expect "control: a host without python-dbusmock reads not measured" "1 probe:mis
 
 # A separate bus keeps the loss controls out of the shared device world.
 devices_loss_control() (
-  local control="$sandbox/vs.device-loss" network_pid bluez_pid bus_pid status=0 started=$EPOCHSECONDS
+  local control="$sandbox/device-loss" control_rt="" network_pid="" bluez_pid="" bus_pid="" guard_pid="" status=0 started=$EPOCHSECONDS
+  devices_loss_stop() {
+    local pid alive
+    local children=()
+    for pid in "$network_pid" "$bluez_pid" "$bus_pid" "$guard_pid"; do
+      [[ -z $pid ]] || children+=("$pid")
+    done
+    for pid in "${children[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+    for _ in $(seq 1 50); do
+      alive=false
+      for pid in "${children[@]}"; do kill -0 "$pid" 2>/dev/null && alive=true; done
+      [[ $alive == true ]] || break
+      sleep 0.1
+    done
+    for pid in "${children[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+      wait "$pid" 2>/dev/null || true
+    done
+    network_pid="" bluez_pid="" bus_pid="" guard_pid=""
+    [[ -z $control_rt ]] || rm -rf -- "$control_rt"
+    control_rt=""
+  }
+  trap devices_loss_stop EXIT
   mkdir -p -- "$control"
-  sandbox="$control"
-  rt_dir="$control"
+  control_rt="$(mktemp -d "$rt_dir/vs.XXXXXX")" || exit 1
+  rt_dir="$control_rt"
   devices_dir="$control/devices"
   mkdir -p -- "$devices_dir"
   shell_env+=(DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus")
@@ -317,7 +339,6 @@ devices_loss_control() (
   spawn "$devices_dir/network.log" "${shell_env[@]}" python3 -m dbusmock --system --template networkmanager
   network_pid="$spawn_pid"
   devices_pid[network]="$network_pid"
-  trap 'kill -TERM "$network_pid" "$bluez_pid" "$bus_pid" 2>/dev/null || true; wait "$network_pid" "$bluez_pid" "$bus_pid" 2>/dev/null || true' EXIT
   "${shell_env[@]}" python3 "$devices_fixtures/world.py" "unix:path=$rt_dir/system-bus" >"$control/planted.log" || exit 1
   devices_check loss-ready >"$control/ready.log" || exit 1
   # A live dbusmock can lose its name when another owner replaces it.
@@ -328,6 +349,7 @@ root=dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.Mock
 root.AddMethod("org.vgs.Smoke", "ReleaseName", "", "", 'self.bus_name.get_bus().release_name("org.bluez")')
 dbus.Interface(bus.get_object("org.bluez", "/"), "org.vgs.Smoke").ReleaseName()
 PYLOSS
+  [[ $? == 0 ]] || exit 1
   failures=0
   behaviour_failures=0
   smoke_row hidpi >"$control/name-loss.log"
@@ -335,6 +357,7 @@ PYLOSS
   grep -q 'world=unavailable .*name=org.bluez .*since=.*last-ready=' "$control/name-loss.log" || exit 1
   kill -KILL "$network_pid" || exit 1
   wait "$network_pid" 2>/dev/null || true
+  network_pid=""
   failures=0
   behaviour_failures=0
   smoke_row network >"$control/killed.log"
@@ -345,6 +368,27 @@ PYLOSS
   [[ $status == 69 ]] || exit 1
   [[ $(wc -l <"$control/fixture.log") == 1 ]] || exit 1
   grep -qx 'network-fixture=unavailable stand-in=org.freedesktop.NetworkManager' "$control/fixture.log" || exit 1
+  # Loss after the row-start check must also stop the first fixture read.
+  spawn "$control/guard.log" "${shell_env[@]}" PATH="$shell_start_path" \
+    PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_HID_FAKE="$rt_dir/hid-fake.sock" sleep 30
+  guard_pid="$spawn_pid"
+  shell_qs_pid="$guard_pid"
+  for _ in $(seq 1 50); do [[ $(cat -- "/proc/$guard_pid/comm" 2>/dev/null) == sleep ]] && break; sleep 0.05; done
+  failures=0
+  behaviour_failures=0
+  unset net_saved
+  python3 - "$repo/scripts/smoke/rows/network.sh" "$control/fixture-row.sh" <<'PYROW'
+import pathlib,sys
+text=pathlib.Path(sys.argv[1]).read_text()
+boundary='net_saved="$sandbox/network-shell-before.json"\n'
+assert text.count(boundary)==1
+pathlib.Path(sys.argv[2]).write_text(text.split(boundary)[0] + 'net_saved=continued\nreturn 0\n')
+PYROW
+  [[ $? == 0 ]] || exit 1
+  source "$control/fixture-row.sh" >"$control/fixture-row.log" 2>&1
+  [[ $failures == 1 && ! -v net_saved ]] || exit 1
+  grep -q 'network: fixture=prepare status=69 network-fixture=unavailable stand-in=org.freedesktop.NetworkManager' "$control/fixture-row.log" || exit 1
+  devices_loss_stop
   [[ $((EPOCHSECONDS - started)) -lt 60 ]] || exit 1
   printf 'device-loss-control: verdict=pass secs=%s failures=1 fixture-status=%s\n' "$((EPOCHSECONDS - started))" "$status"
 )

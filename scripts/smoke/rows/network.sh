@@ -209,7 +209,7 @@ form)
 expect "Cancel is visible during activation" scrolled net_join_cancel_reveal
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "the pending form could not close"
 ;;
-device) net_expect_fixture "the join adapter is replaced" replace || return 0 ;;
+device) net_expect_fixture "the join adapter is replaced" replace || return 1 ;;
 disable)
 expect "Network disables during held activation" ok ipc shell setPluginEnabled vgs.network false
 expect_poll "disabling destroys the service" False record_exists vgs.network
@@ -225,7 +225,7 @@ if [[ ${3:-form} != disable ]]; then expect_poll "closing during activation read
 if [[ $1 == private-cleaned ]]; then expect_poll "cancellation reaps the network command" stopped net_join_child_stopped; fi
 case ${3:-form} in
 device)
-net_expect_fixture "the join adapter returns" restore || return 0
+net_expect_fixture "the join adapter returns" restore || return 1
 expect_poll "the restored adapter is selected" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
 ;;
 disable)
@@ -237,9 +237,9 @@ expect_poll "the pane returns after service removal" shown net_shown window
 esac
 if [[ ${3:-form} != form ]]; then expect_poll "the replacement service is ready" '"offline"' net_state; fi
 }
-net_join_close_test private-cleaned idle
-net_join_close_test private-cleaned idle device
-net_join_close_test private-cleaned idle disable
+net_join_close_test private-cleaned idle || return 0
+net_join_close_test private-cleaned idle device || return 0
+net_join_close_test private-cleaned idle disable || return 0
 net_expect_fixture "the mock adds a scanned enterprise network" enterprise || return 0
 net_enterprise_seen() { net_snapshot | py_reply 'import json,sys; print(any(r["name"]=="VGS Enterprise Wi-Fi" and r["security"]=="Wpa2Eap" for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 net_enterprise_reveal() { ipc smoke revealText window vgs.system DeviceRow 'VGS Enterprise Wi-Fi' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
@@ -663,7 +663,7 @@ rescan "the disposable service source is discovered"
 expect_poll "the disposable service is ready" '"offline"' net_state
 expect "System opens the rebuild cancellation test" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
 expect_poll "the rebuild cancellation pane is mounted" shown net_shown window
-net_join_close_test private-cleaned idle rebuild
+net_join_close_test private-cleaned idle rebuild || return 0
 python3 - "$net_copy/NetworkJoin.qml" <<'PYEAPCONTROL'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);source=p.read_text();old='identity: identity.text, domain: domain.text'
@@ -689,7 +689,7 @@ rescan "the form cancellation control is discovered"
 expect_poll "the cancellation control finishes its backend probes" '"offline"' net_state
 expect "System opens the cancellation control" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
 expect_poll "the cancellation control pane is mounted" shown net_shown window
-net_join_close_test invalid join
+net_join_close_test invalid join || return 0
 # Releasing the fake's barrier lets its failed activation finish normally.
 python3 - "$net_join_dir/world.json" <<'PYJOINRELEASE'
 import json,pathlib,sys,tempfile
