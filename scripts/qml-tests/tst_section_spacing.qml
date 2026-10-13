@@ -160,14 +160,18 @@ Item {
     }
 
     // A section ending in a row action, as a list setting's Add row and
-    // Jarvis's key rows draw, then the next section. `boxed` wraps the
-    // action in a plain Item, whose ink the spacing reads as its box.
+    // Jarvis's key rows draw, then the next section. `holder` "flow" sets
+    // it in a Flow, as a plugin page's More setup row does; "boxed" wraps
+    // it in a plain Item, whose ink the spacing reads as its box.
     Component {
         id: actionThenSection
         Column {
             id: actionPage
             property string tone: "accent"
-            property bool boxed: false
+            property string label: "Add"
+            // "plain", "flow", as a plugin page's More setup row holds its
+            // actions, or "boxed".
+            property string holder: "plain"
             width: 400
             spacing: 0
             Section {
@@ -176,12 +180,18 @@ Item {
                     label: "None yet"
                     inline: true
                     width: parent.width
-                    RowAction { visible: !actionPage.boxed; text: "Add"; tone: actionPage.tone }
+                    RowAction { visible: actionPage.holder === "plain"; text: actionPage.label; tone: actionPage.tone }
+                    Flow {
+                        visible: actionPage.holder === "flow"
+                        width: 200
+                        spacing: Theme.rowAction.gap
+                        Loader { sourceComponent: RowAction { text: actionPage.label; tone: actionPage.tone } }
+                    }
                     Item {
-                        visible: actionPage.boxed
+                        visible: actionPage.holder === "boxed"
                         implicitWidth: boxedAction.implicitWidth
                         implicitHeight: boxedAction.implicitHeight
-                        RowAction { id: boxedAction; text: "Add"; tone: actionPage.tone }
+                        RowAction { id: boxedAction; text: actionPage.label; tone: actionPage.tone }
                     }
                 }
             }
@@ -317,6 +327,35 @@ Item {
             return inkRows(img, lower)[0] - inkRows(img, upper)[1] - 1;
         }
 
+        // A setup screen no entry declares draws as a row action in the
+        // Setup section's More setup row, in a Flow, as Jarvis's Remove key
+        // does; the next heading stands exactly `stack.heading` under the
+        // action's underline. A Flow read as its box put it 33 blank rows
+        // under on Jarvis's Setup tab at 12b76016f and de119de92. The label
+        // has no descender, whose faint tail under the underline is ink
+        // here and not on that sheet.
+        function test_heading_space_under_more_setup() {
+            const row = Object.assign(rowOf("vgs.sysmon"), {
+                id: "acme.jarvis", name: "Acme Jarvis", schema: {}, settings: {},
+                status: PluginLogic.statusRows(root.stepped, {
+                    summary: { tone: "ok", text: "Ready" },
+                    account: { tone: "ok", text: "Signed in" },
+                    personality: { tone: "ok", text: "Set" },
+                    session: { tone: "info", text: "Not started" } }, []),
+                tuis: [{ name: "remove-token", label: "Remove token", icon: "trash", setup: true, withheld: "" }]
+            });
+            const page = createTemporaryObject(pageComponent, root, { row: row });
+            verify(page !== null);
+            page.open(Qt.OtherFocusReason, "Setup");
+            tryVerify(() => descendants(page).some(item => item instanceof RowAction && item.visible && item.text === "Remove token"), 2000, "the Setup section draws Remove token");
+            tryVerify(() => headings(page).map(label => label.text).indexOf("Personality") !== -1, 2000);
+            verify(waitForRendering(page));
+            const shown = headings(page).map(label => label.text);
+            const next = headings(page)[shown.indexOf("Setup") + 1];
+            const gap = gapAbove(grabImage(root), next);
+            compare(gap, Theme.stack.heading, "\"" + next.text + "\" sits " + gap + " px under Remove token, not " + Theme.stack.heading);
+        }
+
         // Settings of no group follow the Enabled switch as rows of its
         // list do, `stack.row` apart. Drawn as a section of no title,
         // VGlass sat 66 blank rows under the Enabled switch at the default
@@ -440,24 +479,26 @@ Item {
 
         // The space under a row action is read from its drawn ink, so it
         // holds exactly, not within the glyph tolerance. With the action
-        // read as its box, as before RowAction.inkBelow(), the heading
-        // sat 33 blank rows under the resting underline; "boxed" is that
+        // read as its box, as before RowAction.inkBelow(), or a Flow read
+        // as its box, as before Theme.inkBelow read a Flow, the heading sat
+        // 33 blank rows under the resting underline; "boxed" is that
         // control and must not read `stack.heading`.
         function test_heading_space_after_a_row_action_data() {
             return [
-                { tag: "accent", tone: "accent", boxed: false },
-                { tag: "danger", tone: "danger", boxed: false },
-                { tag: "boxed", tone: "accent", boxed: true }
+                { tag: "accent", tone: "accent", holder: "plain" },
+                { tag: "danger", tone: "danger", holder: "plain" },
+                { tag: "in a flow", tone: "accent", holder: "flow" },
+                { tag: "boxed", tone: "accent", holder: "boxed" }
             ];
         }
 
         function test_heading_space_after_a_row_action(data) {
-            const page = createTemporaryObject(actionThenSection, root, { tone: data.tone, boxed: data.boxed });
+            const page = createTemporaryObject(actionThenSection, root, { tone: data.tone, holder: data.holder });
             verify(page !== null);
             tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
             verify(waitForRendering(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
-            if (data.boxed) verify(gap !== Theme.stack.heading, "the reading tells an action's box from its ink: " + gap);
+            if (data.holder === "boxed") verify(gap !== Theme.stack.heading, "the reading tells an action's box from its ink: " + gap);
             else compare(gap, Theme.stack.heading, "the heading sits " + gap + " px under the action, not " + Theme.stack.heading);
         }
 

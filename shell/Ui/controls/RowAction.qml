@@ -27,9 +27,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // holds the thicker hover underline, so a hover moves nothing.
 // `inkAbove()` is where its text's ink, or the danger mark, starts below
 // that box's top, and `inkBelow()` how far above the box's bottom the
-// lowest of the resting underline, the text's ink and the mark ends, so a
-// heading under the action stands `stack.heading` under what it draws at
-// rest; the hover underline's extra row reaches into that space.
+// resting underline ends, or the mark where it ends lower, so a heading
+// under the action stands `stack.heading` under what it draws at rest. A
+// descender passes the underline by at most a faint antialiased row, which
+// the eye reads as the underline, and the hover underline's extra row
+// reaches into that space.
 T.Button {
     id: root
 
@@ -53,8 +55,8 @@ T.Button {
     }
 
     function inkBelow() {
-        const text = Math.max(underline.y + Theme.rowAction.underline, label.y + label.height - label.inkBelow());
-        const lowest = mark.visible ? Math.max(mark.y + mark.height - Theme.inkBelow(mark), text) : text;
+        const foot = underline.y + Theme.rowAction.underline;
+        const lowest = mark.visible ? Math.max(mark.y + mark.height - Theme.inkBelow(mark), foot) : foot;
         return height - contentItem.y - lowest;
     }
 

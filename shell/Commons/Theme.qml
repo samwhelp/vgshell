@@ -183,21 +183,23 @@ Singleton {
     // `Section` measures the space above its heading from what the eye
     // sees. An item that declares `inkBelow()`, such as a `Label`, a
     // `Switch` or a `FormRow`, answers for itself; a Column ends where the
-    // last child it lays out does, above its bottom padding, a Row where
-    // its lowest shown child does, below its edge for a child that
-    // overhangs it, such as a setup step's primary Button, and a Loader
+    // last child it lays out does, above its bottom padding, a Row or a
+    // Flow where its lowest shown child does, below its edge for a child
+    // that overhangs it, such as a setup step's primary Button, and a Loader
     // where its item does; any other item draws to its edge. A Column lays
     // out its shown, sized children in order
     // (https://doc.qt.io/qt-6/qml-qtquick-column.html). No Column child's
     // `y` is read, since a positioner sets it on a later polish than the
     // page's height is read for a resize; a Row places its children along
     // x alone, so a Row child's `y` is its own
-    // (https://doc.qt.io/qt-6/qml-qtquick-row.html).
+    // (https://doc.qt.io/qt-6/qml-qtquick-row.html), and a Flow sets a
+    // child's `y` only where it wraps a line, which its width decides, not
+    // the page's height (https://doc.qt.io/qt-6/qml-qtquick-flow.html).
     function inkBelow(item) {
         if (item === null || item === undefined) return 0;
         if (typeof item.inkBelow === "function") return item.inkBelow();
         if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + inkBelow(item.item) : 0;
-        if (item instanceof Row) {
+        if (item instanceof Row || item instanceof Flow) {
             const shown = item.children.filter(child => child.visible && child.width > 0 && child.height > 0);
             return shown.length === 0 ? 0 : item.height - Math.max(...shown.map(child => child.y + child.height - inkBelow(child)));
         }
@@ -227,16 +229,17 @@ Singleton {
     // what the eye sees of two groups. An item that declares `inkAbove()`,
     // such as a `Label` or a `FormRow`, answers for itself; a Column starts
     // where the first child it lays out does, below its top padding, a Row
-    // where its highest shown child does, and a Loader where its item
-    // does; any other item draws from its edge. A Row places its children
-    // along x alone, so a child's `y` is its own
-    // (https://doc.qt.io/qt-6/qml-qtquick-row.html).
+    // or a Flow where its highest shown child does, and a Loader where its
+    // item does; any other item draws from its edge. A Row places its
+    // children along x alone, so a child's `y` is its own
+    // (https://doc.qt.io/qt-6/qml-qtquick-row.html), and a Flow's first
+    // line stands at its top.
     function inkAbove(item) {
         if (item === null || item === undefined) return 0;
         if (typeof item.inkAbove === "function") return item.inkAbove();
         if (item instanceof Loader) return item.item instanceof Item ? inkAbove(item.item) : 0;
         const shown = item.children.filter(child => child.visible && child.width > 0 && child.height > 0);
-        if (item instanceof Row) return shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + inkAbove(child)));
+        if (item instanceof Row || item instanceof Flow) return shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + inkAbove(child)));
         if (!(item instanceof Column)) return 0;
         return shown.length === 0 ? 0 : item.topPadding + inkAbove(shown[0]);
     }
