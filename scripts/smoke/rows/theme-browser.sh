@@ -13,7 +13,9 @@
 # on one plate of one height, and a failed apply shows its line under the
 # pane; neither moves the rail. A copy of the theme view whose plate takes
 # the height of the line it shows is the filter's control, and one whose
-# caption grows with the failures the failure's. The old keys, SUPER+T
+# caption grows with the failures the failure's. A typed wallpaper filter
+# leaves the divider and Show all on their rest rows; a copy of the
+# wallpaper view whose source line centres on its Row is that control. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -88,6 +90,14 @@ def plate(j):
 found = [plate(i) for i, r in enumerate(rows) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 found = [j for j in found if j != -1]
 print("%.2f %.2f" % (rows[found[0]]["box"][1], rows[found[0]]["box"][3]) if len(found) == 1 else "plates=%d" % len(found))' "$1"
+}
+# text_top TEXT: the top of the one drawn text TEXT on the output, to a
+# hundredth of a pixel; no line and a failure while not exactly one shows.
+text_top() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json, sys
+tops = [r["box"][1] for r in json.load(sys.stdin) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+print("%.2f" % tops[0]) if len(tops) == 1 else sys.exit("texts=%d" % len(tops))' "$1"
 }
 rest_has() { rest_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 # search_field: whether the shown view draws a search field, `absent`
@@ -1107,12 +1117,16 @@ expect "the wallpaper view draws no search field" absent search_field
 # Escape clears before it closes.
 wall_rail="$(rail_top)" || fail "the wallpaper rail's top before the filter is unreadable"
 wall_plate="$(text_plate "Type a wallpaper or image file name to search")" || fail "the wallpaper hint's plate is unreadable"
+wall_show_all="$(text_top "Show all")" || fail "the resting Show all's top is unreadable"
+wall_divider="$(text_top "|")" || fail "the resting divider's top is unreadable"
 type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
 # The divider before Show all belongs to the source line and stays.
 expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["All monitors", "Show all", "This monitor", "b.", "|"]' rest_texts
 expect "the typed wallpaper filter rests on the hint's plate, at its top and height" "$wall_plate" text_plate b.
+expect "a typed wallpaper filter leaves Show all on its rest row" "$wall_show_all" text_top "Show all"
+expect "a typed wallpaper filter leaves the divider on its rest row" "$wall_divider" text_top "|"
 expect "a typed wallpaper filter leaves the rail where it was" held rail_held "$wall_rail"
 type_keys -k space || fail "sending Space to the wallpaper filter failed"
 expect_poll "Space in the wallpaper filter stays text" '"b. "' wall_value filterText
@@ -1132,6 +1146,21 @@ expect_poll "Escape clears the wallpaper filter" '""' wall_value filterText
 expect "Escape with a wallpaper filter keeps the browser open" 1 layer_count vgs:overlay
 type_keys -k Escape || fail "sending Escape after clearing the wallpaper filter failed"
 expect_poll "Escape with no wallpaper filter closes the browser" 0 layer_count vgs:overlay
+# Control: a wallpaper view whose source line centres on its Row, which
+# the taller typed filter grows, so typing moves Show all.
+plugin_control WallpaperView.qml "row-centred source line" 'y: BrowserLogic.inkCentredTop(searchPlate.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())' 'anchors.verticalCenter: parent.verticalCenter'
+press_wallpapers || fail "typing SUPER+SHIFT+W for the row-centred source line control failed"
+expect_poll "SUPER+SHIFT+W opens the row-centred source line control browser" 1 layer_count vgs:overlay
+expect_poll "the row-centred source line control view read its lists" true wall_value loaded
+centred_show_all="$(text_top "Show all")" || fail "the row-centred source line control's resting Show all is unreadable"
+type_keys "b." || fail "typing the row-centred source line control's filter failed"
+expect_poll "the row-centred source line control's filter reads b." '"b."' wall_value filterText
+expect "control: a source line centred on its Row leaves Show all's rest row when a filter is typed" True bash -c '[[ $1 != "$2" && -n $1 ]] && echo True' _ "$(text_top "Show all")" "$centred_show_all"
+type_keys -M ctrl -k u -m ctrl || fail "clearing the row-centred source line control's filter failed"
+expect "the row-centred source line control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the row-centred source line control browser closes" 0 layer_count vgs:overlay
+plugin_restore WallpaperView.qml "row-centred source line"
+
 plugin_control WallpaperView.qml "search field" "$search_field_line" "$search_field_copy"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the wallpaper search field control failed"
 expect_poll "SUPER+SHIFT+W opens the wallpaper search field control browser" 1 layer_count vgs:overlay

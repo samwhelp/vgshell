@@ -465,17 +465,18 @@ FocusScope {
                     radius: Theme.surface.radius
                     color: Theme.carousel.failurePlate
 
+                    // Each item of the line centres its own ink on the plate,
+                    // never on the Row, whose height follows the taller typed
+                    // filter: typing moves neither the divider nor Show all. A
+                    // Row sets its children's x alone, so each sets its own y.
                     Row {
                         id: searchLine
-                        // The line whose ink the plate centres.
-                        readonly property Label lead: root.filterText === "" ? searchText : typed
                         x: searchInset.inset
-                        y: BrowserLogic.inkCentredTop(searchPlate.height, lead.y + lead.capTop(), lead.y + lead.lastBaseline())
                         spacing: Theme.stack.inline
 
                         Label {
                             id: typed
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
                             visible: root.filterText !== ""
                             role: "h3"
                             width: Math.min(implicitWidth, caption.width - 2 * searchInset.inset - searchDivider.width - sourceLine.width - 2 * searchLine.spacing)
@@ -485,7 +486,7 @@ FocusScope {
                         }
                         Label {
                             id: searchText
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
                             visible: root.filterText === ""
                             role: "itemHint"
                             text: "Type a wallpaper or image file name to search"
@@ -495,7 +496,7 @@ FocusScope {
                         // between the typed filter and Show all too.
                         Label {
                             id: searchDivider
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
                             role: "itemHint"
                             text: "|"
                             color: Theme.carousel.searchHint
@@ -508,7 +509,7 @@ FocusScope {
                         // keyboard-path: Alt+S flips the source as a click does
                         MouseArea {
                             id: sourceLine
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: BrowserLogic.inkCentredTop(searchPlate.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())
                             width: sourceRow.implicitWidth
                             height: sourceRow.implicitHeight
                             hoverEnabled: true
