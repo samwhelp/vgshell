@@ -1178,7 +1178,7 @@ esac
         """Run a clone TUI with a presentation double: each confirmation
         takes the next of ANSWERS, yes once they run out."""
         library, answered = self.root / "clone-lib.sh", self.root / "answers"
-        library.write_text('vgs_tui_header() { :; }\nvgs_tui_text() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_clear() { :; }\nvgs_tui_text() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
                            'vgs_tui_error() { :; }\nvgs_tui_split() { shift 2; "$@"; }\n'
                            'vgs_tui_cancelled() { printf "%s\\n" "$*"; }\n'
                            'vgs_tui_confirm() { local answers; mapfile -t answers <"$ANSWERS"; '
@@ -1213,6 +1213,13 @@ esac
         end = next(i for i, line in enumerate(plain) if "Start recording?" in line)
         shown = [line for line in plain[start:end] if line]
         return len(shown) >= 3 and all(re.match(r"   \S", line) for line in shown)
+
+    @staticmethod
+    def cleared_after_consent(stdout):
+        """Whether the screen clears after the second consent question and
+        before the download step."""
+        clear = stdout.find("\x1b[H\x1b[2J")
+        return stdout.find("permission?") < clear < stdout.find("Downloading the model")
 
     def clone_tui_pty(self, source, gum_exit="1", closed=False):
         """Run the setup TUI on a pseudo-terminal; when CLOSED, followed by
@@ -1409,6 +1416,13 @@ esac
         self.assertTrue(any(line.startswith("jarvis-setup: step=probe") for line in logged))
         self.assertTrue(any(line.startswith("jarvis-setup: clone=ready") for line in logged))
         self.assertTrue(self.recording_text_at_edge(result.stdout), result.stdout)
+        # The download starts on a cleared screen after both consents, so
+        # the logo cannot be left part way off the window's top.
+        self.assertTrue(self.cleared_after_consent(result.stdout), result.stdout)
+        uncleared = source.replace("\nvgs_tui_clear\n", "\n:\n")
+        self.assertNotEqual(uncleared, source)
+        self.assertFalse(self.cleared_after_consent(self.clone_tui_real(uncleared).stdout),
+                         "must-fail control: the download started under the consent text")
         hand_printed = source.replace("vgs_tui_text '\"The quick", "printf '%s\\n' '\"The quick")
         self.assertNotEqual(hand_printed, source)
         self.assertFalse(self.recording_text_at_edge(self.clone_tui_real(hand_printed).stdout),
