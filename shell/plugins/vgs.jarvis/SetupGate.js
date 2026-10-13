@@ -651,7 +651,11 @@ function localVoiceStep(value, provider, voice) {
 // KIND: "failed" for a check that ended in error, "unreadable" for an
 // answer that is no status, "timeout" for a check past its deadline.
 // ENTRY is the reader's manifest status entry, whose setup action the hint
-// names: its one action, or its named setup action.
+// names: its one action, or its named setup action. A timeout is no step
+// to do: the daemon judges setup without the check (CAUTION), so the row
+// is not open under a Ready summary, it offers no setup, since its hint's
+// action is the one that mends it, and it draws no keyed cause, which the
+// reader logs (LocalRuntime.qml).
 var CHECK_FAILURES = {
     failed: { text: "Setup check failed", reason: "Jarvis could not check this setup." },
     unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check." }
@@ -659,7 +663,7 @@ var CHECK_FAILURES = {
 function checkFailure(kind, entry) {
     if (kind === "timeout") {
         var problem = startCause("setup=probe-timeout");
-        return { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] };
+        return { tone: "info", text: problem.title, hint: problem.action, action: false };
     }
     if (!Object.prototype.hasOwnProperty.call(CHECK_FAILURES, kind)) throw new Error("jarvis-setup: check-failure=" + kind + " unexpected");
     var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;

@@ -102,6 +102,8 @@ Item {
         repeat: false
         onTriggered: {
             root.timedOut = true;
+            // The keyed cause stays in the log: the row draws its words.
+            console.warn("jarvis: " + root.setupCause + " check=" + root.statusKey);
             // Quickshell.Io Process owns this probe child. Setting running
             // false ends the child before the Setup page can wait forever.
             probe.running = false;

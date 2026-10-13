@@ -24,6 +24,7 @@ set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
 expected_errors+=('WARN qml: jarvis: hello=timeout')
+expected_errors+=('WARN qml: jarvis: setup=probe-timeout check=[A-Za-z]+$')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: fixture=warning')
 expected_errors+=('.*jarvis-account-missing-helper.*')
 # The readers log a failed check's safe cause; the page shows plain words.
@@ -325,8 +326,10 @@ widget = json.loads(sys.argv[2])
 row = status.get("localRuntime", {})
 setup = status.get("setup", {})
 voice = status.get("setupVoice", {})
-ok = row.get("tone") == "warning" and row.get("text") == "Jarvis setup check timed out"
-ok = ok and "jarvis: setup=probe-timeout" in row.get("lines", [])
+# The row is no open step under the ready summary: it offers no setup and
+# draws no keyed cause, which the log keeps.
+ok = row.get("tone") == "info" and row.get("text") == "Jarvis setup check timed out"
+ok = ok and row.get("action") is False and "lines" not in row
 # The daemon never reads the probe timeout: the bar and the Setup status
 # state the readiness of the daemon's own causes, the summary draws no
 # keyed line, a ready bar shows it as a caution, and no step claims it.
@@ -597,6 +600,7 @@ PY
 printf 'hang\n' >"$sandbox/jarvis-world/local-mode"
 expect "the hanging setup-probe fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the hanging setup-probe fixture reads its setup cause" probe-timeout jarvis_probe_timeout_words
+expect_log "the log keeps the setup probe's keyed cause" 1 'WARN qml: jarvis: setup=probe-timeout check=localRuntime$'
 expect "the hanging setup-probe fixture disables" ok ipc shell setPluginEnabled vgs.jarvis false
 rm -f -- "$home/.local/state/vgshell/jarvis/local-ready.json"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"

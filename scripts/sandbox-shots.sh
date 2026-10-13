@@ -2938,13 +2938,16 @@ if (phase === "before") {
   if (cause === "setup=probe-timeout") {
     const manifest = JSON.parse(fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/manifest.json"), "utf8"));
     // The row as Service.qml shapes LocalRuntime's reading: the sandbox
-    // keeps the manifest's default voice, Local, and beside the done Voice
-    // step the row offers its own setup.
+    // keeps the manifest's default voice, Local.
     rows.push(["localRuntime", gate.localVoiceStep(gate.checkFailure("timeout", manifest.status.localRuntime), "local", voiceStep)]);
   }
 } else {
   rows.push(["detail", null], ["daemon", gate.startStatus(cause, false)]);
   addSetup({ kind: "problem", cause }, null);
+  // The held provider drops the service's own republish of the Local voice
+  // row, so the scene shapes it beside the planted Voice step, from
+  // setup-local's reading in the sandbox, which has no local voice.
+  rows.push(["localRuntime", gate.localVoiceStep({ tone: "warning", text: "Not set up", action: true }, "local", voiceStep)]);
 }
 for (const [key, value] of rows) console.log(key + "\t" + JSON.stringify(value));
 JS

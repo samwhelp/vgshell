@@ -155,6 +155,13 @@ const ONCE = [
 // each voice: `voice` is [label, the daemon's answer the Voice step reads],
 // `local` is [label, setup-local's reading, or the kind of a failed check
 // (SetupGate.checkFailure)].
+// The start causes of the jarvis-causes scenes whose Voice step reads Not
+// checked: [label, the daemon's cause].
+const FAILED_STARTS = [
+    ["hello timeout", "jarvis: hello=timeout"],
+    ["node too old", "jarvis: node=20.19.5 need=22"],
+    ["daemon exit", "jarvis: daemon=exit code=1 status=0"],
+    ["wire defect", "jarvis: protocol=identity"]];
 const LOCAL_VOICE_TASK = {
     voice: [
         ["To do: not set up", { kind: "answered", causes: ["speech=local-not-set-up"] }],
@@ -1054,9 +1061,17 @@ function verifyReadiness(gate) {
         ["needs verification", { tone: "warning", text: "Setup needs verification", action: true }, 1],
         ["setting up", { tone: "info", text: "Setting up", action: false }, 0],
         ["check failed", gate.checkFailure("failed", manifest.status.localRuntime), 0],
-        ["check timed out, with its cause line", gate.checkFailure("timeout", manifest.status.localRuntime), 1]]) {
+        ["check timed out", gate.checkFailure("timeout", manifest.status.localRuntime), 0]]) {
         const got = plain(gate.localVoiceStep(value, "local", voiceTodo));
         assert.equal((got.lines ?? []).length, lines, "beside a Voice step to do, " + label + ": its line count");
+    }
+    // After a failed start the Voice step reads Not checked and offers no
+    // action, so the Local voice row names no setup there and offers its own.
+    for (const [label, cause] of FAILED_STARTS) {
+        const voice = plain(gate.voiceCheck(gate.readiness({ kind: "problem", cause }).setupVoice, null));
+        const got = plain(gate.localVoiceStep(LOCAL_ABSENT, "local", voice));
+        assert.equal(voice.action, undefined, label + ": the Voice step offers no action");
+        assert.deepEqual([got.lines, got.action], [undefined, true], label + ": the Local voice row names no Voice step setup");
     }
     // Every value the service publishes is one the manifest judge accepts
     // for its entry, so a refused write cannot stop the service's start.
@@ -1454,6 +1469,14 @@ const CONTROLS = [
     ["Local voice does not say where its setup is", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[]", "not set up: its line count"],
     ["Local voice says where its setup is while it runs", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[VOICE_STEP_SETS_UP]", "setting up: its line count"],
     ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "one row offers Set up local voice"],
+    ["a timed-out check is an open step", 'return { tone: "info", text: problem.title, hint: problem.action, action: false };',
+        'return { tone: "warning", text: problem.title, hint: problem.action, action: false };', "timeout: the row is no open step"],
+    ["a timed-out check offers setup", 'return { tone: "info", text: problem.title, hint: problem.action, action: false };',
+        'return { tone: "info", text: problem.title, hint: problem.action, action: true };', "the row offers its setup only while setup mends it"],
+    ["a timed-out check draws its keyed cause", 'return { tone: "info", text: problem.title, hint: problem.action, action: false };',
+        'return { tone: "info", text: problem.title, hint: problem.lines[0], action: false };', "timeout: the row draws no keyed cause"],
+    ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
+        "the Local voice row names no Voice step setup"],
     ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
@@ -2009,7 +2032,9 @@ function verifyOneLocalVoiceTask(gate, step) {
 // LocalRuntime.qml: each published value fits its entry, and a failed or
 // unreadable one names the action that sets it up again, read from the
 // manifest by its own path: [status key, the path of its setup action's
-// label, the reader's shape].
+// label, the reader's shape]. A timed-out one is no open step, offers no
+// setup and draws no keyed cause, so the Ready summary a probe timeout
+// keeps stands over no open step.
 function verifyCheckFailures(gate) {
     const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
     const voiceDone = gate.voiceCheck(gate.DONE, null);
@@ -2025,7 +2050,10 @@ function verifyCheckFailures(gate) {
             assert.equal(typeof value.hint, "string", key + " " + kind + ": the row says why");
             if (kind !== "timeout") assert.equal(value.hint.includes(label), true, key + " " + kind + ": the hint names " + label);
             const row = judge.statusRows(manifest, { [key]: value }, []).find(entry => entry.key === key);
-            assert.equal(row.action.offered, true, key + " " + kind + ": the row offers its setup");
+            assert.equal(row.action.offered, kind !== "timeout", key + " " + kind + ": the row offers its setup only while setup mends it");
+            if (kind !== "timeout") continue;
+            assert.equal(settings.stepOpen(row), false, key + " timeout: the row is no open step");
+            assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], key + " timeout: the row draws no keyed cause");
         }
     }
     assert.throws(() => gate.checkFailure("lost", manifest.status.localRuntime), /^Error: jarvis-setup: check-failure=lost unexpected/);
