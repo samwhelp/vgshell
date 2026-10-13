@@ -53,6 +53,7 @@ Item {
         }
     }
     SignalSpy { id: clicks; target: action; signalName: "clicked" }
+    FontMetrics { id: body; font: action.contentItem.children[1].font }
 
     TestCase {
         name: "rowaction"
@@ -84,7 +85,11 @@ Item {
             compare(underline(action).width, label(action).width);
             compare(underline(action).height, Theme.rowAction.underline);
             verify(underline(action).height > 0, "the underline shows at rest");
-            compare(underline(action).y, label(action).y + label(action).baselineOffset + Theme.rowAction.underlineGap);
+            // The "p" of "up" reaches under the baseline: the underline
+            // starts a clear row under the font's descent.
+            verify(underline(action).y >= label(action).y + label(action).baselineOffset + body.descent + 1,
+                   "the underline starts " + (underline(action).y - label(action).y - label(action).baselineOffset) + " px under the baseline, the descent is " + body.descent);
+            verify(underline(action).y >= label(action).y + label(action).baselineOffset + Theme.rowAction.underlineGap);
             compare(colour(underline(action).color), colour(Theme.rowAction.tone.accent.foreground));
             compare(action.Accessible.name, action.text);
         }
@@ -107,6 +112,7 @@ Item {
         function test_a_low_underline_keeps_the_capitals_centred() {
             compare(UnitTheme.override({ rowAction: { underlineGap: 12 } }), "ok");
             tryVerify(() => label(action).y >= 4, 1000, "the text moves down to balance the underline: y=" + label(action).y);
+            compare(underline(action).y, label(action).y + label(action).baselineOffset + 12, "the token sets the underline lower");
             fuzzyCompare(label(action).y + label(action).capCentre, action.height / 2, 0.01);
             verify(underline(action).y + Theme.rowAction.underlineHover <= action.height, "the hover underline stays inside the box");
         }

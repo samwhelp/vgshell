@@ -30,6 +30,9 @@ import qs.Commons
 // the baseline in capitals and the descent in mixed case. The twin is
 // built at the first such reading, so only a label whose ink a layout
 // reads, such as the last of a group, lays its text out twice.
+// `underlineOffset` is how far under a baseline an underline starts: one
+// clear pixel row under the font's descent, the depth its descenders
+// keep to, so no glyph meets the line.
 // `lastBaseline()` is the last line's baseline from the label top: lines
 // of one label share one line box, so it is the first one
 // `baselineOffset` places, moved down by every line box but the last.
@@ -42,6 +45,7 @@ Text {
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
     readonly property real halfLeading: Math.max(0, (lineBox - fontHeight) / 2)
     readonly property real capCentre: metrics.ascent - metrics.capitalHeight / 2
+    readonly property real underlineOffset: Math.ceil(metrics.descent) + 1
     readonly property real opticalWidth: Math.max(0, implicitWidth - (text === "" ? 0 : font.letterSpacing))
 
     function typographyOf(name) {

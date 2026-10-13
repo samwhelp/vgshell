@@ -26,6 +26,12 @@ import qs.Ui
 // further than one space less a pixel, so it touches no neighbouring word.
 // `focusPreview` draws that ring for an owner that keeps the keyboard and
 // names this link as its current one, as a tooltip's item does.
+// Every occurrence is drawn in the accent over its own underline, the
+// label's `underlineOffset` under each line's baseline, since Qt Quick
+// draws a link's or `<u>`'s underline at the font's underline position,
+// which a descender meets (Qt 6.11 qquickstyledtext.cpp,
+// parseAnchorAttributes; qquicktextnodeengine.cpp, addTextDecorations).
+// The pointer reaches the words on those underlined runs.
 T.Control {
     id: root
 
@@ -45,7 +51,7 @@ T.Control {
     readonly property bool cited: link !== "" && plain.indexOf(link) !== -1
     readonly property string words: cited ? link : reference.page !== "" ? reference.words : ""
     readonly property bool linked: words !== "" && plain.indexOf(words) !== -1
-    readonly property bool hoveredLink: linked && pointer.containsMouse && label.linkAt(pointer.mouseX, pointer.mouseY) !== ""
+    readonly property bool hoveredLink: linked && pointer.containsMouse && onWords(pointer.mouseX, pointer.mouseY)
     // The first occurrence widened to the spaces around it, as the
     // [start, end) indices of `text`.
     readonly property var run: linked ? wordRun(plain.indexOf(words), plain.indexOf(words) + words.length) : [0, 0]
@@ -56,6 +62,14 @@ T.Control {
     // reaches the twin before `run` follows it, so the box waits for a run
     // that lies inside the text; the twin has no position past its end.
     readonly property rect linkBox: linked && twin.length === plain.length && run[1] <= plain.length ? wordsBox(twin.contentWidth, twin.contentHeight, twin.lineCount, label.lineBox) : Qt.rect(0, 0, width, height)
+    // Each occurrence's span on each line it is laid out on, as
+    // { line, left, right }, under the same wait for the twin.
+    readonly property var underlined: linked && twin.length === plain.length ? wordSpans(twin.contentWidth, twin.contentHeight, twin.lineCount) : []
+    // The label's distance from one line's baseline to the next.
+    readonly property real linePitch: label.contentHeight / Math.max(1, label.lineCount)
+    // The font's own line thickness, as Qt draws an underline, kept to
+    // whole pixels.
+    readonly property real underlineThickness: Math.max(1, Math.round(underline.lineWidth))
     // How far the ring's outer edge lies beside the run: the standard
     // offset and width, cut to one space less a pixel.
     readonly property real ringReach: Math.min(Theme.focusRing.offset + Theme.focusRing.width, spaceGlyph.advanceWidth - 1)
@@ -67,13 +81,12 @@ T.Control {
         return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
-    function markup(plain, cited) {
+    function markup(plain, cited, colour) {
         const escaped = htmlEscaped(plain);
         const needle = htmlEscaped(cited);
         if (needle === "") return escaped;
         const parts = escaped.split(needle);
-        const anchor = "<a href=\"file\"><u>" + needle + "</u></a>";
-        return parts.join(anchor);
+        return parts.join("<font color=\"" + colour + "\">" + needle + "</font>");
     }
 
     function wordRun(start, end) {
@@ -91,18 +104,44 @@ T.Control {
     function wordsBox(twinWidth, twinHeight, twinLines, lineBox) {
         const start = run[0];
         const end = run[1];
-        const spacing = twinLines > 0 ? twinHeight / twinLines : 1;
-        const lineOf = r => Math.floor((r.y + r.height / 2) / spacing);
+        const lineAt = r => lineOf(r, twinHeight, twinLines);
         const from = twin.positionToRectangle(start);
         let to = twin.positionToRectangle(end);
         let right = to.x;
-        if (lineOf(to) !== lineOf(from)) {
+        if (lineAt(to) !== lineAt(from)) {
             to = twin.positionToRectangle(end - 1);
             right = to.x + lastGlyph.advanceWidth;
         }
-        if (lineOf(to) !== lineOf(from))
-            return Qt.rect(0, lineOf(from) * lineBox, width, (lineOf(to) - lineOf(from) + 1) * lineBox);
-        return Qt.rect(from.x, lineOf(from) * lineBox, right - from.x, lineBox);
+        if (lineAt(to) !== lineAt(from))
+            return Qt.rect(0, lineAt(from) * lineBox, width, (lineAt(to) - lineAt(from) + 1) * lineBox);
+        return Qt.rect(from.x, lineAt(from) * lineBox, right - from.x, lineBox);
+    }
+
+    function lineOf(r, twinHeight, twinLines) {
+        return Math.floor((r.y + r.height / 2) / (twinLines > 0 ? twinHeight / twinLines : 1));
+    }
+
+    function wordSpans(twinWidth, twinHeight, twinLines) {
+        const spans = [];
+        for (let at = plain.indexOf(words); at !== -1; at = plain.indexOf(words, at + words.length)) {
+            let span = null;
+            for (let i = at; i < at + words.length; i++) {
+                const glyph = twin.positionToRectangle(i);
+                const line = lineOf(glyph, twinHeight, twinLines);
+                const right = glyph.x + underline.advanceWidth(plain.charAt(i));
+                if (span !== null && span.line === line) {
+                    span.right = right;
+                } else {
+                    span = { line: line, left: glyph.x, right: right };
+                    spans.push(span);
+                }
+            }
+        }
+        return spans;
+    }
+
+    function onWords(x, y) {
+        return underlined.some(span => x >= span.left && x < span.right && y >= span.line * linePitch && y < (span.line + 1) * linePitch);
     }
 
     onClicked: {
@@ -112,19 +151,14 @@ T.Control {
 
     function inkAbove() { return label.y + label.inkAbove(); }
 
-    // Qt Quick draws an underline from its line's baseline plus the font's
-    // underline position, rounded, as tall as the font's line thickness
-    // (Qt 6.11 qquicktextnodeengine.cpp, addTextDecorations and
-    // processCurrentLine, from QRawFont::underlinePosition and lineThickness,
-    // which read the same font engine values as FontMetrics). Every
-    // occurrence is underlined, so the underline reaches the last line when
-    // the last occurrence ends past that line's start.
+    // Every occurrence is underlined, so the underline reaches the last
+    // line when the last occurrence ends past that line's start.
     function inkBelow() {
         const lastStart = twin.length === plain.length ? twin.positionAt(0, twin.contentHeight - 1) : -1;
         const glyphs = label.inkBelow(lastStart < 0 ? undefined : plain.slice(lastStart));
-        const underlined = linked && lastStart >= 0 && plain.lastIndexOf(words) + words.length > lastStart;
-        const underlineBottom = Math.round(label.lastBaseline() + underline.underlinePosition) + underline.lineWidth;
-        return height - label.y - label.height + (underlined ? Math.min(glyphs, label.height - underlineBottom) : glyphs);
+        const lastUnderlined = linked && lastStart >= 0 && plain.lastIndexOf(words) + words.length > lastStart;
+        const underlineBottom = label.lastBaseline() + label.underlineOffset + underlineThickness;
+        return height - label.y - label.height + (lastUnderlined ? Math.min(glyphs, label.height - underlineBottom) : glyphs);
     }
 
     implicitWidth: label.implicitWidth
@@ -142,9 +176,20 @@ T.Control {
         id: label
         role: root.role
         width: root.width
-        text: root.markup(root.plain, root.words)
+        text: root.markup(root.plain, root.words, Theme.color.accent)
         textFormat: Text.StyledText
-        linkColor: Theme.color.accent
+    }
+
+    Repeater {
+        model: root.underlined
+        Rectangle {
+            required property var modelData
+            x: modelData.left
+            y: label.baselineOffset + modelData.line * root.linePitch + label.underlineOffset
+            width: modelData.right - modelData.left
+            height: root.underlineThickness
+            color: Theme.color.accent
+        }
     }
 
     TextEdit {
@@ -197,7 +242,7 @@ T.Control {
         anchors.fill: label
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton
-        onPressed: mouse => { mouse.accepted = label.linkAt(mouse.x, mouse.y) !== ""; }
+        onPressed: mouse => { mouse.accepted = root.onWords(mouse.x, mouse.y); }
         onClicked: root.clicked()
         PointerCursor {
             enabled: root.hoveredLink

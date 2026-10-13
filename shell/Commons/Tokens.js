@@ -1045,7 +1045,8 @@ var TOKENS = {
 
     // The action of a key/value row (RowAction): its text drawn as a link
     // over an underline `underline` thick at rest and `underlineHover` on
-    // hover, `underlineGap` under the text's baseline. Each tone holds the
+    // hover, at least `underlineGap` under the text's baseline and one clear
+    // row under its descenders (Label.underlineOffset). Each tone holds the
     // text and underline colour at rest, on hover and pressed. Actions side
     // by side in one row (RowActions) stand `gap` apart, one step of the
     // space scale above `stack.inline`, so each reads as its own link. A

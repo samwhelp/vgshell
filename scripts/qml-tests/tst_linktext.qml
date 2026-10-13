@@ -5,7 +5,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 480
+    height: 520
 
     function labelOf(item) { return item.children[0]; }
 
@@ -73,6 +73,7 @@ Item {
     TextMetrics { id: wordsStop; font: labelOf(inline).font; text: "hyprland.lua." }
     TextMetrics { id: wordsSpace; font: labelOf(inline).font; text: "hyprland.lua " }
     SignalSpy { id: activated; target: linked; signalName: "activated" }
+    SignalSpy { id: inlineActivated; target: inline; signalName: "activated" }
     // A page reference inside prose, one at the text's start with no tab,
     // and one that names no page.
     LinkText {
@@ -102,6 +103,15 @@ Item {
         link: "Key site"
         text: "Choose it in [Models](page:acme.models/Settings)."
     }
+    // A link whose "y" reaches under the baseline, as Remove key's does.
+    LinkText {
+        id: descending
+        y: 480
+        width: 360
+        text: "Remove key"
+        link: "Remove key"
+    }
+    FontMetrics { id: font; font: labelOf(inline).font }
     SignalSpy { id: elsewherePages; target: elsewhere; signalName: "pageActivated" }
     SignalSpy { id: pagedPages; target: paged; signalName: "pageActivated" }
     SignalSpy { id: pagedActivated; target: paged; signalName: "activated" }
@@ -113,17 +123,18 @@ Item {
 
         function init() {
             activated.clear();
+            inlineActivated.clear();
             linked.forceActiveFocus();
         }
 
         function test_link_occurrences_are_marked_after_escaping() {
             const html = labelOf(linked).text;
-            compare((html.match(/<a href=/g) || []).length, 2);
+            compare((html.match(/<font color=/g) || []).length, 2);
             verify(html.indexOf("hyprland.lua") !== -1);
             const escapedHtml = labelOf(escaped).text;
             verify(escapedHtml.indexOf("&lt;") !== -1);
             verify(escapedHtml.indexOf("&amp;") !== -1);
-            compare((escapedHtml.match(/<a href=/g) || []).length, 2);
+            compare((escapedHtml.match(/<font color=/g) || []).length, 2);
         }
 
         function test_empty_link_takes_no_tab_focus() {
@@ -163,8 +174,9 @@ Item {
             compare(paged.plain, "Add a key on the Models page first.");
             compare(paged.Accessible.name, "Add a key on the Models page first.");
             const html = labelOf(paged).text;
-            compare((html.match(/<a href=/g) || []).length, 1);
-            verify(html.indexOf("<u>Models page</u>") !== -1, "the reference's words are the link");
+            compare((html.match(/<font color=/g) || []).length, 1);
+            verify(html.indexOf(">Models page</font>") !== -1, "the reference's words are the link");
+            compare(paged.underlined.length, 1, "the words draw one underline");
             compare(html.indexOf("page:"), -1, "the target is not drawn");
             compare(paged.activeFocusOnTab, true);
         }
@@ -268,11 +280,51 @@ Item {
             verify(changing.linkBox.width > 0 && changing.linkBox.x === 0, "the box is the link's at the text's start");
         }
 
+        function underlines(item) {
+            return descendants(item).filter(child => child.modelData !== undefined);
+        }
+
+        // Each case: the item, the baseline of the line its link is on, and
+        // the text on that line under the link. Every run of its underline
+        // starts a clear pixel row under the font's descent, which the
+        // words' lowest ink stays above.
+        function test_the_underline_keeps_a_row_under_the_descenders() {
+            const cases = [
+                [descending, labelOf(descending).baselineOffset, "Remove key"],
+                [wrapped, labelOf(wrapped).baselineOffset + labelOf(wrapped).lineBox, "hyprland.lua"]
+            ];
+            for (const [item, baseline, inked] of cases) {
+                const runs = underlines(item);
+                compare(runs.length, 1, item.text + " draws one underline");
+                const top = runs[0].y;
+                const ink = font.tightBoundingRect(inked);
+                verify(top >= baseline + font.descent + 1, item.text + ": the underline starts " + (top - baseline) + " px under the baseline, the descent is " + font.descent);
+                verify(top - (baseline + ink.y + ink.height) >= 1, item.text + ": the words' ink ends " + (top - baseline - ink.y - ink.height) + " px over the underline");
+                compare(runs[0].height, Math.max(1, Math.round(font.lineWidth)));
+            }
+        }
+
+        // The underline runs under each occurrence alone, from its first
+        // glyph to its last one's end.
+        function test_the_underline_runs_under_the_words() {
+            const runs = underlines(inline);
+            compare(runs.length, 1);
+            verify(Math.abs(runs[0].x - prefix.advanceWidth) <= 1, "the underline starts at the words: " + runs[0].x + ", not " + prefix.advanceWidth);
+            verify(Math.abs(runs[0].width - words.advanceWidth) <= 1, "the underline is the words' width: " + runs[0].width + ", not " + words.advanceWidth);
+            compare(underlines(linked).length, 2, "each occurrence is underlined");
+            compare(underlines(plain).length, 0);
+            compare(underlines(missing).length, 0);
+        }
+
         function test_pointer_activates_only_the_link() {
             mouseClick(linked, 4, linked.height / 2);
             compare(activated.count, 1);
             mouseClick(linked, linked.width - 4, linked.height / 2);
             compare(activated.count, 1);
+            mouseClick(inline, before.advanceWidth / 2, inline.height / 2);
+            compare(inlineActivated.count, 0, "the words before the link do not activate it");
+            mouseClick(inline, prefix.advanceWidth + words.advanceWidth / 2, inline.height / 2);
+            compare(inlineActivated.count, 1, "the link's words activate it");
         }
     }
 }

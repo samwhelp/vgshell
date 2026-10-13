@@ -10,11 +10,13 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // control's own edge and a row puts it on its value column. `tone` names a
 // group of `Theme.rowAction.tone`, `accent` or `danger`; an unknown name is
 // logged and drawn as `accent`. The text carries an underline at rest, so
-// it reads as an action and not a title, `rowAction.underlineGap` under
-// its baseline; on hover the text takes the tone's hover colour and the
-// underline grows from `rowAction.underline` to `rowAction.underlineHover`,
-// and pressed it takes the tone's pressed colour. A disabled action fades
-// once on the whole control. The focus ring draws outside the text, since
+// it reads as an action and not a title, at least `rowAction.underlineGap`
+// and the label's `underlineOffset` under its baseline, so one clear row
+// stands under its descenders; on hover the text takes the tone's hover
+// colour and the underline grows from `rowAction.underline` to
+// `rowAction.underlineHover`, and pressed it takes the tone's pressed
+// colour. A disabled action fades once on the whole control. The focus
+// ring draws outside the text, since
 // a ring on its edge would run through the glyphs. The template supplies
 // press, hover, focus and Space activation; Return and Enter activate it
 // as they do a Button. Given less width than its text, the text elides.
@@ -28,10 +30,7 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `inkAbove()` is where its text's ink, or the danger mark, starts below
 // that box's top, and `inkBelow()` how far above the box's bottom the
 // resting underline ends, or the mark where it ends lower, so a heading
-// under the action stands `stack.heading` under what it draws at rest. A
-// descender passes the underline by at most a faint antialiased row, which
-// the eye reads as the underline, and the hover underline's extra row
-// reaches into that space.
+// under the action stands `stack.heading` under what it draws at rest.
 T.Button {
     id: root
 
@@ -71,9 +70,11 @@ T.Button {
     Keys.onEnterPressed: KeyNavLogic.activate(root)
 
     contentItem: Item {
+        // How far under the baseline the underline starts.
+        readonly property real drop: Math.max(Theme.rowAction.underlineGap, label.underlineOffset)
         // Half the box: from the capital centre up to the label's top, or
         // down to the hover underline's foot, whichever is further.
-        readonly property real half: Math.max(label.capCentre, label.baselineOffset + Theme.rowAction.underlineGap + Theme.rowAction.underlineHover - label.capCentre)
+        readonly property real half: Math.max(label.capCentre, label.baselineOffset + drop + Theme.rowAction.underlineHover - label.capCentre)
         implicitWidth: label.x + label.implicitWidth
         implicitHeight: 2 * half
 
@@ -98,7 +99,7 @@ T.Button {
         Rectangle {
             id: underline
             x: label.x
-            y: label.y + label.baselineOffset + Theme.rowAction.underlineGap
+            y: label.y + label.baselineOffset + parent.drop
             width: label.width
             height: root.hovered ? Theme.rowAction.underlineHover : Theme.rowAction.underline
             color: root.foreground
