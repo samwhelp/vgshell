@@ -435,7 +435,7 @@ mutations=(
   "a hidden anchor leaves its popup open|../Commons/AnchorTracker.qml|function onVisibleChanged() { if (!target.visible) tracker.hide(); }|function onVisibleChanged() {}|tst_overlays.qml"
   "a moved anchor leaves its popup behind|../Commons/AnchorTracker.qml|popup.anchor.updateAnchor();|return;|tst_overlays.qml"
   "a tooltip window is constructed while idle|overlay/Tooltip.qml|active: root.shown|active: true|tst_overlays.qml"
-  "the tooltip opens under an open overlay|overlay/Tooltip.qml|if (root.resting && OverlayState.open === 0) root.shown = true|if (root.resting) root.shown = true|tst_overlays.qml"
+  "the tooltip opens under an open overlay|overlay/Tooltip.qml|onTriggered: if (root.resting && OverlayState.open === 0) {|onTriggered: if (root.resting) {|tst_overlays.qml"
   "the tooltip opens again over what a press opened|overlay/Tooltip.qml|onPressedChanged: if (pressed) root.pressedHere = true|onPressedChanged: {}|tst_overlays.qml"
   "the menu stays open after a trigger|overlay/Menu.qml|function onTriggered() { if (!modelData.keepsOpen) root.close(); }|function onTriggered() {}|tst_overlays.qml"
   "a submenu entry closes the menu|overlay/Menu.qml|function onTriggered() { if (!modelData.keepsOpen) root.close(); }|function onTriggered() { root.close(); }|tst_overlays.qml"
