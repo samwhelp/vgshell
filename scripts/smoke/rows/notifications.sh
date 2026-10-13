@@ -5328,6 +5328,9 @@ median=statistics.median(samples)
 print(f'{median}\t{min(pressure[i] for i,value in enumerate(samples) if value==median)}')
 PYMEDIAN
 }
+panel_latency_retry() {
+    (( $1 == 3 )) && [[ $(latency_pressure_verdict "$2" "$3" 139) == over ]]
+}
 for panel_latency_state in loaded refused; do
     for panel_latency_trial in 1 2 3 4 5; do
         expect "the $panel_latency_state hundred-row timing is prepared" ok ipc smoke runnerCall setup "$panel_latency_state"
@@ -5358,7 +5361,7 @@ for panel_latency_state in loaded refused; do
             panel_latency_open_median "$panel_latency_state" "$panel_latency_trial" >"$panel_latency_dir/$panel_latency_state-open-median.tsv"
             IFS=$'\t' read -r panel_latency_median_ms panel_latency_median_pressure <"$panel_latency_dir/$panel_latency_state-open-median.tsv"
             # Two extra trials only when the three-trial median is a measured miss.
-            [[ $(latency_pressure_verdict "$panel_latency_median_ms" "$panel_latency_median_pressure" 139) == over ]] || break
+            panel_latency_retry "$panel_latency_trial" "$panel_latency_median_ms" "$panel_latency_median_pressure" || break
         fi
     done
 done
@@ -5371,7 +5374,8 @@ for state in ('loaded','refused'):
     pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['hostCpuSomePct'] for i in trials]
     open_pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['openCpuSomePct'] for i in trials]
     for action,bound in [('open',140),('history',50),('inbox',50)]:
-        readings=[json.loads((root/f'{state}-{action}-{i}.json').read_text()) for i in trials]
+        action_trials=trials if action=='open' else range(1,4)
+        readings=[json.loads((root/f'{state}-{action}-{i}.json').read_text()) for i in action_trials]
         samples=[v['first'] for v in readings];median=statistics.median(samples)
         print(f'notification-panel-latency: store={state} operation={action} samples={samples} median_ms={median} bound_ms={bound}')
         if min(samples)<0:failed.append(f'{state}-{action}-unread')
@@ -5445,10 +5449,25 @@ PYRETRY
      for count in 3 5; do
          panel_latency_open_median control "$count" >"$panel_latency_dir/median.tsv"
          IFS=$'\t' read -r ms pressure <"$panel_latency_dir/median.tsv"
-         latency_pressure_verdict "$ms" "$pressure" 139
+         if panel_latency_retry "$count" "$ms" "$pressure"; then echo retry; else echo stop; fi
      done)
 }
-expect "control: extra trials replace the deciding slow median" $'over\nwithin' panel_latency_retry_control
+expect "control: extra trials replace the deciding slow median" $'retry\nstop' panel_latency_retry_control
+panel_latency_retry_cases() {
+    local trial ms pressure expected actual
+    while read -r trial ms pressure expected; do
+        if panel_latency_retry "$trial" "$ms" "$pressure"; then actual=retry; else actual=stop; fi
+        [[ $actual == "$expected" ]] || return 1
+    done <<'CASES'
+3 157 0.0 retry
+3 116 0.0 stop
+3 157 20.0 stop
+3 157 unmeasured stop
+5 157 0.0 stop
+CASES
+    echo ok
+}
+expect "control: retries require a measured initial miss and stop at five" ok panel_latency_retry_cases
 mkdir -p -- "$source_repo/tmp/smoke-artifacts"
 cp -R -- "$panel_latency_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-latency-$(date +%s%N)"
 # The timing workload stays unchanged. These separate view checks compare
