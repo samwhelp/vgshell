@@ -1709,7 +1709,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (modelReads.has(id)) continue;
             const read = { stop: new AbortController(), answer: { kind: "none" } };
             modelReads.set(id, read);
-            account.readOffers(id, read.stop.signal).then(answer => {
+            account.readOffers(id, read.stop.signal, audit).then(answer => {
                 if (closed || modelReads.get(id) !== read) return;
                 read.answer = answer;
                 try { configured(judge(lastSettings)); } catch (error) { fatal(error); }

@@ -2994,6 +2994,7 @@ async function localCatalog(kit, root, only) {
     const { Accounts } = require(path.join(kit.folder, "backend/Accounts.js"));
     const env = require("./fixtures/jarvis/accounts-world.js").environment();
     const directory = fs.mkdtempSync(path.join(root, "catalog-"));
+    const audit = require(path.join(kit.folder, "backend/Audit.js")).create({ state: directory });
     const judge = new Accounts(directory, env);
     const local = judge.localRows().find(item => item.row.id === "lm-studio");
     const id = judge.account(local.row, local.label, { kind: "found" }, local.source).id;
@@ -3024,7 +3025,7 @@ async function localCatalog(kit, root, only) {
             Fixture.reset({ ready: true });
             reply = row;
             const observed = [], faults = [];
-            const engine = kit.Engine.create({ accounts: () => judge, captionLimit: 1,
+            const engine = kit.Engine.create({ accounts: () => judge, captionLimit: 1, audit,
                 configured: value => observed.push(value), fatal: error => faults.push(error) });
             const count = requests.length;
             try {
@@ -3037,7 +3038,8 @@ async function localCatalog(kit, root, only) {
                 }
                 assert.equal(answer.cause, "brain=models-reading");
                 assert.equal(engine.modelsHeld(), false, "a read in flight is not restarted by Talk");
-                await until(() => requests.length === count + 1, "one account catalog read");
+                await until(() => requests.length === count + 1 || faults.length !== 0, "one account catalog read");
+                assert.equal(faults.length, 0, "catalog reads use the existing audit writer");
                 if (row.hold) {
                     if (row.name === "close") engine.close();
                     else assert.equal(engine.configure({ brain: id, model: "", effort: "" }).cause, "brain=model-required");
@@ -3073,7 +3075,7 @@ async function localCatalog(kit, root, only) {
                 assert.equal(faults.length, 0);
             } finally { engine.close(); }
         }
-    } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+    } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); audit.close(); }
 }
 
 async function groupSelection(root, server) {
@@ -3108,6 +3110,7 @@ async function groupSelection(root, server) {
     for (const [name, needle, replacement, scenario] of [
         ["local-model-configured", 'judge.choose(id, model ?? settings.model ?? "", models(id))', 'judge.choose(id, "", models(id))', "chosen"],
         ["local-catalog-read", "            readModels(plan.modelLists);", "", "chosen"],
+        ["local-catalog-audit", "account.readOffers(id, read.stop.signal, audit)", "account.readOffers(id, read.stop.signal)", "chosen"],
         ["local-catalog-cancel", "        for (const read of modelReads.values()) read.stop.abort();", "", "reconfigure"],
         ["local-catalog-stale", "                if (closed || modelReads.get(id) !== read) return;\n                read.answer = answer;", "                read.answer = answer;", "reconfigure"],
         ["local-catalog-held", 'modelsHeld: () => plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable"),',
@@ -3127,6 +3130,16 @@ async function groupSelection(root, server) {
     fs.writeFileSync(daemonFile, daemonSource.replace(retryNeedle, ""));
     await assert.rejects(() => localCatalog(catalogRetry, root, "recovered"), assert.AssertionError, "local-catalog-talk must turn red");
     console.log("control=local-catalog-talk detected");
+    controls++;
+    const borrowedAudit = Fixture.copy(root, [PLAN]);
+    const accountFile = path.join(borrowedAudit.folder, "backend/Accounts.js");
+    const accountSource = fs.readFileSync(accountFile, "utf8");
+    const auditClose = "if (ownsAudit) audit.close();";
+    assert.equal(accountSource.split(auditClose).length - 1, 1);
+    fs.writeFileSync(accountFile, accountSource.replace(auditClose, "audit.close();"));
+    await assert.rejects(() => localCatalog(borrowedAudit, root, "recovered"), assert.AssertionError,
+        "local-catalog-borrowed-audit must turn red");
+    console.log("control=local-catalog-borrowed-audit detected");
     controls++;
     brainPlan(Fixture.copy(root, [PLAN]).Engine);
     assert.throws(() => brainPlan(Fixture.copy(root, [PLAN, ["unlistedChoice(settings, account.provider);",

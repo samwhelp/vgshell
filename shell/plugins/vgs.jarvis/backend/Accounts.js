@@ -461,9 +461,9 @@ class Accounts {
      * It needs no discovery: of the vendor status commands only
      * this sign-in's runs.
      */
-    async readOffers(id, stop) {
+    async readOffers(id, stop, writer) {
         const resolved = this.resolve(id);
-        if (resolved?.source.kind === "local") return this.localOffers(resolved, stop);
+        if (resolved?.source.kind === "local") return this.localOffers(resolved, stop, writer);
         const listed = resolved === null || resolved.source.kind !== "keyring" ? undefined : provider(resolved.provider).models;
         if (listed !== undefined) return { kind: "read", offers: Harness.offers(listed).slice(0, MAX_ROWS) };
         if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: "none" };
@@ -483,7 +483,7 @@ class Accounts {
     // docs.ollama.com/api/openai-compatibility, llama.cpp tools/server README,
     // lmstudio.ai/docs/developer/openai-compat/models (read 2026-10-13).
     // No inference, credential or provider error text is read.
-    async localOffers(resolved, stop) {
+    async localOffers(resolved, stop, writer) {
         const target = Net.endpoint(Providers.select(resolved.provider).base + "/models");
         const account = { ...resolved, state: { operation: ++this.operation } };
         const controller = new AbortController();
@@ -507,7 +507,7 @@ class Accounts {
                     offers = Harness.offers(value.data.map(model => ({ value: model.id, label: model.id.slice(0, 60), efforts: [], effort: "", own: false }))).slice(0, MAX_ROWS);
                     return true;
                 } finally { response?.close(); door.close(); }
-            }, "none");
+            }, "none", writer);
             return { kind: "read", offers };
         } catch (error) {
             const key = /^jarvis(?:-accounts)?: (?:models|verify|net)=([a-z0-9-]+)$/.exec(error?.message ?? "");
@@ -848,7 +848,7 @@ class Accounts {
      * inside the pre-transfer audit record, and answers whether the reply
      * proved inference. Every outcome is recorded before this returns.
      */
-    async released(account, providerId, origin, content, transfer, confirmed = "physical") {
+    async released(account, providerId, origin, content, transfer, confirmed = "physical", writer) {
         const selected = Policy.recipients({ conversation: "verify:" + account.id + ":" + account.state.operation,
             profile: "standard", cloudVision: "never",
             brain: { kind: "network", provider: providerId, account: account.id, origin },
@@ -858,7 +858,10 @@ class Accounts {
         const grants = [{ recipients: selected, labels: ["command"] }];
         if (confirmed !== "physical") grants.length = 0;
         const decision = Policy.release(item, selected, grants);
-        const audit = Audit.create({ state: this.directory });
+        // The daemon lends its writer to catalog reads. Stand-alone account
+        // helpers acquire their own writer and close only that ownership.
+        const ownsAudit = writer === undefined;
+        const audit = ownsAudit ? Audit.create({ state: this.directory }) : writer;
         const event = { kind: "release", gen: this.epoch, op: account.state.operation, tool: "release",
             args: { labels: item.labels, recipients: selected }, effect: "external",
             decision: decision.kind, confirmed, outcome: "pending" };
@@ -881,7 +884,7 @@ class Accounts {
             const saved = audit.record({ ...event, outcome: "failed" });
             if (saved.kind !== "recorded") fail("verify=audit-unavailable");
             throw error;
-        } finally { audit.close(); }
+        } finally { if (ownsAudit) audit.close(); }
     }
 
     /**

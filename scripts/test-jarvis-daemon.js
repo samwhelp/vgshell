@@ -1701,8 +1701,8 @@ exit "$failures"
     await control("voice-prompts", "                            voice.prompts(prompts);\n", "", voiceNotify);
     await control("voice-views", "                            voice.observe(views);\n", "", voiceNotify);
     // Without local setup the installed daemon stays unconfigured. A
-    // disposable copy adds the scripted row, a model for the local brain row
-    // and the indicator, then drives phases through the real engine.
+    // disposable copy adds the scripted row and indicator, then drives
+    // phases with the selected model the local fixture catalog offers.
     const Engine = require("./fixtures/jarvis/engine.js");
     // said is the scripted utterance; recipients, when given, the speech row's.
     // extra plants one defect each in the copy's engine.
@@ -1716,8 +1716,6 @@ exit "$failures"
                 "const SPEECH = Object.freeze({ scripted: (fixture => (fixture.reset({ utterances: " + utterances
                 + (recipients === null ? "" : ", recipients: " + JSON.stringify(recipients)) + " }), fixture.row))(require("
                 + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ")) });"],
-            ["AccountProviders.js", 'probe: { driver: "ollama", path: "/api/generate", model: "" }',
-                'probe: { driver: "ollama", path: "/api/generate", model: "fixture-model" }'],
             ["backend/jarvisd.js", 'runner.dispatch({ type: "snapshot", locked: context.locked,',
                 'runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
             const target = path.join(directory, relative);
@@ -1792,7 +1790,7 @@ exit "$failures"
             // A control's unconsumed reply never answers this conversation.
             loopback.replies.splice(0);
             loopback.replies.push(Engine.calls({ id: "call_screen", name: "vision_screen", arguments: {} }), Engine.text("I see it."));
-            send({ ...hello, settings: { ...hello.settings, brain: brainId, ...settings } });
+            send({ ...hello, settings: { ...hello.settings, brain: brainId, model: "fixture-model", ...settings } });
             await wait(m => m?.state.gate.kind === "up", "the engine raises the gate");
             await wait(() => fs.existsSync(registered), "vision registers after the Hyprland probe");
             send(intent("talk-down"));
@@ -1873,12 +1871,10 @@ exit "$failures"
         try {
             const before = loopback.requests.length;
             loopback.replies.push(Engine.text("It is noon. ", "The sun is high."));
-            send({ ...hello, settings: { ...hello.settings, brain: brainId } });
-            // Only hello's snapshot moves the gate off starting: a gate that
-            // has left starting down stays down for this conversation.
-            await wait(m => m.state.gate.kind === "up" || m.state.gate.reason !== "starting", "the snapshot settles the gate");
+            send({ ...hello, settings: { ...hello.settings, brain: brainId, model: "fixture-model" } });
+            await wait(m => m.state.gate.kind === "up", "the selected catalog model admits the engine");
             assert.equal(states.at(-1).state.gate.kind, "up", "the engine raises the gate: " + JSON.stringify(states.at(-1).state.gate));
-            assert.deepEqual(statuses.map(message => message.causes), [[]], "a ready engine publishes no setup cause");
+            assert.deepEqual(statuses.at(-1).causes, [], "a ready engine publishes no setup cause");
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
             const collectionOp = states.at(-1).state.turn.op;
@@ -1931,6 +1927,12 @@ exit "$failures"
         "a dropped caption producer must turn the caption assertion red");
         controls++;
         console.log("test-jarvis-daemon: control=chained-caption killed");
+        await assert.rejects(() => engineConversation(engineCopy("engine-catalog-audit", "What time is it?", null,
+            [["account.readOffers(id, read.stop.signal, audit)", "account.readOffers(id, read.stop.signal)"]])),
+        error => error instanceof assert.AssertionError && error.message.includes("audit=writer-owned"),
+        "a second catalog audit writer must fail the real daemon's admission");
+        controls++;
+        console.log("test-jarvis-daemon: control=catalog-shared-audit killed");
         const unconfigured = engineCopy("engine-stock-speech");
         const stockEngine = path.join(path.dirname(unconfigured), "ChainedEngine.js");
         fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"), stockEngine);
