@@ -5,7 +5,7 @@ import qs.Ui
 // A solid plate keeps an empty browser readable over every wallpaper,
 // as the search and failure lines do. The inset keeps the recovery
 // button and its focus ring inside the plate, including rounded corners.
-Rectangle {
+BrowserPlate {
     id: root
 
     property alias iconName: state.iconName
@@ -14,8 +14,6 @@ Rectangle {
     signal activated()
 
     implicitHeight: state.implicitHeight + 2 * Theme.surface.padding
-    radius: Theme.surface.radius
-    color: Theme.carousel.failurePlate
 
     EmptyState {
         id: state

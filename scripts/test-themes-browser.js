@@ -397,9 +397,23 @@ function verifyWallpapers(logic) {
     assert.equal(logic.wallpaperSelection(list, "/u/u.jpg"), 0, "an image the source lacks selects the first");
     assert.equal(logic.wallpaperSelection([], ""), 0);
 
-    assert.equal(logic.wallpaperEmpty(false, "theme", "nord"), "Loading wallpapers");
-    assert.equal(logic.wallpaperEmpty(true, "theme", "tokyo-night"), "Tokyo Night has no wallpapers");
-    assert.equal(logic.wallpaperEmpty(true, "all", "nord"), "No wallpaper is installed");
+    assert.equal(logic.wallpaperEmpty(false, "theme", "nord", [], "").text, "Loading wallpapers");
+    assert.equal(logic.wallpaperEmpty(true, "theme", "tokyo-night", [], "").text, "Tokyo Night has no wallpapers");
+    assert.equal(logic.wallpaperEmpty(true, "all", "nord", [], "").text, "No wallpaper is installed");
+    for (const [label, loaded, source, cards, filter, kind, action] of [
+        ["loading under a filter", false, "theme", [], "x", "loading", false],
+        ["a theme without wallpapers", true, "theme", [], "x", "no-wallpapers", false],
+        ["no installed wallpapers", true, "all", [], "x", "no-wallpapers", false],
+        ["a hidden download offer has no image", true, "theme", downloading, "x", "no-wallpapers", false],
+        ["a filter hides existing wallpapers", true, "theme", list, "x", "no-matches", true],
+        ["a filter hides every source", true, "all", list, "x", "no-matches", true]
+    ]) {
+        const state = logic.wallpaperEmpty(loaded, source, "nord", cards, filter);
+        assert.equal(state.kind, kind, label);
+        assert.equal(state.actionText !== "", action, label + " recovery action");
+        if (kind === "no-wallpapers")
+            assert.equal(state.text, logic.wallpaperEmpty(loaded, source, "nord", cards, "").text, label + " keeps its no-wallpapers line");
+    }
 }
 
 const files = load(path.join(dir, "Files.js"));
@@ -421,6 +435,7 @@ verify(load(logicCopy), files);
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a filter does not cause absent wallpapers", 'filter !== "" && cards.some(function (card) { return card.kind === "image"; })', 'filter !== ""'],
     ["a plate centres its line by the line box", "return Math.round((box - capTop - baseline) / 2);", "return Math.round((box - 24) / 2);"],
     ["insecure URLs are not connection failures", '/(?:redirect-)?not-https/', '/^$/'],
     ["a missing terminal is not a missing theme", '/launcher-missing/', '/^$/'],

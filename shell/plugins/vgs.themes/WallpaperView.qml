@@ -69,6 +69,7 @@ FocusScope {
     readonly property var cards: images === null ? [] : BrowserLogic.wallpaperCards(images, entries, applied, source)
     property string filterText: ""
     readonly property var shownCards: BrowserLogic.wallpaperShown(cards, filterText)
+    readonly property var emptyState: BrowserLogic.wallpaperEmpty(loaded, source, applied, cards, filterText)
     // The image the chosen scope shows now, "" for none.
     readonly property string shownPath: BrowserLogic.shownPath(scope, wallpaper.path, wallpaper.screenPaths, screenName)
     // The selected card's key once a key or a click moved it.
@@ -435,9 +436,9 @@ FocusScope {
                 y: Math.round((parent.height - height) / 2)
                 width: Math.min(parent.width, Theme.carousel.expandedWidth)
                 visible: root.shownCards.length === 0 && root.imagesReason === ""
-                iconName: !root.loaded ? "" : root.filterText === "" ? "image-off" : "search-x"
-                text: !root.loaded ? BrowserLogic.wallpaperEmpty(root.loaded, root.source, root.applied) : root.filterText === "" ? BrowserLogic.wallpaperEmpty(root.loaded, root.source, root.applied) : "No wallpaper matches " + JSON.stringify(root.filterText)
-                actionText: root.loaded && root.filterText !== "" ? "Clear filter" : ""
+                iconName: root.emptyState.iconName
+                text: root.emptyState.text
+                actionText: root.emptyState.actionText
                 onActivated: {
                     root.editFilter({ kind: "clear" });
                     Qt.callLater(root.takeKeys);
@@ -461,7 +462,7 @@ FocusScope {
                 // start on a whole pixel, every width whole: a text at a
                 // fractional x spreads each stem over two columns, so Show
                 // all would read fainter for some typed filters than others.
-                Rectangle {
+                BrowserPlate {
                     id: searchPlate
                     x: Math.round((parent.width - width) / 2)
                     width: searchLine.width + 2 * searchInset.inset

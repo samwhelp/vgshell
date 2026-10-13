@@ -40,6 +40,10 @@
 # plate in vgs and flexoki-light. A shared component copy drawing only the
 # scrim fails that same contrast check in both themes. The recovery button
 # remains eligible for Tab and its focus ring stays within the plate.
+# A source without images keeps its no-wallpapers state under a filter;
+# a logic copy that always treats a filter as the cause is its control.
+# Every search and empty plate starts on whole screen rows and columns;
+# a plate copy shifted by a fractional row is that check's control.
 # inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
@@ -1495,7 +1499,7 @@ const { load } = require(process.argv[2] + "/bin/lib/qml-library.js");
 const logic = load(process.argv[2] + "/shell/Commons/ThemeLogic.js");
 const ink = JSON.parse(process.argv[3]), fill = JSON.parse(process.argv[4]);
 const rows = JSON.parse(process.argv[5]), text = process.argv[6];
-const plates = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "BrowserEmptyState" && r.visible);
+const plates = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "QQuickRectangle" && r.visible && r.parent !== -1 && rows[r.parent].type === "BrowserEmptyState");
 const labels = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "Label" && r.visible && r.text === text && r.box[2] > 0 && r.box[3] > 0);
 if (plates.length !== 1 || labels.length !== 1) { console.log("unreadable-geometry"); process.exit(); }
 let at = labels[0][1];
@@ -1522,7 +1526,7 @@ empty_plate_recovery() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json,sys
 rows, tab = json.load(sys.stdin), sys.argv[1]
-plates = [i for i,r in enumerate(rows) if r["type"] == "BrowserEmptyState" and r["visible"]]
+plates = [i for i,r in enumerate(rows) if r["type"] == "QQuickRectangle" and r["visible"] and r["parent"] != -1 and rows[r["parent"]]["type"] == "BrowserEmptyState"]
 def under(i, plate):
     while i != -1:
         if i == plate: return True
@@ -1537,10 +1541,18 @@ buttons = [i for i,r in enumerate(rows) if r["type"] == "Button" and r["visible"
 rings = [r for i,r in enumerate(rows) if r["type"] == "FocusRing" and any(under(i,b) for b in buttons)]
 print("contained" if tab == "true" and len(buttons) == 1 and rings and all(inside(r["box"],rows[p]["box"]) for r in rings) else "recovery-outside-or-not-tab")' "$tab"
 }
+browser_plate_origins() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
+import json,sys
+rows = json.load(sys.stdin)
+plates = [r for r in rows if r["type"] == "QQuickRectangle" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and r["parent"] != -1 and rows[r["parent"]]["type"] in ("BrowserPlate", "BrowserEmptyState")]
+search = any(rows[r["parent"]]["type"] == "BrowserPlate" for r in plates)
+print("whole" if search and all(abs(v-round(v)) < 0.0001 for r in plates for v in r["box"][:2]) else "fractional-or-no-search-plate")'
+}
 plant_flexoki_light "$installed" || fail "the empty-state light package could not be installed"
 for empty_mode in plate scrim; do
   if [[ $empty_mode == scrim ]]; then
-    plugin_control BrowserEmptyState.qml "scrim-only empty state" 'color: Theme.carousel.failurePlate' 'color: Theme.color.scrim'
+    plugin_control BrowserPlate.qml "scrim-only empty state" 'color: Theme.carousel.failurePlate' 'color: Theme.color.scrim'
   fi
   for empty_theme in vgs flexoki-light; do
     if [[ $empty_mode != plate || $empty_theme != vgs ]]; then
@@ -1552,16 +1564,32 @@ for empty_mode in plate scrim; do
       expect_poll "the $empty_theme $empty_view empty-state $empty_mode check opens" 1 layer_count vgs:overlay
       empty_value=view_value; [[ $empty_view == wallpapers ]] && empty_value=wall_value
       expect_poll "the $empty_theme $empty_view empty-state $empty_mode check read its lists" true "$empty_value" loaded
+      geometry expect "the $empty_theme $empty_view resting plates start on whole rows and columns" whole browser_plate_origins
       if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
         expect_poll "the no-wallpaper $empty_mode state has no cards" 0 wall_count
+        empty_unfiltered="$(ipc smoke readDescendant overlay vgs.themes EmptyState text)" || fail "reading the no-wallpapers line failed"
         empty_result=readable; [[ $empty_mode == scrim ]] && empty_result=unreadable
         expect "the no-wallpaper $empty_mode state is judged on its drawn background" "$empty_result" empty_plate_contrast
       fi
+      for empty_filter in a gyp Nord; do
+        type_keys "$empty_filter" || fail "typing $empty_filter for the plate-origin check failed"
+        expect_poll "the $empty_theme $empty_view plate-origin filter reads $empty_filter" "\"$empty_filter\"" "$empty_value" filterText
+        geometry expect "the $empty_theme $empty_view $empty_filter plates start on whole rows and columns" whole browser_plate_origins
+        type_keys -M ctrl -k u -m ctrl || fail "clearing the plate-origin filter failed"
+        expect_poll "the plate-origin filter clears" '""' "$empty_value" filterText
+      done
       type_keys zzqx || fail "typing the $empty_theme $empty_view empty-state filter failed"
       expect_poll "the $empty_theme $empty_view empty-state filter is set" '"zzqx"' "$empty_value" filterText
+      geometry expect "the $empty_theme $empty_view filtered plates start on whole rows and columns" whole browser_plate_origins
+      if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
+        expect "the no-wallpapers line stays under the $empty_mode filter" "$empty_unfiltered" ipc smoke readDescendant overlay vgs.themes EmptyState text
+        expect "the no-wallpapers $empty_mode state offers no filter action" '""' ipc smoke readDescendant overlay vgs.themes EmptyState actionText
+      fi
       if [[ $empty_mode == plate ]]; then
         expect "the $empty_theme $empty_view empty-state ink reads on its solid plate" readable empty_plate_contrast
-        geometry expect "the $empty_theme $empty_view recovery Tab stop and ring stay inside the plate" contained empty_plate_recovery
+        if [[ $empty_view == themes || $empty_theme == vgs ]]; then
+          geometry expect "the $empty_theme $empty_view recovery Tab stop and ring stay inside the plate" contained empty_plate_recovery
+        fi
       else
         expect "control: the $empty_theme $empty_view scrim-only empty state fails contrast" unreadable empty_plate_contrast
       fi
@@ -1570,7 +1598,35 @@ for empty_mode in plate scrim; do
     done
   done
 done
-plugin_restore BrowserEmptyState.qml "scrim-only empty state"
+plugin_restore BrowserPlate.qml "scrim-only empty state"
+# The current text-choice control treats any typed filter as the cause,
+# even on an image-free source. It must fail the same state comparison.
+plugin_control BrowserLogic.js "current empty-state text choice" 'filter !== "" && cards.some(function (card) { return card.kind === "image"; })' 'filter !== ""'
+press_wallpapers || fail "opening the empty-state text-choice control failed"
+expect_poll "the empty-state text-choice control opens" 1 layer_count vgs:overlay
+expect_poll "the empty-state text-choice control read its lists" true wall_value loaded
+empty_unfiltered="$(ipc smoke readDescendant overlay vgs.themes EmptyState text)" || fail "reading the text-choice control line failed"
+type_keys zzqx || fail "typing the text-choice control filter failed"
+expect_poll "the text-choice control filter is set" '"zzqx"' wall_value filterText
+empty_line_held() {
+  local now
+  now="$(ipc smoke readDescendant overlay vgs.themes EmptyState text)" || return
+  [[ $now == "$empty_unfiltered" ]] && echo held || echo changed
+}
+expect "control: the current text choice changes the no-wallpapers line under a filter" changed empty_line_held
+expect "the empty-state text-choice control hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the empty-state text-choice control closes" 0 layer_count vgs:overlay
+plugin_restore BrowserLogic.js "current empty-state text choice"
+# The origin control preserves the plate and its text but shifts them a
+# quarter row, so the whole-coordinate assertion must reject it.
+plugin_control BrowserPlate.qml "fractional plate row" 'y: Math.round(origin.y) - origin.y' 'y: Math.round(origin.y) - origin.y + 0.25'
+press_wallpapers || fail "opening the fractional plate row control failed"
+expect_poll "the fractional plate row control opens" 1 layer_count vgs:overlay
+expect_poll "the fractional plate row control read its lists" true wall_value loaded
+geometry expect "control: a fractionally shifted plate fails the whole-row check" fractional-or-no-search-plate browser_plate_origins
+expect "the fractional plate row control hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the fractional plate row control closes" 0 layer_count vgs:overlay
+plugin_restore BrowserPlate.qml "fractional plate row"
 expect "vgs applies after the empty-state checks" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "the shell follows vgs after the empty-state checks" vgs ipc smoke themeName
 rm -r -- "$installed/flexoki-light"

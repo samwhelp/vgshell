@@ -441,7 +441,7 @@ FocusScope {
                 // 4.5:1 on the scrim over both a light and a dark wallpaper.
                 // The plate is as tall for either line, so typing moves
                 // nothing above it.
-                Rectangle {
+                BrowserPlate {
                     id: searchPlate
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: (root.filterText === "" ? hintLine.width : typed.width) + 2 * searchInset.inset

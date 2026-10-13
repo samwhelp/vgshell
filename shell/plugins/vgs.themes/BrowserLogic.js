@@ -516,11 +516,14 @@ function wallpaperSelection(list, key) {
     return 0;
 }
 
-// The line the wallpaper view shows with no card: while the lists load,
-// and for SOURCE with nothing to show; APPLIED is the applied package.
-function wallpaperEmpty(loaded, source, applied) {
-    if (!loaded) return "Loading wallpapers";
-    return source === "theme" ? label(applied) + " has no wallpapers" : "No wallpaper is installed";
+// The empty wallpaper view's state for SOURCE and APPLIED. A filter is
+// the cause only when the source's unfiltered CARDS contain real images;
+// hiding a download offer cannot make a missing wallpaper a filter miss.
+function wallpaperEmpty(loaded, source, applied, cards, filter) {
+    if (!loaded) return { kind: "loading", iconName: "", text: "Loading wallpapers", actionText: "" };
+    if (filter !== "" && cards.some(function (card) { return card.kind === "image"; }))
+        return { kind: "no-matches", iconName: "search-x", text: "No wallpaper matches " + JSON.stringify(filter), actionText: "Clear filter" };
+    return { kind: "no-wallpapers", iconName: "image-off", text: source === "theme" ? label(applied) + " has no wallpapers" : "No wallpaper is installed", actionText: "" };
 }
 
 // Whether an apply RESULT left its package applied, every target or not.
