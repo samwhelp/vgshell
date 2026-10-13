@@ -599,6 +599,7 @@ expect_poll "the first-time network has no saved profile" False net_known
 expect "the new-profile mock holds activation" ok net_new_profile_mode hold
 expect "the first-time password case opens" ok ipc shell summon panel vgs.network '{}'
 expect_poll "the first-time password case is mounted" shown net_shown panel
+expect_poll "the first-time network is listed without a saved profile" '[["VGS Smoke Wi-Fi", 82, false, false]]' net_rows panel
 net_reprompt "First-time password" || return 0
 expect_poll "the first-time password dialog shows" true net_dialog panel
 expect "the first-time dialog has no failure reason line" false ipc smoke readMatchingDescendant panel vgs.network Label objectName network-prompt-reason visible
