@@ -89,6 +89,22 @@ Scope {
         return "No package manager here provides these requirements. Install them by hand.";
     }
 
+    // Whether the notice's window holds the keyboard.
+    readonly property bool keyboardHeld: loader.item !== null && loader.item.keyboardHeld
+
+    // Take the keyboard back after another shell surface that took it lost
+    // it, as the bar does when a widget's press grab ends
+    // (Plugins.returnKeyboard). Hyprland v0.56.2 gives an on-demand
+    // layer the keyboard at its map and at a press on it, never because the
+    // surface that held it went: refocusLastWindow passes an on-demand
+    // layer over (InputManager.cpp). A layer that turns exclusive is
+    // focused at that commit (LayerSurface.cpp onCommit), so the window
+    // asks for that until the keyboard arrives and is on demand again
+    // after; rows/bar.sh reads the welcome focused after a drag.
+    function retakeKeyboard() {
+        if (loader.item !== null && !loader.item.keyboardHeld) loader.item.retaking = true;
+    }
+
     function consent() {
         if (Notices.showingRestart) return Notices.restartView;
         if (Notices.showingResetAsk) return Notices.resetView;
@@ -113,7 +129,13 @@ Scope {
             inset: Theme.dialog.margin
             inputItems: [card]
             WlrLayershell.namespace: "vgs:notice"
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+            WlrLayershell.keyboardFocus: win.retaking ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
+
+            // QQuickWindow.active follows the keyboard's enter and leave
+            // (Qt Quick Window reference, `active`).
+            readonly property bool keyboardHeld: card.Window.window !== null && card.Window.window.active
+            property bool retaking: false
+            onKeyboardHeldChanged: if (keyboardHeld) retaking = false
 
             // Outside `inputItems`, so the window's mask leaves it out and
             // its presses, hover and wheel go to what lies under it.

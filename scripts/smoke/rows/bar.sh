@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -1607,7 +1607,12 @@ expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
 # holds up keeps it while the tooltip is open under the pointer and after
 # it closes. The bar holds the keyboard only while a press holds a widget,
 # so the copy has its bar window take it, which is that reading's control:
-# the welcome then loses the keyboard. With the item focused as a Tab
+# the welcome then loses the keyboard. A real drag of the copy out and back
+# to its own place is that press: its grab hands the bar the keyboard
+# (Plugins.dragStart), and after the release the welcome holds it again.
+# Its control is a tree whose grab asks the welcome for nothing when it
+# goes: the keyboard stays away from the welcome. With the item focused as
+# a Tab
 # focuses it, Tab takes the link and Enter opens the same page. A
 # tooltip with no link closes when the pointer leaves its item. The
 # control's tooltip draws the link and closes on the click, and Settings
@@ -1628,6 +1633,46 @@ tiplink_click() { local x y; read -r x y < <(tiplink_at "$1" "$2") && [[ $x =~ ^
 # tiplink_bar_corner: a point on the bar's start edge, clear of both copies
 # in its right section.
 tiplink_bar_corner() { ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+2+int(sys.argv[1])), int(y+h/2))' "$1"; }
+# tiplink_drag ID: a real drag of ID's widget that starts inside the bar
+# and releases where it pressed, so the drop moves nothing.
+tiplink_drag() {
+  local x y
+  read -r x y < <(tiplink_at "$1" itemGeometry) && [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 1
+  hover "$((x + 1))" "$y" || return 1
+  "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x - 24))" "$y" "$x" "$y" >/dev/null || return 1
+  pointer_at="$x $y"
+}
+# The key capture's begin count, and `ended` once a capture begun after
+# SINCE has ended: a drag begins one with its grab and ends it at the
+# release, so a press that started no drag reads `none`.
+tiplink_captures() { ipc smoke keyCaptureState | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+tiplink_drag_ended() { ipc smoke keyCaptureState | py_reply 'import json,sys; g,c=json.load(sys.stdin); print("ended" if g > int(sys.argv[1]) and not c else "none")' "$1"; }
+# `welcome` once the welcome holds the keyboard, polled as expect_poll
+# polls, or `away` at the bound.
+tiplink_keyboard() {
+  local at
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    at="$(ipc smoke noticeFocused)" || return 1
+    [[ $at == true ]] && { echo welcome; return; }
+    sleep 0.2
+  done
+  echo away
+}
+# tiplink_press_grab LABEL WANT: after a drag of the copy and its release,
+# where the keyboard is, read at once and again with the pointer at rest.
+tiplink_press_grab() {
+  local since
+  since="$(tiplink_captures)" && [[ $since =~ ^[0-9]+$ ]] || { fail "$1the key capture count is unreadable: $since"; return 0; }
+  tiplink_drag acme.tiplink || fail "$1the drag of the copy failed"
+  expect_poll "$1the drag of the copy began its grab and ended it" ended tiplink_drag_ended "$since"
+  expect "$1after a widget's press grab ends the keyboard is: $2" "$2" tiplink_keyboard
+  rest_pointer || fail "$1resting the pointer after the drag failed"
+  expect_poll "$1the tooltip is closed after the drag" false tiplink_read acme.tiplink tooltipOpen
+  # A keyboard the welcome took before the bar gave it up left again within
+  # a frame or two, so the first reading alone can pass over that loss.
+  expect "$1with the pointer at rest the keyboard is still: $2" "$2" tiplink_keyboard
+}
 tiplink_hide_settings() { # LABEL
   expect "Settings is hidden after $1" ok ipc shell hide window vgs.settings
   expect_poll "the Settings window is gone after $1" 0 window_count Plugins
@@ -1665,6 +1710,7 @@ then
   rest_pointer || fail "moving the pointer off the link failed"
   expect_poll "the tooltip closes after the pointer leaves it" false tiplink_read acme.tiplink tooltipOpen
   expect "the closed tooltip leaves the keyboard with the welcome" true ipc smoke noticeFocused
+  tiplink_press_grab "" welcome
 
   expect "the bar window takes the keyboard" ok tiplink_call acme.tiplink holdKeyboard true
   for tiplink_step in 0 1; do
@@ -1712,6 +1758,16 @@ then
   expect "control: a widget without onTooltipPageActivated leaves Settings closed" absent tiplink_shown
   expect "control: no Settings window opened" 0 window_count Plugins
   rest_pointer || fail "resting the pointer after the control failed"
+  stop_shell
+  if copy_tree bar-grab-kept \
+    && edit_tree bar-grab-kept shell/Core/Plugins.qml '        if (Logic.hasOwn(hosts, "notice")) hosts.notice.retakeKeyboard();' ''; then
+    start_shell "$sandbox/tree-bar-grab-kept" "$sandbox/bar-grab-kept.log" || fail "the kept grab control starts"
+    expect_poll "control: the tooltip link widget is built in the bar" True record_exists acme.tiplink
+    expect_poll "control: the welcome holds the keyboard before the press" true ipc smoke noticeFocused
+    tiplink_press_grab "control: " away
+    stop_shell
+  fi
+  start_shell "$repo" "$sandbox/bar-grab-restored.log" || fail "the shell returns after the kept grab control"
 else
   fail "the tooltip link control's edit failed"
 fi
