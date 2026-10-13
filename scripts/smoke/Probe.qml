@@ -2635,6 +2635,16 @@ Scope {
             view.contentY = Math.max(0, (view.contentHeight - view.height) / 2);
             return root.json([view.contentY, view.contentHeight, view.height]);
         }
+        // QsWindow.height and implicitHeight are integer logical pixels:
+        // the actual size and the host's desired size, respectively.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+        function bluetoothOpeningHeight(id: string): string {
+            const item = root.instance("window", id);
+            if (item === null) return root.json({ state: "absent" });
+            const win = item.QsWindow.window;
+            if (win === null || !win.backingWindowVisible) return root.json({ state: "hidden" });
+            return root.json({ state: "shown", height: win.height, requestedHeight: win.implicitHeight });
+        }
         function bluetoothTimerState(): string {
             const sections = root.bluetoothObserved;
             if (sections === null) return "absent";

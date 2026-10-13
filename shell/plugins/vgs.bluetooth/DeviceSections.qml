@@ -18,8 +18,8 @@ Column {
 
     property bool powerOn: false
     property bool opened: false
-    onPowerOnChanged: root.refresh(true)
-    onOpenedChanged: root.refresh(true)
+    onPowerOnChanged: root.refreshLifecycle()
+    onOpenedChanged: root.refreshLifecycle()
     property bool manage: false
     property bool pairBusy: false
     property var attempts: ({})
@@ -45,6 +45,14 @@ Column {
 
     function deviceFor(address) { return Logic.deviceAt(Bluetooth.devices.values, address); }
     function stateOf(device) { return BluetoothDeviceState.toString(device.state); }
+
+    function refreshLifecycle() {
+        // My Devices remains immediate if a rapid reopen or power change
+        // reaches the full publication guard. The opening Nearby snapshot
+        // must exist before the floating host takes its first size request.
+        root.refresh(true);
+        root.refresh(false);
+    }
 
     function refresh(mineOnly) {
         if (!root.opened || !root.powerOn) return;

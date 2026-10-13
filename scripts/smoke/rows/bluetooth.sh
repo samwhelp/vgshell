@@ -222,11 +222,22 @@ bt_trace_after() {
   ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); s=d["samples"]; print("ready" if len(s)>1 and s[-1]["at"]-s[0]["at"] >= float(sys.argv[1])*1000 else "waiting")' "$1"
 }
 bt_middle() { ipc smoke bluetoothMiddle | py_reply 'import json,sys; y,total,height=json.load(sys.stdin); print("middle" if total>height and abs(y-(total-height)/2)<0.5 else "not-middle")'; }
+bt_opening_rule() {
+  ipc smoke bluetoothOpeningHeight "$1" | py_reply 'import json,sys
+d=json.load(sys.stdin)
+if d.get("state") != "shown" or d.get("height",0)<=0 or d.get("requestedHeight",0)<=0:
+    print("not-observed")
+else:
+    print("fits" if d["height"]>=d["requestedHeight"] else "smaller")
+'
+}
 bt_stability() {
   local id host rule copy source root_copy
   expect "32 nearby radios join the mock" nearby=32 bluez add-nearby 32
   expect "the Bluetooth expanded section opens for churn" ok ipc shell summon window vgs.system '{"pane":"vgs.bluetooth"}'
   expect_poll "the expanded section lists 32 radios" 32 bt_nearby_count window vgs.bluetooth
+  expect_poll "the expanded opening height includes its Nearby content" fits bt_opening_rule vgs.bluetooth
+  ipc smoke bluetoothOpeningHeight vgs.bluetooth
   bt_churn_run window vgs.bluetooth remove-tail 10
   expect "Nearby order and names stay stable under churn" kept bt_observation_rule order
   expect "list publication stays within its cadence" kept bt_observation_rule cadence
@@ -262,7 +273,7 @@ bt_stability() {
   expect "the original plugin releases pairing for the controls" ok ipc shell setPluginEnabled vgs.bluetooth false
   expect_poll "the exclusive pairing capability is free" null bt_agent_holders
   # A fresh plugin directory for each rule avoids QML directory-cache reuse.
-  for rule in order cadence scroll closed; do
+  for rule in order cadence scroll closed opening; do
     id="acme.bluetooth-$rule-control"
     copy="$home/.config/vgshell/plugins/$id"
     cp -R -- "$repo/shell/plugins/vgs.bluetooth" "$copy"
@@ -274,7 +285,8 @@ edits={
     "order": [("BluetoothLogic.js", "    return { mine: mine, nearby: held };", "    if (oldRows.length > 0) held.reverse();\n    return { mine: mine, nearby: held };")],
     "cadence": [("BluetoothLogic.js", "var DEVICE_REFRESH_MS = 500;", "var DEVICE_REFRESH_MS = 1;")],
     "scroll": [("DeviceSections.qml", "                view.contentY = Math.max(0, Math.min(offset, view.contentHeight - view.height));", "                void offset;")],
-    "closed": [("DeviceSections.qml", "running: root.opened && root.visible && root.powerOn", "running: root.visible && root.powerOn")]
+    "closed": [("DeviceSections.qml", "running: root.opened && root.visible && root.powerOn", "running: root.visible && root.powerOn")],
+    "opening": [("DeviceSections.qml", "        root.refresh(false);\n    }\n\n    function refresh(mineOnly)", "        root.refresh(true);\n    }\n\n    function refresh(mineOnly)")]
 }
 for name,old,new in edits[rule]:
     p=root/name; text=p.read_text(); assert text.count(old)==1, old; p.write_text(text.replace(old,new))
@@ -283,28 +295,35 @@ PY
     rescan "the $rule control plugin is scanned"
     expect_poll "the $rule control is enabled" True plugin_enabled "$id"
     expect_poll "the $rule control owns pairing" "[\"$id\"]" bt_agent_holders
+    local bt_id="$id"
+    expect_poll "the $rule control reads On before opening" on bt_view
     expect "32 radios join for $rule control" nearby=32 bluez add-nearby 32
-    if [[ $rule == scroll ]]; then
+    if [[ $rule == scroll || $rule == opening ]]; then
       host=window
-      expect "the scroll control section opens" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
+      expect "the $rule control section opens" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
     else
       host=panel
       expect "the $rule control flyout opens" ok ipc shell summon panel "$id" '{}'
     fi
     expect_poll "the $rule control lists 32 radios" 32 bt_nearby_count "$host" "$id"
-    if [[ $rule == scroll ]]; then bt_churn_run "$host" "$id" remove-tail 10; else bt_churn_run "$host" "$id" steady 2; fi
-    if [[ $rule == closed ]]; then
-      expect "the timer control close hook runs" closed ipc smoke bluetoothViewOpened "$host" "$id" false
-      expect "the timer control observer starts after close" observing ipc smoke bluetoothObserve "$host" "$id"
-      bluez churn-nearby 32 1.5 >/dev/null
-      expect "control: a timer left running after close is detected" rejected bt_closed_rule
+    if [[ $rule == opening ]]; then
+      expect_poll "control: empty first Nearby publication leaves a smaller window" smaller bt_opening_rule "$id"
+      ipc smoke bluetoothOpeningHeight "$id"
     else
-      expect "control: the production $rule defect is rejected" rejected bt_observation_rule "$rule"
+      if [[ $rule == scroll ]]; then bt_churn_run "$host" "$id" remove-tail 10; else bt_churn_run "$host" "$id" steady 2; fi
+      if [[ $rule == closed ]]; then
+        expect "the timer control close hook runs" closed ipc smoke bluetoothViewOpened "$host" "$id" false
+        expect "the timer control observer starts after close" observing ipc smoke bluetoothObserve "$host" "$id"
+        bluez churn-nearby 32 1.5 >/dev/null
+        expect "control: a timer left running after close is detected" rejected bt_closed_rule
+      else
+        expect "control: the production $rule defect is rejected" rejected bt_observation_rule "$rule"
+      fi
+      expect "the $rule control observer ends" ended ipc smoke bluetoothObserveEnd
     fi
-    expect "the $rule control observer ends" ended ipc smoke bluetoothObserveEnd
-    if [[ $rule == scroll ]]; then
-      expect "the scroll control closes" ok ipc shell hide window vgs.system
-      expect "the remaining control radios leave" removed=31 bluez remove-nearby 31
+    if [[ $rule == scroll || $rule == opening ]]; then
+      expect "the $rule control closes" ok ipc shell hide window vgs.system
+      if [[ $rule == scroll ]]; then expect "the remaining control radios leave" removed=31 bluez remove-nearby 31; else expect "the opening control radios leave" removed=32 bluez remove-nearby 32; fi
     else
       expect "the $rule control closes" ok ipc shell hide panel "$id"
       expect "the control radios leave" removed=32 bluez remove-nearby 32
