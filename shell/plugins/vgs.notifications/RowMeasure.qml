@@ -55,7 +55,16 @@ ColumnLayout {
     }
     readonly property int badgeStatus: badgeImage.status
     function topForLeadingIcon(iconHeight) {
-        return (summaryRow.visible ? summaryRow.y + titleText.y : bodyText.y) + titleText.topForLeadingIcon(iconHeight);
+        return (summaryRow.visible ? summaryRow.y + titleText.y : bodyText.y) + leadingLabel.topForLeadingIcon(iconHeight);
+    }
+    // Only font metrics are needed for the shared capital placement.
+    // This hidden label takes no space in the title/body layout.
+    Label {
+        id: leadingLabel
+        visible: false
+        font: summaryRow.visible ? titleText.font : bodyText.font
+        lineHeight: rowCard.look.text.title.lineHeight
+        lineHeightMode: Text.ProportionalHeight
     }
     readonly property real measuredHeight: (rowCard.summary.length > 0 ? Math.max(titleText.implicitHeight,
         rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
@@ -147,7 +156,7 @@ ColumnLayout {
             }
         }
 
-        Label {
+        Text {
             id: titleText
             objectName: "notificationTitleText"
             // The specification makes the summary one line of plain
@@ -157,14 +166,9 @@ ColumnLayout {
             text: rowCard.title
             color: rowCard.look.text.foreground
             font.family: rowCard.look.font.family.sans
-            // The hidden title uses the body's font for a body-only card.
-            font.pixelSize: summaryRow.visible ? rowCard.look.text.title.size : rowCard.look.text.body.size
-            font.weight: summaryRow.visible ? rowCard.look.text.title.weight : Font.Normal
-            // Keep the original Text's font and line box while using Label's
-            // shared capital placement. No typography role changes this title.
-            font.variableAxes: ({})
+            font.pixelSize: rowCard.look.text.title.size
+            font.weight: rowCard.look.text.title.weight
             font.letterSpacing: rowCard.look.text.title.letterSpacing
-            font.capitalization: Font.MixedCase
             lineHeight: rowCard.look.text.title.lineHeight
             lineHeightMode: Text.ProportionalHeight
             style: Text.Raised
