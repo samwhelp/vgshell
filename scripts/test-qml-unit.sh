@@ -1289,6 +1289,7 @@ mutations=(
   "the count line draws the text line's label|controls/BarItem.qml|text: root.countCaption;|text: root.caption;|tst_baritem.qml"
   "the count line label draws the text line's colour|controls/BarItem.qml|text: root.countCaption; color: root.countColor|text: root.countCaption; color: root.textColor|tst_baritem.qml"
   "the count line label keeps its own width|controls/BarItem.qml|width: content.captionWidth; text: root.countCaption|text: root.countCaption|tst_baritem.qml"
+  "a bar item draws its ring beside its current tooltip link's|controls/BarItem.qml|FocusRing { target: tip.currentLine === -1 ? root : null }|FocusRing { target: root }|tst_baritem.qml"
   "System Monitor draws no swap label|../plugins/vgs.sysmon/Widget.qml|countCaption: root.captions ? \"SWP\" : \"\"|countCaption: \"\"|tst_sysmon_widget.qml"
   "stacked Network Traffic draws no labels|../plugins/vgs.traffic/Widget.qml|caption: root.captions ? \"UPL\" : \"\"|caption: \"\"|tst_traffic_widget.qml"
   "one-line Network Traffic keeps its download arrow as a label|../plugins/vgs.traffic/Widget.qml|arrow: root.captions ? \"DNL\" : \"↓\"|arrow: \"↓\"|tst_traffic_widget.qml"

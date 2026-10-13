@@ -268,7 +268,9 @@ T.AbstractButton {
         radius: Theme.bar.item.radius
         color: root.active ? Theme.bar.active : root.down ? Theme.bar.item.pressed : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-        FocusRing { target: root }
+        // One ring at a time: while the tooltip's link is current the link
+        // draws it, and a FocusRing with no target draws none.
+        FocusRing { target: tip.currentLine === -1 ? root : null }
     }
 
     Tooltip {

@@ -28,7 +28,8 @@ import qs.Unit
 // press fills it with `bar.item.pressed`; a click emits `clicked`; a page
 // reference in its tooltip is a link its keys reach: Tab makes it
 // current, and Enter, Return or Space on it emits `tooltipPageActivated`
-// with the page and tab and clicks nothing.
+// with the page and tab and clicks nothing; while the link is current it
+// draws the one focus ring and the item draws none.
 Item {
     id: root
     width: 300
@@ -150,6 +151,30 @@ Item {
             keyClick(data.key);
             compare(root.clicks, 1);
             compare(pages.count, 1);
+            root.forceActiveFocus();
+        }
+
+        function test_one_focus_ring_draws_while_the_tooltip_link_is_current() {
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            const tip = linkedItem.children.find(child => child.details !== undefined);
+            const itemRing = linkedItem.background.children.find(child => child.target !== undefined && child.border !== undefined);
+            verify(itemRing !== undefined, "the item owns its ring");
+            linkedItem.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", true);
+            const descendants = node => { let out = []; for (const child of node.children) out = out.concat([child], descendants(child)); return out; };
+            const link = descendants(tip.tracker.popup.contentItem).find(child => child.objectName === "tooltipLink");
+            const linkRing = descendants(link).find(child => child.target === link && child.border !== undefined);
+            verify(linkRing !== undefined, "the link owns its ring");
+            compare(itemRing.visible, true, "the focused item draws its ring before Tab");
+            compare(linkRing.visible, false);
+            keyClick(Qt.Key_Tab);
+            compare(linkedItem.activeFocus, true, "the item keeps the keyboard");
+            compare(linkRing.visible, true, "the current link draws the ring");
+            compare(itemRing.visible, false, "the item draws none while its link is current");
+            keyClick(Qt.Key_Escape);
+            tryCompare(tip, "opened", false);
+            compare(linkedItem.activeFocus, true);
+            compare(itemRing.visible, true, "Escape gives the item its ring back");
             root.forceActiveFocus();
         }
 
