@@ -112,6 +112,18 @@ jarvis_key_mute_control() {
    echo "$failures")
 }
 jarvis_key_pending() { ipc smoke readInstance service vgs.jarvis lifetime; }
+# One pending privacy request while no daemon is ready. Service.qml's
+# helloDeadline (5000 ms) ends a daemon that holds its hello answer and its
+# retry keeps the request, so a held start reads starting or retry.
+jarvis_key_one_pending() { # [READING]
+  local reading="${1-}"
+  [[ -n $reading ]] || reading="$(jarvis_key_pending)" || return
+  python3 -c '
+import json,sys
+d=json.loads(sys.argv[1])
+print("one" if d.get("kind") in ("starting","retry") and d.get("pendingMute")=="waiting" and len(d)==2 else sys.argv[1])
+' "$reading"
+}
 # Always mode's resting orb: the one presented bubble waits for the word with
 # no words, and its orb ticks no frame and draws no level.
 jarvis_key_resting() {
@@ -249,7 +261,7 @@ jarvis_key_startup() {
   jarvis_key_talk_up
   jarvis_key_stop
   hold_barrier
-  expect "unavailable repeated Mute keeps one pending privacy request" '{"kind":"starting","pendingMute":"waiting"}' jarvis_key_pending
+  expect "unavailable repeated Mute keeps one pending privacy request" one jarvis_key_one_pending
 }
 
 # Remove only the new home registration. The manifest still offers it.
@@ -313,6 +325,9 @@ hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis "$sandbox/keyboard" us ""
 jarvis_key_startup
+for planted in '{"kind":"retry","pendingMute":["waiting","waiting"]}' '{"kind":"starting","pendingMute":"none"}'; do
+  expect "a planted pending Mute reading other than one request fails the judge" "$planted" jarvis_key_one_pending "$planted"
+done
 jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
   '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
@@ -351,7 +366,7 @@ expect_poll "pending startup Mute remains owned during retry" '{"kind":"retry","
 jarvis_key_mute
 jarvis_key_mute
 hold_barrier
-expect "repeated physical Mute during retry stays one request" '{"kind":"retry","pendingMute":"waiting"}' jarvis_key_pending
+expect "repeated physical Mute during retry stays one request" one jarvis_key_one_pending
 # The fixture's retry delay is not daemon startup time. Start the hello
 # read only after the service has started its next child.
 expect_poll "the retry starts its next daemon with Mute pending" '{"kind":"starting","pendingMute":"waiting"}' jarvis_key_pending
