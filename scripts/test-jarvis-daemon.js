@@ -1717,7 +1717,7 @@ exit "$failures"
                 + (recipients === null ? "" : ", recipients: " + JSON.stringify(recipients)) + " }), fixture.row))(require("
                 + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ")) });"],
             ["backend/jarvisd.js", 'runner.dispatch({ type: "snapshot", locked: context.locked,',
-                'runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
+                'if (runner.state.indicator.kind !== "shown") runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
             const target = path.join(directory, relative);
             const original = fs.readFileSync(target, "utf8");
             assert.equal(original.split(needle).length - 1, 1, name + " engine instrumentation");
@@ -1845,13 +1845,13 @@ exit "$failures"
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR
         }, stdio: ["pipe", "pipe", "pipe"] });
-        const states = [], captions = [], statuses = [];
+        const states = [], captions = [], statuses = [], statusStates = [];
         let tail = "", err = "";
         child.stdout.on("data", data => {
             const lines = (tail + data).split("\n");
             tail = lines.pop();
             for (const message of lines.map(line => JSON.parse(line))) {
-                if (message.type === "status") statuses.push(message);
+                if (message.type === "status") { statuses.push(message); statusStates.push(states.length); }
                 if (message.type === "state") states.push(message);
                 if (message.type === "transcript") captions.push(message);
             }
@@ -1889,12 +1889,15 @@ exit "$failures"
                     "the real local turn is active before the unchanged hello");
                 const conversation = structuredClone(states.at(-1).state.conversation);
                 const generation = states.at(-1).state.gen;
-                const stateAt = states.length, statusAt = statuses.length, catalogs = loopback.catalogs.length;
+                const statusAt = statuses.length, catalogs = loopback.catalogs.length;
                 send(snapshot);
-                await wait(() => states.length > stateAt && statuses.length > statusAt, "the unchanged hello answers");
-                assert.deepEqual(states.at(-1).state.conversation, conversation, "an unchanged hello keeps the active local conversation");
-                assert.equal(states.at(-1).state.gen, generation, "an unchanged hello keeps its generation");
-                assert.equal(states.at(-1).state.gate.kind, "up");
+                // configured publishes status before its snapshot. Read that
+                // snapshot, not an earlier playback or fixture indicator frame.
+                await wait(() => statuses.length > statusAt && states.length > statusStates[statusAt], "the unchanged hello answers");
+                const answer = states[statusStates[statusAt]].state;
+                assert.deepEqual(answer.conversation, conversation, "an unchanged hello keeps the active local conversation");
+                assert.equal(answer.gen, generation, "an unchanged hello keeps its generation");
+                assert.equal(answer.gate.kind, "up");
                 assert.equal(loopback.catalogs.length, catalogs, "an admitted unchanged selection needs no new catalog operation");
                 releaseReply();
             }
@@ -1955,7 +1958,8 @@ exit "$failures"
             [["if (identity !== modelsFor || modelsHeld()) cancelModels();",
                 "if (identity !== modelsFor || modelsHeld() || conversation !== null) cancelModels();"]]),
             "What time is it?", "What time is it?", true),
-        error => error instanceof assert.AssertionError && error.message.startsWith("an unchanged hello keeps the active local conversation"),
+        error => error instanceof assert.AssertionError && error.operator === "deepStrictEqual"
+            && error.actual?.kind === "ended" && error.expected?.kind === "active",
         "an unnecessary invalidation must fail the active conversation assertion");
         controls++;
         console.log("test-jarvis-daemon: control=identical-hello-conversation killed");
