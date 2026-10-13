@@ -141,7 +141,7 @@ net_reason_matches() {
   net_snapshot | py_reply 'import json,sys; problem=json.load(sys.stdin)["network"]["problem"]; print("same" if problem and json.loads(sys.argv[1])==problem else "different")' "$reason"
 }
 net_saved_reason() { expect "$1: the dialog draws the service failure reason" same net_reason_matches panel; }
-net_hint_suppressed() { expect "$1: the list hint is hidden under the dialog" false ipc smoke readMatchingDescendant panel vgs.network Label objectName network-problem visible; }
+net_hint_suppressed() { expect "$1: the list hint is hidden under the dialog" false ipc smoke readMatchingDescendant panel vgs.network LinkText objectName network-problem visible; }
 # net_dialog_focus HOST: [whether the dialog holds the focus, whether the
 # body holds it].
 net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin "$1" vgs.network Dialog)" "$(ipc smoke activeFocusIn "$1" vgs.network)"; }
