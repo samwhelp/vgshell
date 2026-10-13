@@ -51,7 +51,8 @@
 //   portal       every backend named by the shipped Hyprland portals.conf is
 //                a hard dependency of the system package recipes that ship it
 //   on-request   no hard dependency is the package of an on-request
-//                requirement
+//                requirement, and no requirement installed with VGS wants
+//                the package of an on-request one
 //   extra        no hard dependency the required union and portal route do not
 //                ask for; an `exact` channel also refuses extra soft dependencies
 //   agree        every recipe of the channel declares the same hard and the
@@ -141,7 +142,13 @@ const scratchDirs = [];
 process.on("exit", () => { for (const dir of scratchDirs) fs.rmSync(dir, { recursive: true, force: true }); });
 
 // The distribution indexes cannot supply these commands. Each gap must
-// still name a required command with no mapping on that channel.
+// still name a required command with no mapping on that channel. A gap is
+// "no official package", or, for nix, an official package broken at the
+// locked nixpkgs revision ({ reason, revision, failure }), or, for dnf, a
+// package only its upstream publishes ({ reason, route, source }: reason
+// DNF_UPSTREAM, route one line naming an https address, source one line
+// naming where the route is stated).
+const DNF_UPSTREAM = "no dnf repository package";
 function readGaps(requirements) {
     let gaps;
     try { gaps = JSON.parse(readText("packaging/channel-gaps.json", "gaps=unreadable")); }
@@ -150,7 +157,15 @@ function readGaps(requirements) {
     for (const [manager, commands] of Object.entries(gaps)) {
         if (!["dnf", "nix"].includes(manager) || commands === null || typeof commands !== "object" || Array.isArray(commands)) refuse("gaps=shape");
         for (const [command, evidence] of Object.entries(commands)) {
-            if (evidence !== "no official package") {
+            if (evidence !== "no official package" && manager === "dnf") {
+                const line = value => typeof value === "string" && value.trim() !== "" && !/[\r\n]/.test(value);
+                if (evidence === null || typeof evidence !== "object" || Array.isArray(evidence)
+                        || Object.keys(evidence).sort().join(",") !== "reason,route,source"
+                        || evidence.reason !== DNF_UPSTREAM
+                        || !line(evidence.route) || !/\bhttps:\/\/\S+/.test(evidence.route)
+                        || !line(evidence.source))
+                    refuse(`gap=evidence manager=${manager} command=${command}`);
+            } else if (evidence !== "no official package") {
                 if (manager !== "nix" || evidence === null || typeof evidence !== "object" || Array.isArray(evidence)
                         || Object.keys(evidence).sort().join(",") !== "failure,reason,revision"
                         || evidence.reason !== "official-package-broken"
@@ -612,6 +627,10 @@ function sharedRules(id, channel, recipe, read, requirements, gaps, portalBacken
             softWant.set(pkg, r);
         }
     }
+    for (const [pkg, r] of onRequest)
+        if (hardWant.has(pkg))
+            refuse(`on-request=${pkg} wanted-hard-by=${hardWant.get(pkg).scope} channel=${id} recipe=${recipe.name} scope=${r.scope}`,
+                "one package is either installed with VGS or installed on request: mark both requirements alike");
     if (channel.shipPortalConfig === true) {
         for (const manager of channel.managers) {
             for (const row of portalBackends[manager] || []) {
@@ -719,6 +738,7 @@ console.log(`check-packaging: ok channels=${judged.join(",")} requirements=${req
 for (const [manager, commands] of Object.entries(gaps))
     for (const [command, evidence] of Object.entries(commands)) {
         const detail = typeof evidence === "string" ? `reason=${evidence}`
+            : manager === "dnf" ? `reason=${evidence.reason} route=${evidence.route} source=${evidence.source}`
             : `reason=${evidence.reason} revision=${evidence.revision} failure=${evidence.failure}`;
         console.log(`check-packaging: gap manager=${manager} command=${command} ${detail}`);
     }

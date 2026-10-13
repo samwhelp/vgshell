@@ -239,13 +239,20 @@ const ROWS = [
         edit(t, SRC, "^\\toptdepends = voxtype-bin: .*\\n", "");
         edit(t, SRC, "^(pkgbase = vgshell\\n)", "$1\tdepends = voxtype-bin\n");
     }, 1, () => refused("on-request=voxtype-bin field=depends channel=pacman recipe=vgshell scope=vgs.voice")],
-    ["a required requirement without its on-request flag wants its package in depends", t => edit(t, "shell/plugins/vgs.voice/manifest.json",
+    ["a required requirement without its on-request flag wants its package in depends", t => {
+        for (const purpose of ["Captures speech", "Reads voice levels"])
+            edit(t, "shell/plugins/vgs.voice/manifest.json", `("optional": false,)\\n      "install": "on-request",(\\n      "purpose": "${purpose})`, "$1$2");
+    }, 1, () => refused("requirement=voxtype package=voxtype-bin want=depends channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["one of a package's two requirements without its on-request flag is refused", t => edit(t, "shell/plugins/vgs.voice/manifest.json",
         '("optional": false,)\\n      "install": "on-request",(\\n      "purpose": "Captures speech)', "$1$2"),
-        1, () => refused("requirement=voxtype package=voxtype-bin want=depends channel=pacman recipe=vgshell scope=vgs.voice")],
+        1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.voice channel=pacman recipe=vgshell scope=vgs.voice")],
     ["Arch: an on-request package dropped from optdepends is refused", t => edit(t, SRC, "^\\toptdepends = voxtype-bin: .*\\n", ""),
         1, () => refused("requirement=voxtype package=voxtype-bin want=optdepends channel=pacman recipe=vgshell scope=vgs.voice")],
     ["Nix: an on-request package in the runtime closure is refused", t => edit(t, "flake.nix", "^(      runtimePackages = pkgs: \\[\\n)", "$1        pkgs.voxtype\n"),
         1, () => refused("on-request=voxtype field=runtimePackages channel=nix recipe=flake scope=vgs.voice")],
+    ["an on-request package another plugin wants installed with VGS is refused", t => edit(t, "shell/plugins/vgs.jarvis/manifest.json",
+        '(\\{ "command": "voxtype", "packages": \\{ "aur": "voxtype-bin" \\}, "optional": )true', "$1false"),
+        1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.jarvis channel=pacman recipe=vgshell scope=vgs.voice")],
     ["a floor on an on-request command is refused", t => edit(t, "bin/vgshell", "^(preflight_floor='\\n)", "$1voxtype    1.0     ^([0-9.]+)   voxtype --version\n"),
         1, () => refused("floor=on-request command=voxtype tool=voxtype scope=vgs.voice")],
     ["Arch: a hardware option promoted to required is refused", t => {
@@ -269,6 +276,21 @@ const ROWS = [
         delete gaps.dnf.vsys;
         fs.writeFileSync(file, JSON.stringify(gaps));
     }, 1, () => refused("requirement=vsys package=unmapped want=Requires channel=dnf recipe=vgshell scope=vgs.agent-warden")],
+    // An upstream-only dnf package: exactly reason, route and source.
+    ...[
+        ["a dnf upstream gap with another key set is refused", gap => { gap.url = gap.route; }],
+        ["a dnf upstream gap with another reason is refused", gap => { gap.reason = "no official package here"; }],
+        ["a dnf upstream gap with an empty route is refused", gap => { gap.route = ""; }],
+        ["a dnf upstream gap whose route runs over two lines is refused", gap => { gap.route += "\nand a second line"; }],
+        ["a dnf upstream gap whose route names no https address is refused", gap => { gap.route = "upstream release voxtype-<version>-1.x86_64.rpm"; }],
+        ["a dnf upstream gap with an empty source is refused", gap => { gap.source = " "; }],
+    ].map(([name, plant]) => [name, t => {
+        const file = path.join(t, "packaging/channel-gaps.json");
+        const gaps = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (typeof gaps.dnf.voxtype !== "object") throw new Error("fixture: refused: dnf voxtype gap is no object");
+        plant(gaps.dnf.voxtype);
+        fs.writeFileSync(file, JSON.stringify(gaps));
+    }, 1, () => refused("gap=evidence manager=dnf command=voxtype")]),
     ["a broken official package gap needs its failure evidence", t => {
         const file = path.join(t, "packaging/channel-gaps.json");
         const gaps = JSON.parse(fs.readFileSync(file, "utf8"));

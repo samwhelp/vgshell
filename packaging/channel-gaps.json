@@ -6,8 +6,16 @@
     "mise": "no official package",
     "checkupdates": "no official package",
     "ttfx": "no official package",
-    "voxtype": "no official package",
-    "voxtype-audio-bridge": "no official package"
+    "voxtype": {
+      "reason": "no dnf repository package",
+      "route": "upstream release voxtype-<version>-1.x86_64.rpm, https://github.com/peteonrails/voxtype/releases",
+      "source": "README v1.1.0 line 34"
+    },
+    "voxtype-audio-bridge": {
+      "reason": "no dnf repository package",
+      "route": "upstream release voxtype-<version>-1.x86_64.rpm, https://github.com/peteonrails/voxtype/releases",
+      "source": "README v1.1.0 line 34"
+    }
   },
   "nix": {
     "vsys": "no official package",
