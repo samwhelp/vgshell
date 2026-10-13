@@ -844,6 +844,7 @@ mutations=(
   "a tooltip's link never becomes current|overlay/Tooltip.qml|        if (event.key === Qt.Key_Tab) {|        if (event.key === Qt.Key_Tab && false) {|tst_tooltip.qml"
   "a tooltip draws a link its owner does not route|overlay/Tooltip.qml|return pageLinks && typeof line === \"string\" && PageReference.parse(line).page !== \"\";|return typeof line === \"string\" && PageReference.parse(line).page !== \"\";|tst_tooltip.qml"
   "a tooltip keeps Escape from closing it|overlay/Tooltip.qml|        if (event.key === Qt.Key_Escape) {|        if (event.key === Qt.Key_Escape && false) {|tst_tooltip.qml"
+  "a tooltip's refreshed lines drop the link Tab reached|overlay/Tooltip.qml|    onLinksChanged: current = heldPlace()|    onLinksChanged: current = -1|tst_tooltip.qml"
   "a tooltip's current link draws no ring|overlay/Tooltip.qml|            focusPreview: slot.current|            focusPreview: false|tst_tooltip.qml"
   "a tooltip's border cuts its last line's link ring|overlay/Tooltip.qml|readonly property real paddingBelow: Math.max(Theme.tooltip.paddingY, content.ringBelow + Theme.focusRing.offset + Theme.surface.border)|readonly property real paddingBelow: Theme.tooltip.paddingY|tst_tooltip.qml"
   "enter leaves the select closed|controls/Select.qml|onActivated: root.openList()|onActivated: {}|tst_overlays.qml"

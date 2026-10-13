@@ -86,6 +86,9 @@ Item {
     // The place in `links` of the link the keyboard is on, -1 for none.
     property int current: -1
     readonly property int currentLine: current >= 0 && current < links.length ? links[current] : -1
+    // The line and the target of the link the keyboard is on, by which a
+    // refresh of the lines finds that link again.
+    property var held: null
     // The pointer may cross to a link and rest on it.
     readonly property bool reachable: live && unpressed && links.length > 0
     readonly property bool reached: reachable && popup.item !== null && popup.item.pointerOver
@@ -125,6 +128,20 @@ Item {
     }
 
     function lineAt(at) { return at === 0 ? text : details[at - 1]; }
+
+    function linkAt(at) {
+        const reference = PageReference.parse(lineAt(at));
+        return { line: at, page: reference.page, tab: reference.tab };
+    }
+
+    // The place in `links` of the held link, -1 once its line links
+    // elsewhere or is no link.
+    function heldPlace() {
+        const place = held === null ? -1 : links.indexOf(held.line);
+        if (place === -1) return -1;
+        const link = linkAt(held.line);
+        return link.page === held.page && link.tab === held.tab ? place : -1;
+    }
 
     // Start the grace when the pointer leaves the item or the popup, end it
     // when the pointer is on either, and close once nothing holds the
@@ -190,7 +207,10 @@ Item {
     onReachableChanged: settle()
     onReachedChanged: settle()
     onShownChanged: if (!shown) current = -1
-    onLinksChanged: current = -1
+    onCurrentChanged: held = current === -1 ? null : linkAt(links[current])
+    // Every assign of the text or the details makes new `links`, the same
+    // lines included, so the current link is kept by what it holds.
+    onLinksChanged: current = heldPlace()
 
     Timer {
         id: delay

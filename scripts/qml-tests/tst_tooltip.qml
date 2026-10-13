@@ -197,5 +197,32 @@ Item {
             compare(linked.activeFocus, false, "the second Tab leaves the item");
             tryCompare(linked.tip, "opened", false);
         }
+
+        // Lines that refresh while the tooltip is open keep the link Tab
+        // reached, so Enter opens it; a refresh whose line links elsewhere
+        // or holds no link drops it, and Enter is the item's again.
+        function test_a_refresh_keeps_the_link_tab_reached_data() {
+            return [
+                { tag: "the same lines", details: ["Finish in [Setup](page:acme.probe/Setup)."], line: 1, opens: 1 },
+                { tag: "a line above it changed", title: "Jarvis is starting", details: ["Finish in [Setup](page:acme.probe/Setup)."], line: 1, opens: 1 },
+                { tag: "another target", details: ["Finish in [Setup](page:acme.other/Setup)."], line: -1, opens: 0 },
+                { tag: "the link is gone", details: ["Jarvis is ready"], line: -1, opens: 0 },
+            ];
+        }
+
+        function test_a_refresh_keeps_the_link_tab_reached(row) {
+            const before = { title: linked.title, details: linked.details };
+            linked.forceActiveFocus(Qt.TabFocusReason);
+            opened(linked);
+            keyClick(Qt.Key_Tab);
+            compare(linked.tip.currentLine, 1);
+            if (row.title !== undefined) linked.title = row.title;
+            linked.details = row.details;
+            compare(linked.tip.currentLine, row.line);
+            keyClick(Qt.Key_Return);
+            compare(activations.count, row.opens);
+            linked.title = before.title;
+            linked.details = before.details;
+        }
     }
 }
