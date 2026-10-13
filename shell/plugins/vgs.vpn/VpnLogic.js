@@ -342,7 +342,7 @@ function unread() {
 // service is off, or the administrator holds Tailscale.
 function lockReason(vpn, step) {
     if (vpn.writable) return "";
-    if (vpn.state === "missing") return "Tailscale is not installed, so install it under Requirements to use it.";
+    if (vpn.state === "missing") return "Tailscale is not installed, so install it under [Requirements](page:vgs.vpn/Setup) to use it.";
     var cause = vpn.state === "service-off" ? "The Tailscale service is off" : "The administrator holds Tailscale";
     return step === "" ? cause + "." : cause + " until you choose " + step + ".";
 }

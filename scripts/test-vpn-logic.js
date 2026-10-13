@@ -12,6 +12,7 @@ const os = require("os");
 const path = require("path");
 const assert = require("node:assert/strict");
 const { load } = require("../bin/lib/qml-library.js");
+const PageReference = load(path.join(__dirname, "../shell/Commons/PageReference.js"));
 const file = path.join(__dirname, "../shell/plugins/vgs.vpn/VpnLogic.js");
 const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
 const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile), SettingValues: load(path.join(__dirname, "../shell/Commons/SettingValues.js")) } };
@@ -206,10 +207,11 @@ function suite(logic, service = serviceSource) {
         [plain(logic.published(false, running, denied, live)), steps.allow.label]
     ];
     assert.equal(logic.lockReason(shown, steps.allow.label), "", "a writable value gives no reason");
+    assert.equal(logic.lockReason({ writable: false, state: "missing" }, ""), "Tailscale is not installed, so install it under [Requirements](page:vgs.vpn/Setup) to use it.");
     for (const [vpn, step] of locked) {
         const reason = logic.lockReason(vpn, step);
         assert.equal(vpn.writable, false, vpn.state);
-        assert.ok(/^[A-Z][^.!?]*\.$/.test(reason), "one sentence: " + JSON.stringify(reason));
+        assert.ok(/^[A-Z][^.!?]*\.$/.test(PageReference.plain(reason)), "one sentence: " + JSON.stringify(reason));
         assert.ok(!/\btailscale |sudo|vgshell|systemctl/.test(reason), "no command: " + JSON.stringify(reason));
         assert.ok(step === "" || reason.includes(step), "names the step: " + JSON.stringify(reason));
     }
