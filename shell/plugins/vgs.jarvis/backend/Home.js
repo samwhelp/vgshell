@@ -38,8 +38,9 @@ const PACKAGE = "jarvis";
 const RENDER = ".agents/skills";
 // The files of the package read by name: a render without one is partial.
 const RENDER_FILES = Object.freeze(["SKILL.md", "persona.md"]);
-// The render's own record of each path it wrote, by kind and harness, in
-// the lock version this reader knows.
+// kendex's record of each path it wrote, by kind and harness: the render's,
+// read in the lock version this reader knows, and a home's own, read at any
+// version for its entries alone (installed).
 const LOCK = ".kendex-lock.json";
 const LOCK_VERSION = 11;
 // The kinds of the render VGS copies into a home. A hook needs its
@@ -523,7 +524,9 @@ function layout(home) {
  * kendex's lock there names, and VGS's record, so that kendex can install
  * its packages over them: kendex treats a file it did not write as the
  * user's. The next layout writes again what kendex did not take. Throws
- * as layout does.
+ * jarvis: home=unreadable for a home that is not there, home=link or
+ * home=kind for an entry on the way, home=record or home=kendex-lock for a
+ * record or lock it cannot read, and home=unwritable for a failed removal.
  */
 function release(home) {
     const fd = hold(home, false);

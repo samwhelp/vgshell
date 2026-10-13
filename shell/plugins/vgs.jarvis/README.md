@@ -172,7 +172,7 @@ VGS starts and stops the session with `.agents/skills/jarvis/scripts/jarvis-sess
 
 Choose a folder under Settings → Plugins → Jarvis → Home folder. You can change to another home there, or open Jarvis homes in the launcher and select a folder. The current home has a folder icon with a check mark. Every AI model uses your instructions, skills, memory and work in it in the same way.
 
-No AI model can change anything in the folder but its `state/` part, except through an agent fleet request. Jarvis adds the entries that the folder does not have, and changes no file it finds but the Jarvis package files that VGS wrote there. It never follows a link in the folder. It does not start with a folder that has a link in place of an entry below, or a link in place of a Jarvis package file that VGS writes or a folder above one.
+No AI model can change anything in the folder but its `state/` part, except through an agent fleet request. Jarvis adds the entries that the folder does not have, and changes no file it finds but the Jarvis package files that VGS wrote there. It also removes a `skills/base/` folder, which older VGS versions wrote, and a `CLAUDE.md` whose only line is `@AGENTS.md`, because Claude Code reads `AGENTS.md` itself. It never follows a link in the folder. It does not start with a folder that has a link in place of an entry below, or a link in place of a Jarvis package file that VGS writes or a folder above one.
 
 | Entry | What it holds |
 | --- | --- |
