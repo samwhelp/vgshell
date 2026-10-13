@@ -130,6 +130,14 @@ gap_after_text() {
 }
 check "two questions and a step after them share one blank line" gap_after_questions
 check "a step after a line under a question keeps its own blank line" gap_after_text
+gap_after_split() { # COMMAND: a question, a split COMMAND, then a step; output in $tmp/out
+  on_tty "vgs_tui_confirm 'Remove it?'; vgs_tui_split $(printf %q "$tmp/gap-split.log") jarvis-setup $1; vgs_tui_step Removing"
+  tr -d '\r' <"$tmp/out" >"$tmp/gap-split.out"
+}
+gap_after_quiet_split() { gap_after_split "echo 'jarvis-setup: step=quiet'" && starts_one_blank "$tmp/gap-split.out"; }
+gap_after_split_line() { gap_after_split "echo shown" && test "$(cat "$tmp/gap-split.out")" == $'\n'"${edge}shown"$'\n\n'"$edge${esc}[32m${esc}[1mRemoving${esc}[0m"; }
+check "a step after a split that showed nothing shares the question's blank line" gap_after_quiet_split
+check "a step after a split that showed a line keeps its own blank line" gap_after_split_line
 cleared_step() { on_tty 'vgs_tui_clear; vgs_tui_step "Removing"'; test "$(tr -d '\r' <"$tmp/out")" == "${esc}[H${esc}[2J$edge${esc}[32m${esc}[1mRemoving${esc}[0m"; }
 check "a step on a cleared screen starts on its first row" cleared_step
 # Every colour a yes-or-no question draws, against the colour under it,
@@ -853,6 +861,10 @@ control gap-never-left '  _vgs_tui_gap_left=1' '  :'
 check "the gap-never-left mutant fails the shared blank line row" test "$(gap_after_questions && echo green || echo red)" == red
 control gap-kept-after-text '  local lines=() line pad' '  local lines=() line pad _vgs_tui_gap_left'
 check "the gap-kept-after-text mutant fails the blank line after text row" test "$(gap_after_text && echo green || echo red)" == red
+control split-always-shown '    [[ -n $shown ]] || exit 4' '    :'
+check "the split-always-shown mutant fails the quiet split row" test "$(gap_after_quiet_split && echo green || echo red)" == red
+control split-keeps-mark '  [[ ${piped[1]} == 4 ]] || _vgs_tui_gap_left=""' '  :'
+check "the split-keeps-mark mutant fails the shown split row" test "$(gap_after_split_line && echo green || echo red)" == red
 control clear-leaves-blank "printf '\\033[H\\033[2J'; _vgs_tui_gap_left=1; }" "printf '\\033[H\\033[2J'; }"
 check "the clear-leaves-blank mutant fails the cleared screen row" test "$(cleared_step && echo green || echo red)" == red
 control no-prompt-blank "_vgs_tui_prompt_gap() { _vgs_tui_gap >&2; }" "_vgs_tui_prompt_gap() { :; }"
@@ -885,7 +897,7 @@ control stderr-on-screen '"$@" 2>>"$file"' '"$@"'
 check "the stderr-on-screen mutant fails the cause log row" test "$(logged_row && echo green || echo red)" == red
 control split-key-on-screen '            printf '\''%s\n'\'' "$segment" >&"$fd" || exit 1' '            printf '\''%s\n'\'' "$segment" || exit 1'
 check "the split-key-on-screen mutant fails the split row" test "$(split_row && echo green || echo red)" == red
-control split-status-lost 'status=${PIPESTATUS[0]}' 'status=0'
+control split-status-lost 'status=${piped[0]}' 'status=0'
 check "the split-status-lost mutant fails the split row" test "$(split_row && echo green || echo red)" == red
 control split-fd-inherited '( exec {fd}>&-; "$@" ) 2>&1' '( "$@" ) 2>&1'
 check "the split-fd-inherited mutant fails the split descriptor row" test "$(split_fd_row && echo green || echo red)" == red

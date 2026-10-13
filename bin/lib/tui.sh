@@ -450,16 +450,17 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   shift
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
     _vgs_tui_refuse 1 "logged=$file reason=open-failed" || return
-  _vgs_tui_gap_left=""
+  [[ ! -t 1 ]] || _vgs_tui_gap_left=""
   "$@" 2>>"$file"
 }
 
 # A line ended by a newline that no carriage return came before is shown
 # through _vgs_tui_print; a carriage-return segment, as a progress line
 # redraws, and the newline that ends it pass as they are, since a wrap
-# would break the redraw.
+# would break the redraw. The reader exits 4 when it showed nothing, which
+# keeps a question's blank line marked.
 vgs_tui_split() { # FILE KEY COMMAND [ARG...]
-  local file="${1:-}" key="${2:-}" fd status had_errexit="" segment="" char terminator redrawn="" width
+  local file="${1:-}" key="${2:-}" fd status piped had_errexit="" segment="" char terminator redrawn="" width
   [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" || return
   shift 2
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
@@ -467,9 +468,9 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
   exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
   [[ $- == *e* ]] && had_errexit=1
   set +e
-  _vgs_tui_gap_left=""
   width="$(_vgs_tui_width)"
   ( exec {fd}>&-; "$@" ) 2>&1 | {
+    shown=""
     while LC_ALL=C IFS= read -r -N 1 char; do
       case "$char" in
         $'\n'|$'\r')
@@ -478,8 +479,10 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
             printf '%s\n' "$segment" >&"$fd" || exit 1
           elif [[ $terminator == $'\r' || -n $redrawn ]]; then
             printf '%s%s' "$segment" "$terminator" || exit 1
+            shown=1
           else
             _vgs_tui_print "" "$segment" "$width" || exit 1
+            shown=1
           fi
           [[ $terminator == $'\n' ]] && redrawn="" || redrawn=1
           segment=""
@@ -490,11 +493,14 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
     if [[ -n $segment ]]; then
       case "$segment" in
         "$key":\ *) printf '%s\n' "$segment" >&"$fd" || exit 1 ;;
-        *) printf '%s' "$segment" || exit 1 ;;
+        *) printf '%s' "$segment" || exit 1; shown=1 ;;
       esac
     fi
+    [[ -n $shown ]] || exit 4
   }
-  status=${PIPESTATUS[0]}
+  piped=("${PIPESTATUS[@]}")
+  status=${piped[0]}
+  [[ ${piped[1]} == 4 ]] || _vgs_tui_gap_left=""
   [[ -z $had_errexit ]] || set -e
   exec {fd}>&-
   return "$status"
