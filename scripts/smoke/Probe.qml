@@ -17,28 +17,30 @@ import "Commons/ThemeLogic.js" as ThemeLogic
 Scope {
     id: root
     property var rememberedBarWidgets: []
-    // The Bluetooth row observes actual production list publications.
+    // The Bluetooth row observes actual Nearby row publications.
     // This reader lives only in the disposable sandbox shell.
     property var bluetoothObserved: null
+    property var bluetoothList: null
     property var bluetoothView: null
     property var bluetoothTrace: []
     property var bluetoothPublications: []
     function bluetoothFacts() {
         const item = root.bluetoothObserved;
-        if (item === null) return { state: "absent" };
+        const list = root.bluetoothList;
+        if (item === null || list === null) return { state: "absent" };
         return {
             at: Date.now(),
             keys: item.lists.nearby.map(row => row.key),
             names: item.lists.nearby.map(row => row.text),
-            focusedKey: item.nearby.activeFocus ? item.nearby.currentKey : "",
-            focusedRowKey: item.nearby.activeFocus && item.nearby.rowAt(item.nearby.current) !== null
-                ? item.nearby.rowAt(item.nearby.current).modelData.key : "",
+            focusedKey: list.activeFocus ? list.currentKey : "",
+            focusedRowKey: list.activeFocus && list.rowAt(list.current) !== null
+                ? list.rowAt(list.current).modelData.key : "",
             contentY: root.bluetoothView === null ? null : root.bluetoothView.contentY
         };
     }
     Connections {
-        target: root.bluetoothObserved
-        function onListsChanged() {
+        target: root.bluetoothList
+        function onRowsChanged() {
             root.bluetoothPublications = root.bluetoothPublications.concat([Date.now()]);
             // The production refresh restores scroll after layout. Read
             // after that queued operation, before the next publication.
@@ -2595,10 +2597,15 @@ Scope {
             if (item === null) return "absent";
             const sections = root.descendants(item).find(child => root.typeName(child) === "DeviceSections");
             if (sections === undefined) return "absent";
+            const section = root.descendants(sections).find(child => child instanceof Ui.Section && child.title === "Nearby");
+            if (section === undefined) return "nearby-section-absent";
+            const list = root.descendants(section).find(child => child instanceof Ui.DeviceList);
+            if (list === undefined) return "nearby-list-absent";
             let pane = sections.parent;
             while (pane !== null && !(pane instanceof Ui.Pane)) pane = pane.parent;
             root.bluetoothView = pane === null ? null : pane.scrollArea;
             root.bluetoothObserved = sections;
+            root.bluetoothList = list;
             root.bluetoothPublications = [];
             root.bluetoothTrace = [root.bluetoothFacts()];
             return "observing";
@@ -2608,18 +2615,30 @@ Scope {
         }
         function bluetoothObserveEnd(): string {
             root.bluetoothObserved = null;
+            root.bluetoothList = null;
             root.bluetoothView = null;
             root.bluetoothTrace = [];
             root.bluetoothPublications = [];
             return "ended";
         }
         function bluetoothFocus(index: int): string {
-            if (root.bluetoothObserved === null) return "absent";
-            const list = root.bluetoothObserved.nearby;
+            const list = root.bluetoothList;
+            if (list === null) return "absent";
             if (index < 0 || index >= list.rows.length) return "index-absent";
             list.current = index;
             list.focusCurrent(Qt.TabFocusReason);
             return list.currentKey;
+        }
+        function bluetoothMiddle(): string {
+            const view = root.bluetoothView;
+            if (view === null) return "absent";
+            view.contentY = Math.max(0, (view.contentHeight - view.height) / 2);
+            return root.json([view.contentY, view.contentHeight, view.height]);
+        }
+        function bluetoothTimerState(): string {
+            const sections = root.bluetoothObserved;
+            if (sections === null) return "absent";
+            return root.json(sections.resources.filter(child => child instanceof Timer).map(timer => timer.running));
         }
         function bluetoothViewOpened(hostKey: string, id: string, opened: bool): string {
             const item = root.instance(hostKey, id);

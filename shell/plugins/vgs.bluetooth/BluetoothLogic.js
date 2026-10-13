@@ -609,7 +609,7 @@ var NEARBY_GRACE_MS = 3000;
 var NEARBY_LIMIT = 256;
 var DEVICE_REFRESH_MS = 500;
 
-function deviceRows(devices, stateOf, attempts, previous, now) {
+function deviceRows(devices, stateOf, attempts, previous, now, mineOnly) {
     var oldRows = previous.nearby;
     var oldByKey = {};
     for (var p = 0; p < oldRows.length; p++) oldByKey[oldRows[p].key] = oldRows[p];
@@ -641,6 +641,7 @@ function deviceRows(devices, stateOf, attempts, previous, now) {
     }
     var byName = function (a, b) { return a.text.localeCompare(b.text) || a.key.localeCompare(b.key); };
     mine.sort(byName);
+    if (mineOnly) return { mine: mine, nearby: previous.nearby };
     // A batch of new devices has a fixed address order; existing rows
     // retain their slots when this batch joins below them.
     nearby.sort(function (a, b) { return a.key.localeCompare(b.key); });

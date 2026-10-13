@@ -48,7 +48,7 @@
 # the follow off and no planted systemctl answer, whichever step it
 # returns from.
 # Nearby: 32 fake radios publish Alias, Name and RSSI changes every 50 ms.
-# The actual listsChanged observer checks stable keys and presentation,
+# The actual Nearby rowsChanged observer checks stable keys and presentation,
 # publications at the configured 500 ms cadence, and the held middle
 # scroll offset through 10 s of churn, including loss of the focused tail.
 # Each rule has its own disposable production mutation. Cadence is a view
@@ -195,15 +195,14 @@ bt_trace_ready() {
   ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if len(d["publications"])>=3 else "waiting")'
 }
 bt_churn_run() { # HOST ID MODE DURATION
-  local host="$1" id="$2" mode="$3" duration="$4" pid middle
+  local host="$1" id="$2" mode="$3" duration="$4" pid
   expect "the Nearby observer attaches to $id" observing ipc smoke bluetoothObserve "$host" "$id"
   if [[ $mode == remove-tail ]]; then
     expect "the last Nearby row receives keyboard focus" 02:56:00:00:00:1F ipc smoke bluetoothFocus 31
-    middle="$(ipc smoke scrollTo window vgs.system 0 | py_reply 'import json,sys; y,total,height=json.load(sys.stdin); print(round(max(0,(total-height)/2)))')" || { fail "Bluetooth scroll extent is unreadable"; return; }
-    ipc smoke scrollTo window vgs.system "$middle" >/dev/null || fail "Bluetooth middle scrolling failed"
+    expect "the expanded Bluetooth body rests at its midpoint" middle bt_middle
     expect "the scroll observer starts after focus and scrolling" observing ipc smoke bluetoothObserve "$host" "$id"
   fi
-  spawn "$tmp/bt-churn-$id-$mode.log" "${shell_env[@]}" python3 "$devices_fixtures/world.py" "unix:path=$rt_dir/system-bus" churn-nearby 32 "$duration" "$mode"
+  spawn "$sandbox/bt-churn-$id-$mode.log" "${shell_env[@]}" python3 "$devices_fixtures/world.py" "unix:path=$rt_dir/system-bus" churn-nearby 32 "$duration" "$mode"
   pid="$spawn_pid"
   expect_poll "the production list publishes while the fake changes" ready bt_trace_ready
   wait "$pid" || fail "Bluetooth churn producer failed: $id"
@@ -213,6 +212,7 @@ bt_churn_run() { # HOST ID MODE DURATION
 bt_trace_after() {
   ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); s=d["samples"]; print("ready" if len(s)>1 and s[-1]["at"]-s[0]["at"] >= float(sys.argv[1])*1000 else "waiting")' "$1"
 }
+bt_middle() { ipc smoke bluetoothMiddle | py_reply 'import json,sys; y,total,height=json.load(sys.stdin); print("middle" if total>height and abs(y-(total-height)/2)<0.5 else "not-middle")'; }
 bt_stability() {
   local id host rule copy source root_copy
   expect "32 nearby radios join the mock" nearby=32 bluez add-nearby 32
@@ -245,6 +245,7 @@ bt_stability() {
   expect "the closed-view observer starts" observing ipc smoke bluetoothObserve panel vgs.bluetooth
   bluez churn-nearby 32 1.5 >/dev/null
   expect "the closed view publishes nothing" 0 bt_publication_count
+  expect "the closed view's actual timer is stopped" '[false]' ipc smoke bluetoothTimerState
   expect "the closed observer ends" ended ipc smoke bluetoothObserveEnd
   expect "the flyout closes after churn" ok ipc shell hide panel vgs.bluetooth
   expect "the flyout radios leave the mock" removed=32 bluez remove-nearby 32
@@ -283,7 +284,7 @@ PY
       expect "the timer control close hook runs" closed ipc smoke bluetoothViewOpened "$host" "$id" false
       expect "the timer control observer starts after close" observing ipc smoke bluetoothObserve "$host" "$id"
       bluez churn-nearby 32 1.5 >/dev/null
-      expect "control: a timer left running after close publishes again" rejected bt_closed_rule
+      expect "control: a timer left running after close is detected" rejected bt_closed_rule
     else
       expect "control: the production $rule defect is rejected" rejected bt_observation_rule "$rule"
     fi
@@ -302,7 +303,7 @@ PY
 }
 bt_publication_count() { ipc smoke bluetoothObservation | py_reply 'import json,sys; print(len(json.load(sys.stdin)["publications"]))'; }
 bt_focused_keys() { ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin)["current"]; print(json.dumps([d["focusedKey"],d["focusedRowKey"]]))'; }
-bt_closed_rule() { ipc smoke bluetoothObservation | py_reply 'import json,sys; print("kept" if not json.load(sys.stdin)["publications"] else "rejected")'; }
+bt_closed_rule() { ipc smoke bluetoothTimerState | py_reply 'import json,sys; print("kept" if json.load(sys.stdin)==[False] else "rejected")'; }
 bt_phase() { ipc smoke readDescendant window "${1:-vgs.bluetooth}" Pairing current | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
 bt_prompt() { ipc smoke readDescendant window "${2:-vgs.bluetooth}" Prompt "$1"; }
 bt_field() { ipc smoke readDescendant window vgs.bluetooth TextField text; }

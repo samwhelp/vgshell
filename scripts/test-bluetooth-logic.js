@@ -440,7 +440,7 @@ function verifyDevices(logic) {
         device("00:00:00:00:00:07", "1b2c3d4e-0000-1000-8000-00805f9b34fb", {}),
         device("00:00:00:00:00:08", "Watch", { bonded: true }),
         device("00:00:00:00:00:09", "Pen", { pairing: true }),
-    ], stateOf, {}, { mine: [], nearby: [] }, 0);
+    ], stateOf, {}, { mine: [], nearby: [] }, 0, false);
     same(lists.mine.map(r => [r.key, r.text, r.iconName, r.secondary]), [
         ["00:00:00:00:00:06", "00:00:00:00:00:06", "bluetooth", "Not paired"],
         ["00:00:00:00:00:01", "Headphones", "headphones", "Connected"],
@@ -464,7 +464,7 @@ function verifyDevices(logic) {
             [], [["LE_Thing", "Not paired"]]],
     ];
     for (const [label, devices, mine, nearby] of twinRows) {
-        const rows = logic.deviceRows(devices, stateOf, {}, { mine: [], nearby: [] }, 0);
+        const rows = logic.deviceRows(devices, stateOf, {}, { mine: [], nearby: [] }, 0, false);
         same([rows.mine.map(r => [r.text, r.secondary]), rows.nearby.map(r => [r.text, r.secondary])], [mine, nearby], label);
     }
     same(lists.mine[1].battery, 0.5, "a battery level is carried");
@@ -491,12 +491,12 @@ function verifyDevices(logic) {
     assert.equal(action, "connect", "a press on Disconnected starts a connect");
     attempts = logic.attemptPressed(attempts, address, action);
     d.state = "Connecting";
-    let row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0).mine[0];
+    let row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0, false).mine[0];
     same([row.secondary, row.busy, logic.mineAction(row)], ["Connecting…", true, null], "Connect shows the working state at once");
 
     d.state = "Disconnected";
     attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
-    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0).mine[0];
+    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0, false).mine[0];
     same([row.secondary, row.busy, row.failed, logic.mineAction(row), logic.failureText(row.text)],
         ["Not connected", false, true, { text: "Retry" }, name + " did not answer. Check that it is on, nearby and not connected to another device."],
         "a failed connect shows Retry and one failure sentence");
@@ -518,13 +518,13 @@ function verifyDevices(logic) {
     d.connected = true;
     d.state = "Connected";
     attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
-    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0).mine[0];
+    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0, false).mine[0];
     same([attempts, row.secondary, row.busy, logic.mineAction(row), row.failed],
         [{}, "Connected", false, { text: "Disconnect" }, false], "a successful connect clears the attempt");
     d.connected = false;
     d.state = "Disconnected";
     attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
-    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0).mine[0];
+    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0, false).mine[0];
     same([attempts, row.secondary, row.busy, row.failed, logic.mineAction(row)],
         [{}, "Not connected", false, false, { text: "Connect" }], "a later drop by itself is not a failed connect");
 
@@ -550,11 +550,16 @@ function verifyBar(logic) {
 
 function verifyNearby(logic) {
     const make = (key, name) => ({ address: key, name, deviceName: name, state: "Disconnected" });
-    const rows = (devices, previous, now) => logic.deviceRows(devices, d => d.state, {}, previous, now);
+    const rows = (devices, previous, now) => logic.deviceRows(devices, d => d.state, {}, previous, now, false);
     const devices = Array.from({ length: 32 }, (_, i) => make("radio-" + i, "Device " + i));
     let state = rows(devices, { mine: [], nearby: [] }, 0);
     const keys = state.nearby.map(r => r.key);
     const labels = state.nearby.map(r => [r.text, r.iconName]);
+    for (const connection of ["Connected", "Disconnecting", "Disconnected", "Connecting"]) {
+        const mineUpdate = logic.deviceRows(devices.concat([{ ...make("paired", "Speaker"), paired: true, state: connection }]), d => d.state, {}, state, 1, true);
+        assert.equal(mineUpdate.mine[0].state, connection, "My Devices updates immediately before the Nearby interval");
+        assert.strictEqual(mineUpdate.nearby, state.nearby, "My Devices publication retains the same Nearby rows");
+    }
     for (let tick = 1; tick <= 200; tick++) {
         const changed = devices.map((d, i) => ({ ...d, name: "Alias " + (200 - tick) + " " + (32 - i), icon: "audio-card", rssi: -tick })).reverse();
         state = rows(changed, state, tick * 50);
@@ -680,6 +685,7 @@ const controls = [
     ["a nameless nearby device is hidden", "if (!known && !namesItself(d) && !own(oldByKey, String(d.address))) continue;", "", "nearby: only devices that name themselves"],
     ["Nearby holds its order", "    return { mine: mine, nearby: held };", "    if (oldRows.length > 0) held.reverse();\n    return { mine: mine, nearby: held };", "nearby keeps device order under alias and RSSI churn"],
     ["Nearby holds its presentation", "            fresh.text = old.text;", "", "nearby keeps its presented name and icon"],
+    ["My Devices leaves Nearby for its timer", "    if (mineOnly) return { mine: mine, nearby: previous.nearby };\n", "", "My Devices publication retains the same Nearby rows"],
     ["Nearby holds a vanished row", "if (now - missingSince < NEARBY_GRACE_MS)", "if (false)", "vanished Nearby row stays through grace"],
     ["Nearby expires a vanished row", "if (now - missingSince < NEARBY_GRACE_MS)", "if (true)", "vanished Nearby row leaves at grace expiry"],
     ["Nearby bounds its presentation", "held.length < NEARBY_LIMIT", "true", "retained Nearby presentation has a ceiling"],

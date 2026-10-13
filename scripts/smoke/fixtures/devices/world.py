@@ -213,7 +213,7 @@ def drive(bus, verb, args):
                 if removed and i == count - 1:
                     continue
                 rank = i if rounds % 2 else count - i
-                label = f"Nearby {rank:02d} phase {rounds:04d}"
+                label = f"{rank:02d} Nearby Radio {i:02d} phase {rounds:04d}"
                 target.UpdateProperties(DEVICE, {"Alias": dbus.String(label), "Name": dbus.String(label), "RSSI": dbus.Int16(-40 - rounds % 40)})
             rounds += 1
             time.sleep(0.05)

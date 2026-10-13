@@ -18,20 +18,25 @@ Column {
 
     property bool powerOn: false
     property bool opened: false
+    onPowerOnChanged: root.refresh(true)
+    onOpenedChanged: root.refresh(true)
     property bool manage: false
     property bool pairBusy: false
     property var attempts: ({})
     // Quickshell 0.3.1 publishes BluetoothDevice.state with stateChanged,
     // and BluetoothDeviceState.toString returns the four state names.
     readonly property var states: Logic.stateMap(Bluetooth.devices.values, root.stateOf)
-    onStatesChanged: root.attempts = Logic.settleAttempts(root.attempts, root.states)
+    onStatesChanged: {
+        root.attempts = Logic.settleAttempts(root.attempts, root.states);
+        root.refresh(true);
+    }
+    onAttemptsChanged: root.refresh(true)
     property var lists: ({ mine: [], nearby: [] })
     property real lastPublication: 0
     readonly property var failures: root.lists.mine.filter(r => r.failed).map(r => Logic.failureText(r.text))
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property bool searching: adapter !== null && adapter.discovering
     readonly property alias mine: mineList
-    readonly property alias nearby: nearbyList
 
     signal pairRequested(string address)
     signal renameRequested(string address)
@@ -41,12 +46,13 @@ Column {
     function deviceFor(address) { return Logic.deviceAt(Bluetooth.devices.values, address); }
     function stateOf(device) { return BluetoothDeviceState.toString(device.state); }
 
-    function refresh() {
+    function refresh(mineOnly) {
+        if (!root.opened || !root.powerOn) return;
         const now = Date.now();
         // Qt Timer follows animation ticks. This clock check holds the
         // publication bound even when adjacent ticks are slightly early.
         // https://doc.qt.io/qt-6/qml-qtqml-timer.html
-        if (now - root.lastPublication < Logic.DEVICE_REFRESH_MS) return;
+        if (!mineOnly && now - root.lastPublication < Logic.DEVICE_REFRESH_MS) return;
         const mineKey = mineList.currentKey, nearbyKey = nearbyList.currentKey;
         const mineIndex = mineList.current, nearbyIndex = nearbyList.current;
         const focused = mineList.activeFocus ? mineList : nearbyList.activeFocus ? nearbyList : null;
@@ -57,8 +63,8 @@ Column {
         while (pane !== null && !(pane instanceof Ui.Pane)) pane = pane.parent;
         const view = pane === null ? null : pane.scrollArea;
         const offset = view === null ? 0 : view.contentY;
-        const next = Logic.deviceRows(Bluetooth.devices.values, root.stateOf, root.attempts, root.lists, now);
-        root.lastPublication = Date.now();
+        const next = Logic.deviceRows(Bluetooth.devices.values, root.stateOf, root.attempts, root.lists, now, mineOnly);
+        if (!mineOnly) root.lastPublication = Date.now();
         root.lists = next;
         function restore(list, key, index) {
             const at = list.rows.findIndex(row => row.key === key);
@@ -77,13 +83,13 @@ Column {
     }
 
     Timer {
-        // At most one list publication every 500 ms (2 per second), while
+        // At most one Nearby publication every 500 ms (2 per second), while
         // this view is open. Qt Timer stops when running becomes false:
         // https://doc.qt.io/qt-6/qml-qtqml-timer.html#running-prop
         interval: Logic.DEVICE_REFRESH_MS
         repeat: true
         running: root.opened && root.visible && root.powerOn
-        onTriggered: root.refresh()
+        onTriggered: root.refresh(false)
     }
 
     function toggle(address) {
