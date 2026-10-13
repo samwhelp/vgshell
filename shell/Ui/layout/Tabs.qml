@@ -71,6 +71,12 @@ T.TabBar {
             id: tab
             required property var modelData
             readonly property bool selectedFocus: root.visualFocus && checked
+            // The label reads the row's colours here, never through `root`:
+            // its colour follows hover and the open tab, which change while
+            // the row is destroyed, when `root` already reads null.
+            readonly property color foreground: root.foreground
+            readonly property color hover: root.hover
+            readonly property color active: root.active
             text: String(modelData)
             implicitWidth: implicitContentWidth + leftPadding + rightPadding
             implicitHeight: Theme.tabs.height
@@ -87,7 +93,7 @@ T.TabBar {
             contentItem: Label {
                 role: "button"
                 text: tab.text
-                color: tab.checked ? root.active : tab.hovered || tab.down ? root.hover : root.foreground
+                color: tab.checked ? tab.active : tab.hovered || tab.down ? tab.hover : tab.foreground
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
