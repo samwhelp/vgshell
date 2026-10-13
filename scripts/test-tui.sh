@@ -290,11 +290,11 @@ done
 # The content edge, column 3, read as an 80-column terminal shows the
 # drawing, its wrap at the last column included: every row of a question
 # longer than the terminal and the Yes button's fill start there, and so
-# does every row of a pass-through line and an error longer than the
-# terminal. A row that starts with a space starts past it, and gum cuts a
-# question wider than the terminal, so the whole text must be drawn. The
-# line is built so the terminal's own wrap would put a space first on its
-# second row.
+# does every row of a pass-through line, an error and a plain text line
+# longer than the terminal. A row that starts with a space starts past
+# it, and gum cuts a question wider than the terminal, so the whole text
+# must be drawn. The line is built so the terminal's own wrap would put a
+# space first on its second row.
 cat >"$tmp/edge.py" <<'PY'
 import re
 import sys
@@ -363,7 +363,7 @@ PY
 edge_long="$(printf 'ab %.0s' {1..40})end"
 edge_row() { # LIB_PATH confirm|lines
   local snippet='vgs_tui_confirm "$LONG" --timeout=1s'
-  [[ $2 == lines ]] && snippet='cmd() { printf "%s\n" "$LONG"; }; vgs_tui_split "$TMP/edge.log" jarvis-setup cmd; vgs_tui_error "$LONG"'
+  [[ $2 == lines ]] && snippet='cmd() { printf "%s\n" "$LONG"; }; vgs_tui_split "$TMP/edge.log" jarvis-setup cmd; vgs_tui_error "$LONG"; vgs_tui_text "$LONG"'
   "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" TERM=xterm-256color COLORTERM=truecolor LONG="$edge_long" TMP="$tmp" \
     GUM_CONFIRM_PROMPT_FOREGROUND='#ff0000' GUM_CONFIRM_SELECTED_FOREGROUND='#0000ff' \
     GUM_CONFIRM_UNSELECTED_FOREGROUND='#0000fe' GUM_CONFIRM_SELECTED_BACKGROUND='#00ff00' \
@@ -847,6 +847,8 @@ control question-unwrapped '_vgs_tui_lines lines "$(_vgs_tui_width)" "$question"
 check "the question-unwrapped mutant fails the confirm edge row" test "$(edge_row "$copy" confirm && echo green || echo red)" == red
 control split-passes-through '_vgs_tui_print "" "$segment" "$width" || exit 1' 'printf '\''%s\n'\'' "$segment" || exit 1'
 check "the split-passes-through mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
+control text-unwrapped '_vgs_tui_print "" "$*"' 'printf '\''%s\n'\'' "$*"'
+check "the text-unwrapped mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 control break-keeps-space 'then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi' 'then _vgs_tui_out+=("$cur"); cur="$gap" cur_n=${#gap}; fi'
 check "the break-keeps-space mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'

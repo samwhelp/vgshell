@@ -19,6 +19,8 @@
 #   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
 #                                    TITLE, then each LINE, wrapped to fit
 #                                    the terminal
+#   vgs_tui_text TEXT                TEXT in the terminal's own colour, each of
+#                                    its lines wrapped at the content edges
 #   vgs_tui_step TEXT                a bold accent line after a blank line
 #   vgs_tui_success TEXT             a success line after a blank line
 #   vgs_tui_warn TEXT                a warning line on stderr
@@ -205,6 +207,10 @@ vgs_tui_header() { # TITLE [LINE...]
   gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "$@"
 }
 
+vgs_tui_text() { # TEXT
+  _vgs_tui_print "" "$*"
+}
+
 vgs_tui_step() { # TEXT
   printf '\n'
   _vgs_tui_print "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)"$'\033[1m' "$*"
@@ -224,7 +230,7 @@ vgs_tui_error() { # TEXT
 }
 
 vgs_tui_cancelled() { # TEXT
-  _vgs_tui_print "" "$*"
+  vgs_tui_text "$*"
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
   printf '\n%*s%s● \033[0mPress any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty

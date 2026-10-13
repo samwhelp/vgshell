@@ -1178,7 +1178,7 @@ esac
         """Run a clone TUI with a presentation double: each confirmation
         takes the next of ANSWERS, yes once they run out."""
         library, answered = self.root / "clone-lib.sh", self.root / "answers"
-        library.write_text('vgs_tui_header() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
+        library.write_text('vgs_tui_header() { :; }\nvgs_tui_text() { :; }\nvgs_tui_step() { :; }\nvgs_tui_success() { :; }\n'
                            'vgs_tui_error() { :; }\nvgs_tui_split() { shift 2; "$@"; }\n'
                            'vgs_tui_cancelled() { printf "%s\\n" "$*"; }\n'
                            'vgs_tui_confirm() { local answers; mapfile -t answers <"$ANSWERS"; '
@@ -1202,6 +1202,17 @@ esac
             env.update(extra)
         return subprocess.run(["bash", "-c", "umask \"${UMASK:-077}\"; exec \"$1\"", "clone-tui", str(path)],
                               env=env, capture_output=True, text=True, check=False, timeout=60)
+
+    def recording_text_at_edge(self, stdout):
+        """Whether every line the Recording step shows before its question,
+        three or more with the sample's wrap, starts at the library's
+        content edge, column 3, read as the 80 columns a run with no
+        terminal draws."""
+        plain = [re.sub(r"\x1b\[[0-9;:]*m", "", line) for line in stdout.splitlines()]
+        start = plain.index("   Recording") + 1
+        end = next(i for i, line in enumerate(plain) if "Start recording?" in line)
+        shown = [line for line in plain[start:end] if line]
+        return len(shown) >= 3 and all(re.match(r"   \S", line) for line in shown)
 
     def clone_tui_pty(self, source, gum_exit="1", closed=False):
         """Run the setup TUI on a pseudo-terminal; when CLOSED, followed by
@@ -1397,6 +1408,11 @@ esac
         self.assertTrue(any(line.startswith("jarvis-setup: clone=installed") for line in logged))
         self.assertTrue(any(line.startswith("jarvis-setup: step=probe") for line in logged))
         self.assertTrue(any(line.startswith("jarvis-setup: clone=ready") for line in logged))
+        self.assertTrue(self.recording_text_at_edge(result.stdout), result.stdout)
+        hand_printed = source.replace("vgs_tui_text '\"The quick", "printf '%s\\n' '\"The quick")
+        self.assertNotEqual(hand_printed, source)
+        self.assertFalse(self.recording_text_at_edge(self.clone_tui_real(hand_printed).stdout),
+                         "must-fail control: the sample printed past the library kept the edge")
 
         direct = source.replace(
             'vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" clone install',
