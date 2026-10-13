@@ -891,8 +891,13 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         assert.deepEqual([stored.local.hint === stored.realtime.hint, new Set(kept.map(item => item.hint)).size], [true, 3],
             "a stored key's row names the voice its key runs");
         const adds = manifest.status.keyStore;
-        assert.deepEqual(kept.map(item => ["Setup > " + adds.label, "Settings > Jarvis > " + field.label, adds.action.label].map(words => item.hint.includes(words))),
-            kept.map(() => [true, true, true]), "a stored key's row names where another key goes in and where it is chosen");
+        // The API keys row shares this Setup tab; the Voice key field is on
+        // the Settings tab, the hint's one page reference, since LinkText
+        // draws one link a text and the row's declared link gives way to it.
+        const references = hint => [...hint.matchAll(/\[([^\[\]]+)\]\(page:([^\s()\/]*)\/([^\s()\/]+)\)/g)].map(found => [found[1], found[2], found[3]]);
+        assert.deepEqual(kept.map(item => [[adds.label, adds.action.label].map(words => item.hint.includes(words)), references(item.hint)]),
+            kept.map(() => [[true, true], [["Settings > Jarvis > " + field.label, "vgs.jarvis", "Settings"]]]),
+            "a stored key's row names where another key goes in and links where it is chosen");
         assert.deepEqual([adds.action.tui, plain(words.keysValue({ kind: "listed", rows: [{ label: "OpenAI", value: "present" }] })).action],
             ["add-key", true], "the API keys row offers Add key while a key is stored");
         // The preview row of a cloud voice names whose key it uses.
@@ -1547,7 +1552,10 @@ const CONTROLS = [
     ["a stored key still offers Add key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: true }'],
     ["a stored key's row says to get a key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: hint, action: false }'],
     ["a stored key's row names one voice", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED.openai, action: false }'],
-    ["a stored key's row names no field", 'then choose it in Settings > Jarvis > Voice key."', 'then choose it."'],
+    ["a stored key's row names no field", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)."', 'then choose it."',
+        "links where it is chosen"],
+    ["a stored key's row names its field in plain words", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)."',
+        'then choose it in Settings > Jarvis > Voice key."', "links where it is chosen"],
     ["a failed key read offers no Add key", 'text: "Could not check", hint: hint, action: true }', 'text: "Could not check", hint: hint, action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],

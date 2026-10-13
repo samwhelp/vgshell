@@ -13,7 +13,8 @@ import qs.Ui
 // surface cites a file that the core can open through `vgshell edit`.
 // A page reference in the text, `[words](page:<plugin id>)` or
 // `[words](page:<plugin id>/<tab>)`, draws its words alone, as a link while
-// `link` is unset and the reference names a page, and activating it emits
+// the text holds no `link` words and the reference names a page, so an
+// owner's fixed `link` gives way in a text that does not cite it, and activating it emits
 // `pageActivated` with that page and tab, "" for no tab, in place of
 // `activated`. The owner opens the page; a reference to no page, as
 // `[words](page:)`, reads as its words.
@@ -35,7 +36,10 @@ T.Control {
     readonly property var reference: pageReference(text)
     // The text drawn and the words of it that are the link.
     readonly property string plain: reference.text
-    readonly property string words: link !== "" ? link : reference.page !== "" ? reference.words : ""
+    // Whether the text cites `link`: a link it does not cite gives way to
+    // the page reference.
+    readonly property bool cited: link !== "" && plain.indexOf(link) !== -1
+    readonly property string words: cited ? link : reference.page !== "" ? reference.words : ""
     readonly property bool linked: words !== "" && plain.indexOf(words) !== -1
     readonly property bool hoveredLink: linked && pointer.containsMouse && label.linkAt(pointer.mouseX, pointer.mouseY) !== ""
     // The first occurrence widened to the spaces around it, as the
@@ -105,7 +109,7 @@ T.Control {
     }
 
     onClicked: {
-        if (link === "" && reference.page !== "") pageActivated(reference.page, reference.tab);
+        if (!cited && reference.page !== "") pageActivated(reference.page, reference.tab);
         else activated();
     }
 

@@ -5,7 +5,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 440
+    height: 480
 
     function labelOf(item) { return item.children[0]; }
 
@@ -93,6 +93,16 @@ Item {
         width: 360
         text: "Turn it on in [Plugins](page:)."
     }
+    // A fixed link whose words the text does not hold, beside a page
+    // reference: a Settings row's declared link under a hint of another state.
+    LinkText {
+        id: elsewhere
+        y: 440
+        width: 360
+        link: "Key site"
+        text: "Choose it in [Models](page:acme.models/Settings)."
+    }
+    SignalSpy { id: elsewherePages; target: elsewhere; signalName: "pageActivated" }
     SignalSpy { id: pagedPages; target: paged; signalName: "pageActivated" }
     SignalSpy { id: pagedActivated; target: paged; signalName: "activated" }
     SignalSpy { id: tablessPages; target: tabless; signalName: "pageActivated" }
@@ -173,6 +183,18 @@ Item {
             compare(tablessPages.count, 1);
             compare(tablessPages.signalArguments[0][0], "acme.models");
             compare(tablessPages.signalArguments[0][1], "", "a reference without a tab names none");
+        }
+
+        function test_a_link_the_text_does_not_hold_gives_way_to_the_page_reference() {
+            compare(elsewhere.plain, "Choose it in Models.");
+            compare(elsewhere.words, "Models");
+            compare(elsewhere.linked, true);
+            elsewherePages.clear();
+            elsewhere.forceActiveFocus();
+            keyClick(Qt.Key_Return);
+            compare(elsewherePages.count, 1);
+            compare(elsewherePages.signalArguments[0][0], "acme.models");
+            compare(elsewherePages.signalArguments[0][1], "Settings");
         }
 
         function test_a_reference_to_no_page_reads_as_its_words() {

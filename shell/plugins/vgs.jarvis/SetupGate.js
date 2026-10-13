@@ -440,8 +440,9 @@ var VOICE_KEY_HINTS = {
 // stores its keys itself, several for one provider, each under a name, so
 // the row is no line of a key the core stores and takes no Replace or
 // Remove: a new key goes in through Add key on the API keys row, which
-// stays offered, and the Voice key field chooses it.
-var VOICE_KEY_CHANGE = "; to use another key, press Add key under Setup > API keys, then choose it in Settings > Jarvis > Voice key.";
+// stays offered on this Setup tab, and the Voice key field, on the
+// Settings tab, chooses it: the hint's one page reference.
+var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys row, then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings).";
 var VOICE_KEY_STORED = {
     openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
     gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
