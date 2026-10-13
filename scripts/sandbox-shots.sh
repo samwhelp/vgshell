@@ -5,7 +5,7 @@
 #                                 [--size WxH] [--scale N]
 #                                 [--theme-card NAME] [--hidden]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
-#                                 [--dotfiles DIR]
+#                                 [--dotfiles DIR] [--pages LIST]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #                                 [--title-inventory]
 #       scripts/sandbox-shots.sh --check-desktop-pair BEFORE_DIR AFTER_DIR
@@ -24,7 +24,9 @@
 # keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
-# plugin the Settings window lists, in that window's order, and captures
+# plugin the Settings window lists, in that window's order, or with --pages
+# the comma-separated ids it names, an `ID:setup` entry at the tab that
+# draws the page's setup, and captures
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
 # hover; tooltips, taken only when named, enables and places every
@@ -335,6 +337,7 @@ theme_card="frankenstein"
 preview_themes=()
 declare -A preview_wallpaper=()
 preview_dotfiles=""
+page_ids=()
 require_window=""
 scenes=()
 title_inventory=false
@@ -349,6 +352,7 @@ while [[ $# -gt 0 ]]; do
     --preview-themes) IFS=, read -r -a preview_themes <<<"$2"; shift 2 ;;
     --preview-wallpaper) preview_wallpaper["${2%%=*}"]="${2#*=}"; shift 2 ;;
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
+    --pages) IFS=, read -r -a page_ids <<<"$2"; shift 2 ;;
     --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
@@ -1762,12 +1766,19 @@ scene_plugin-pages() { # MODE
   local id ids=()
   expect "the Settings window opens for all plugin pages" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps for all plugin pages" 1 settings_count
-  mapfile -t ids < <(plugin_pages_list)
+  if [[ ${#page_ids[@]} -gt 0 ]]; then
+    ids=("${page_ids[@]}")
+  else
+    mapfile -t ids < <(plugin_pages_list)
+  fi
   if [[ ${#ids[@]} -eq 0 ]]; then
     fail "the Settings window listed no plugins for plugin page screenshots"
   fi
   for id in "${ids[@]}"; do
-    plugin_page_shots "$1" "$id"
+    case "$id" in
+      *:setup) plugin_page_shots "$1" "${id%:setup}" "plugin-pages-$1-${id%:setup}-setup" setup ;;
+      *) plugin_page_shots "$1" "$id" ;;
+    esac
   done
   settings_close
 }
