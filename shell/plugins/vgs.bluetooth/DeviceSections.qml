@@ -64,7 +64,6 @@ Column {
         const view = pane === null ? null : pane.scrollArea;
         const offset = view === null ? 0 : view.contentY;
         const next = Logic.deviceRows(Bluetooth.devices.values, root.stateOf, root.attempts, root.lists, now, mineOnly);
-        if (!mineOnly) root.lastPublication = Date.now();
         root.lists = next;
         function restore(list, key, index) {
             const at = list.rows.findIndex(row => row.key === key);
@@ -74,6 +73,10 @@ Column {
         }
         restore(mineList, mineKey, mineIndex);
         restore(nearbyList, nearbyKey, nearbyIndex);
+        // Reading and restoring both lists completes synchronous row
+        // notifications. Start the next interval after that work so its
+        // cost cannot shorten the gap between Nearby publications.
+        if (!mineOnly) root.lastPublication = Date.now();
         // Focus transfer can make ScrollArea reveal a different row. Restore
         // the held offset after layout, within the remaining scroll extent.
         Qt.callLater(() => {

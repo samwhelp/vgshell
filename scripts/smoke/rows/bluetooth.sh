@@ -191,6 +191,12 @@ else:
 print("kept" if good else "rejected")
 ' "$1"
 }
+bt_cadence_facts() {
+  ipc smoke bluetoothObservation | py_reply 'import json,sys
+d=json.load(sys.stdin); times=d["publications"]; gaps=[b-a for a,b in zip(times,times[1:])]
+print(json.dumps({"publications":len(times),"minGapMs":min(gaps) if gaps else None,"gapsMs":gaps}))
+'
+}
 bt_trace_ready() {
   ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if len(d["publications"])>=3 else "waiting")'
 }
@@ -208,6 +214,9 @@ bt_churn_run() { # HOST ID MODE DURATION
   wait "$pid" || fail "Bluetooth churn producer failed: $id"
   # A publication after the producer finished establishes the full window.
   expect_poll "the producer interval reaches the observer" ready bt_trace_after "$duration"
+  local facts
+  facts="$(bt_cadence_facts)" || { fail "Bluetooth cadence facts are unreadable: $id"; return; }
+  printf 'bluetooth-cadence host=%s plugin=%s facts=%s\n' "$host" "$id" "$facts"
 }
 bt_trace_after() {
   ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); s=d["samples"]; print("ready" if len(s)>1 and s[-1]["at"]-s[0]["at"] >= float(sys.argv[1])*1000 else "waiting")' "$1"
@@ -250,6 +259,8 @@ bt_stability() {
   expect "the flyout closes after churn" ok ipc shell hide panel vgs.bluetooth
   expect "the flyout radios leave the mock" removed=32 bluez remove-nearby 32
 
+  expect "the original plugin releases pairing for the controls" ok ipc shell setPluginEnabled vgs.bluetooth false
+  expect_poll "the exclusive pairing capability is free" null bt_agent_holders
   # A fresh plugin directory for each rule avoids QML directory-cache reuse.
   for rule in order cadence scroll closed; do
     id="acme.bluetooth-$rule-control"
@@ -260,16 +271,18 @@ import json, pathlib, sys
 root=pathlib.Path(sys.argv[1]); ident,rule=sys.argv[2:]
 p=root/"manifest.json"; d=json.loads(p.read_text()); d["id"]=ident; d["name"]=ident; p.write_text(json.dumps(d))
 edits={
-    "order": [("BluetoothLogic.js", "            fresh.text = old.text;", "            fresh.text = fresh.text;"), ("BluetoothLogic.js", "    return { mine: mine, nearby: held };", "    held.sort(byName);\n    return { mine: mine, nearby: held };")],
+    "order": [("BluetoothLogic.js", "    return { mine: mine, nearby: held };", "    if (oldRows.length > 0) held.reverse();\n    return { mine: mine, nearby: held };")],
     "cadence": [("BluetoothLogic.js", "var DEVICE_REFRESH_MS = 500;", "var DEVICE_REFRESH_MS = 1;")],
     "scroll": [("DeviceSections.qml", "                view.contentY = Math.max(0, Math.min(offset, view.contentHeight - view.height));", "                void offset;")],
     "closed": [("DeviceSections.qml", "running: root.opened && root.visible && root.powerOn", "running: root.visible && root.powerOn")]
 }
 for name,old,new in edits[rule]:
     p=root/name; text=p.read_text(); assert text.count(old)==1, old; p.write_text(text.replace(old,new))
+    print("bluetooth-control rule="+rule+" source="+name+" edits=1")
 PY
     rescan "the $rule control plugin is scanned"
     expect_poll "the $rule control is enabled" True plugin_enabled "$id"
+    expect_poll "the $rule control owns pairing" "[\"$id\"]" bt_agent_holders
     expect "32 radios join for $rule control" nearby=32 bluez add-nearby 32
     if [[ $rule == scroll ]]; then
       host=window
@@ -297,9 +310,12 @@ PY
       expect "the control radios leave" removed=32 bluez remove-nearby 32
     fi
     expect "the $rule control is disabled" ok ipc shell setPluginEnabled "$id" false
+    expect_poll "the $rule control releases pairing" null bt_agent_holders
     rm -rf -- "${copy:?}"
     rescan "the $rule control copy is removed"
   done
+  expect "the original Bluetooth plugin is restored after the controls" ok ipc shell setPluginEnabled vgs.bluetooth true
+  expect_poll "the original plugin owns pairing again" '["vgs.bluetooth"]' bt_agent_holders
 }
 bt_publication_count() { ipc smoke bluetoothObservation | py_reply 'import json,sys; print(len(json.load(sys.stdin)["publications"]))'; }
 bt_focused_keys() { ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin)["current"]; print(json.dumps([d["focusedKey"],d["focusedRowKey"]]))'; }
