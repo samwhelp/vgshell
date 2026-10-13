@@ -32,7 +32,7 @@
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -85,6 +85,7 @@ vpn_setup() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json
 vpn_step() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"][sys.argv[1]]; print(s["state"] + " " + s["reason"])' "$1"; }
 vpn_shown() { [[ $(ipc smoke instanceGeometry "$1" vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_body() { ipc smoke readDescendant "$1" vgs.vpn VpnBody "$2"; }
+vpn_setup_label() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x["label"] for x in (json.loads(t) if t.startswith("[") else []) if x["key"]=="setup"]; print(json.dumps(r))'; }
 vpn_body_state() { vpn_body "$1" vpn | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 vpn_exit_rows() { vpn_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
 vpn_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.vpn" in ids for ids in json.load(sys.stdin)))'; }
@@ -316,6 +317,10 @@ expect "the poll waits the setting's 30 s while no view is open" 30000 vpn_inter
 # Access denied: no operator, so the step reads needed and Allow is offered.
 expect_poll "the core reads the operator step needed" "needed operator-unset" vpn_step tailscale-operator
 expect_poll "an unset operator offers Allow" allow vpn_setup
+settings_page_open vgs.vpn
+settings_setup
+expect_poll "the Setup tab names the step for the Tailscale service" '["Tailscale service"]' vpn_setup_label
+settings_page_close vgs.vpn
 expect "changes wait for Allow" false vpn_value writable
 expect "System enables for the VPN section" ok ipc shell setPluginEnabled vgs.system true
 expect "the VPN section opens in System" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn","source":"smoke"}'

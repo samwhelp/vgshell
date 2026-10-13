@@ -117,7 +117,7 @@
     },
     "setup": {
       "type": "state",
-      "label": "Setup",
+      "label": "Tailscale service",
       "actions": {
         "enable": {
           "label": "Enable",
