@@ -81,8 +81,8 @@
 # No model download, system step or authentication runs.
 # voice-keys is the Keys
 # section of Voice's Settings page with Voice on, then the pointer on its
-# first key's info icon with that icon's tooltip open where the tree draws
-# one, taken only when named; jarvis-setup is the Jarvis page's row
+# first key's info icon where the tree draws one, which opens no tooltip,
+# taken only when named; jarvis-setup is the Jarvis page's row
 # actions with its daemon ready, as the settings scene readies it: the
 # Settings tab's Setup section, then the Details tab at its Browser driver
 # line and at its AI model section, then the Settings tab at its AI model
@@ -2980,8 +2980,9 @@ EOF
 }
 # Voice's Keys section on its Settings page, with Voice on so each row
 # reads the description its shortcut registered; voxtype stays absent, so
-# nothing records. Then the pointer on the first key's info icon, its
-# tooltip open, on a tree whose Keys rows draw one.
+# nothing records. Then the pointer on the first key's info icon, on a
+# tree whose Keys rows draw one: a form row's info icon opens no tooltip,
+# and an older tree's has the tooltip delay to open in.
 voice_keys_first="Start or stop dictation"
 voice_keys_section() { settings_section Keys KeyField "Dictate while held"; }
 voice_key_shown() { [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings KeyField "$voice_keys_first") == \[* ]] && echo shown || echo absent; }
@@ -3004,12 +3005,12 @@ scene_voice-keys() { # MODE
     fail "Voice's Keys section is unreadable: $section"
   fi
   # The icon draws no text, so hover_on's text reading cannot find it; the
-  # pointer goes to its centre and the open tooltip is the proof.
+  # pointer goes to its centre.
   if [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings InfoButton "About $voice_keys_first") == \[* ]]; then
     settle_hold || fail "the held mode could not be taken again for the info icon"
     if read -r x y < <(window_point "$settings_surface" "$settings_kind" vgs.settings InfoButton "About $voice_keys_first") && hover "$((x - 4))" "$y" && hover "$x" "$y"; then
-      expect_poll "the info icon's tooltip opens" tooltip shot_chrome_read
-      take_posed "voice-keys-$1-tooltip"
+      for _ in $(seq 1 10); do [[ $(shot_chrome_read) == tooltip ]] && break; sleep 0.2; done
+      take_posed "voice-keys-$1-info"
     else
       fail "the pointer could not reach the first key's info icon"
     fi
