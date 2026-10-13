@@ -478,10 +478,33 @@ function verifyModelChoice(providers) {
             // A field with nothing offered is not drawn, whatever is saved.
             const page = plain(judge.settingChoices(manifest, values, settings));
             assert.deepEqual([page.model.length === 0, page.effort.length === 0], [models.length === 0, efforts.length === 0], label + ": the fields the page draws");
-            // A drawn Model field holds the saved model, offered or not,
-            // and with none saved its first choice keeps the setting unset.
-            if (models.length > 0) assert.equal(page.model.some((row, index) => row.value === settings.model && (settings.model !== "" || index === 0)), true,
+            // A drawn Model field preserves every offer's real ID. The
+            // placeholder carries an unset choice until the reader saves it.
+            if (models.length > 0 && settings.model !== "") assert.equal(page.model.some(row => row.value === settings.model), true,
                 label + ": the Model field shows what is saved");
+        }
+        const activationSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.settings/SettingField.qml"), "utf8");
+        const activated = [...activationSource.matchAll(/onActivated: index => \{\n                const row = rows\[index\];([\s\S]*?)\n            \}/g)];
+        assert.equal(activated.length, 1);
+        for (const [provider, ids] of [
+            ["ollama", ["fixture-model"]], ["lm-studio", ["fixture-model", "fixture-other"]],
+            ["llama-server", ["fixture-model"]], ["codex", ["default", "fixture-model"]]
+        ]) {
+            const local = provider !== "codex";
+            const listed = read(ids.map(id => offer(id, id, [])));
+            const choice = providers.modelChoice({ model: "", effort: "" }, listed, provider);
+            assert.equal(choice.model, local ? "" : "default", provider + ": local choice is explicit and program default stays selected");
+            const saved = { ...manifest.settings, model: choice.model };
+            const page = plain(judge.settingChoices(manifest, { models: choice.models }, saved)).model;
+            assert.deepEqual(page.map(row => row.value), ids, provider + ": every offered ID reaches Settings");
+            for (const [index, id] of ids.entries()) {
+                const writes = [];
+                const root = { value: saved.model, customChosen: false, apply: value => writes.push(value) };
+                vm.runInNewContext("(index => {\n                const row = rows[index];" + activated[0][1]
+                    + "\n})(" + index + ");", { root, rows: page, dynamic: true, shownIndex: -1, currentIndex: -1,
+                    Qt: { binding: value => value } });
+                assert.deepEqual(writes, id === saved.model ? [] : [id], provider + ": activation writes the offered ID");
+            }
         }
         // Labels a user reads: a level by its word, the program's own by
         // name, a model with no list by its saved name, marked when its
@@ -1871,7 +1894,8 @@ try {
         ["Accounts.qml", 'if (answer.kind === "failed") console.warn("jarvis-accounts: models=" + answer.reason);', ""],
         ["Accounts.qml", "listed = Object.assign({ brain: listed.brain }, answer);", "listed = answer;"],
         ["Accounts.qml", 'shell.status.set("efforts", choice.efforts) !== "ok"', 'shell.status.set("efforts", []) !== "ok"'],
-        ["manifest.json", '"optionsFrom": "efforts", "hideEmpty": true,', '"optionsFrom": "efforts",']
+        ["manifest.json", '"optionsFrom": "efforts", "hideEmpty": true,', '"optionsFrom": "efforts",'],
+        ["manifest.json", ', "placeholder": "Choose a model"', ""]
     ];
     for (const [index, [target, needle, replacement]] of CHOICE_CONTROLS.entries()) {
         const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "Service.qml": serviceSource, "manifest.json": fs.readFileSync(manifestFile, "utf8") }[target];

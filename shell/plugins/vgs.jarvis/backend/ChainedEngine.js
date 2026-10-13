@@ -407,13 +407,18 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // flight's owner, or null.
     let voiceList = { identity: null, voices: null, known: null, net: null };
     let listReads = 0;
-    // Only the local accounts this configure selected. A new configure or
-    // close aborts the old operation and prevents its answers from publishing.
+    // Only the local accounts this selection names. Ordinary hellos keep
+    // admitted answers and reads in flight; a new account/model selection,
+    // a retry of a refused catalog or close invalidates the operation.
     let modelReads = new Map();
+    let modelsFor = null;
     const modelOffers = id => modelReads.get(id)?.answer ?? { kind: "none" };
     function cancelModels() {
         for (const read of modelReads.values()) read.stop.abort();
         modelReads = new Map();
+    }
+    function modelsHeld() {
+        return plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable");
     }
     const listed = reference => voiceList.identity === JSON.stringify(reference)
         ? { voices: voiceList.voices, known: voiceList.known, reading: voiceList.net !== null }
@@ -1723,7 +1728,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     return Object.freeze({
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
-            cancelModels();
+            const identity = JSON.stringify([[settings.brain, settings.model ?? ""],
+                ...(Array.isArray(settings.fallbacks) ? settings.fallbacks : []).map(row => [row?.brain, row?.model ?? ""])]);
+            if (identity !== modelsFor || modelsHeld()) cancelModels();
+            modelsFor = identity;
             lastSettings = settings;
             const answer = judge(settings);
             readModels(plan.modelLists);
@@ -1745,7 +1753,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",
         // A failed local catalog or a model no longer offered is read again
         // by the daemon's existing Talk judgement, after the server recovers.
-        modelsHeld: () => plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable"),
+        modelsHeld,
         checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();

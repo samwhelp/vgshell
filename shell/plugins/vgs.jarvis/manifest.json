@@ -43,7 +43,7 @@
       "info": "Changing this ends the conversation." },
     "brain": { "type": "string", "label": "Account", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose an account",
       "description": "The account Jarvis asks: an API key you added, or an app you are signed in to." },
-    "model": { "type": "string", "label": "Model", "group": "AI model", "optionsFrom": "models", "hideEmpty": true,
+    "model": { "type": "string", "label": "Model", "group": "AI model", "optionsFrom": "models", "hideEmpty": true, "placeholder": "Choose a model",
       "description": "The model that answers you, from the list that the app or API key you chose above offers.",
       "info": "Changing this ends the conversation." },
     "effort": { "type": "string", "label": "Effort", "group": "AI model", "optionsFrom": "efforts", "hideEmpty": true,

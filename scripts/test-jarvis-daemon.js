@@ -1841,7 +1841,7 @@ exit "$failures"
             }
         } finally { for (const name of ["grim", "magick"]) fs.rmSync(path.join(standins, name), { force: true }); }
     }
-    async function engineConversation(file, said = "What time is it?", caption = said) {
+    async function engineConversation(file, said = "What time is it?", caption = said, identicalHello = false) {
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR
         }, stdio: ["pipe", "pipe", "pipe"] });
@@ -1860,6 +1860,8 @@ exit "$failures"
         child.stdin.on("error", error => { if (error.code !== "EPIPE") throw error; });
         const closed = once(child, "close");
         const send = message => child.stdin.write(JSON.stringify(message) + "\n");
+        let releaseReply = () => {};
+        const heldReply = identicalHello ? new Promise(resolve => { releaseReply = resolve; }) : null;
         // Real capture, a loopback request and paced playback cross pipes.
         const wait = async (predicate, label) => {
             for (let attempts = 0; attempts < 1000 && child.exitCode === null; attempts++) {
@@ -1870,8 +1872,11 @@ exit "$failures"
         };
         try {
             const before = loopback.requests.length;
-            loopback.replies.push(Engine.text("It is noon. ", "The sun is high."));
-            send({ ...hello, settings: { ...hello.settings, brain: brainId, model: "fixture-model" } });
+            const reply = Engine.text("It is noon. ", "The sun is high.");
+            if (identicalHello) reply.splice(1, 0, { wait: heldReply });
+            loopback.replies.push(reply);
+            const snapshot = { ...hello, settings: { ...hello.settings, brain: brainId, model: "fixture-model" } };
+            send(snapshot);
             await wait(m => m.state.gate.kind === "up", "the selected catalog model admits the engine");
             assert.equal(states.at(-1).state.gate.kind, "up", "the engine raises the gate: " + JSON.stringify(states.at(-1).state.gate));
             assert.deepEqual(statuses.at(-1).causes, [], "a ready engine publishes no setup cause");
@@ -1879,6 +1884,20 @@ exit "$failures"
             await wait(m => m.phase === "listening", "listening");
             const collectionOp = states.at(-1).state.turn.op;
             send(intent("talk-up"));
+            if (identicalHello) {
+                await wait(m => m.phase === "thinking" && loopback.requests.length === before + 1,
+                    "the real local turn is active before the unchanged hello");
+                const conversation = structuredClone(states.at(-1).state.conversation);
+                const generation = states.at(-1).state.gen;
+                const stateAt = states.length, statusAt = statuses.length, catalogs = loopback.catalogs.length;
+                send(snapshot);
+                await wait(() => states.length > stateAt && statuses.length > statusAt, "the unchanged hello answers");
+                assert.deepEqual(states.at(-1).state.conversation, conversation, "an unchanged hello keeps the active local conversation");
+                assert.equal(states.at(-1).state.gen, generation, "an unchanged hello keeps its generation");
+                assert.equal(states.at(-1).state.gate.kind, "up");
+                assert.equal(loopback.catalogs.length, catalogs, "an admitted unchanged selection needs no new catalog operation");
+                releaseReply();
+            }
             await wait(m => m.phase === "idle" && m.state.conversation.kind !== "ended" && m.state.turn.kind === "none"
                 && states.some(state => state.phase === "speaking"), "speech completes");
             const phases = states.map(state => state.phase).filter((phase, index, all) => phase !== all[index - 1]);
@@ -1902,11 +1921,21 @@ exit "$failures"
                 [gen, "assistant", "partial", 2, ack + " It is noon."],
                 [gen, "assistant", "partial", 3, ack + " It is noon. The sun is high."],
                 [gen, "assistant", "final", 4, ack + " It is noon. The sun is high."]], "the chained reply's words reach the wire in order, final last");
+            if (identicalHello) {
+                loopback.replies.push(Engine.text("The follow-up is complete."));
+                send({ ...intent("say"), text: "Follow up." });
+                await wait(() => loopback.requests.length === before + 2 && loopback.requests.at(-1).body !== null,
+                    "the next request keeps the earlier conversation history");
+                const history = loopback.requests.at(-1).body.messages;
+                assert.deepEqual(history.filter(message => message.role === "user").map(message => message.content), [said, "Follow up."]);
+                assert.ok(history.some(message => message.role === "assistant" && message.content?.includes("It is noon.")));
+                await wait(m => m.phase === "idle" && m.state.turn.kind === "none", "the follow-up completes");
+            }
             child.stdin.end();
             const [code] = await closed;
             assert.equal(code, 0, err);
             cases++;
-        } finally { if (child.exitCode === null) { child.kill("SIGKILL"); await closed; } }
+        } finally { releaseReply(); if (child.exitCode === null) { child.kill("SIGKILL"); await closed; } }
     }
     try {
         // Speech.transcribe joins recognizer text without the shell caption's
@@ -1921,6 +1950,14 @@ exit "$failures"
             await engineConversation(engineCopy("engine-" + name, said), said, caption);
             console.log("test-jarvis-daemon: caption=" + name + " passed");
         }
+        await engineConversation(engineCopy("engine-identical-hello"), "What time is it?", "What time is it?", true);
+        await assert.rejects(() => engineConversation(engineCopy("engine-clears-identical-hello", "What time is it?", null,
+            [["if (identity !== modelsFor || modelsHeld()) cancelModels();", "cancelModels();"]]),
+            "What time is it?", "What time is it?", true),
+        error => error instanceof assert.AssertionError && error.message.startsWith("an unchanged hello keeps the active local conversation"),
+        "an unnecessary invalidation must fail the active conversation assertion");
+        controls++;
+        console.log("test-jarvis-daemon: control=identical-hello-conversation killed");
         await assert.rejects(() => engineConversation(engineCopy("engine-no-caption", "What time is it?", null,
             [["        caption(c, turn, sentence);\n", ""]])),
         error => error instanceof assert.AssertionError && error.message.startsWith("the chained reply's words reach the wire"),

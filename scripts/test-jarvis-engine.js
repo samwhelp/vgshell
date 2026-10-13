@@ -3020,6 +3020,8 @@ async function localCatalog(kit, root, only) {
             { name: "recovered", model: "fixture-model", status: 503, cause: "brain=models-unavailable", recover: true },
             { name: "backup", model: "absent", fallbacks: [{ brain: id, model: "fixture-model" }], kind: "ready" },
             { name: "reconfigure", model: "fixture-model", hold: true },
+            { name: "account-change", model: "fixture-model", hold: true, accountChange: true },
+            { name: "unchanged-pending", model: "fixture-model", hold: true, identical: true },
             { name: "close", model: "fixture-model", hold: true }
         ].filter(row => only === undefined || row.name === only)) {
             Fixture.reset({ ready: true });
@@ -3041,7 +3043,12 @@ async function localCatalog(kit, root, only) {
                 await until(() => requests.length === count + 1 || faults.length !== 0, "one account catalog read");
                 assert.equal(faults.length, 0, "catalog reads use the existing audit writer");
                 if (row.hold) {
+                    if (row.identical) {
+                        assert.equal(engine.configure({ brain: id, model: row.model, effort: "" }).cause, "brain=models-reading");
+                        assert.equal(requests.length, count + 1, "an identical hello keeps the same catalog operation");
+                    }
                     if (row.name === "close") engine.close();
+                    else if (row.accountChange) assert.equal(engine.configure({ brain: "", model: row.model, effort: "" }).cause, "brain=unselected");
                     else assert.equal(engine.configure({ brain: id, model: "", effort: "" }).cause, "brain=model-required");
                     let closed = false;
                     void requests.at(-1).closed.wait.then(() => { closed = true; });
@@ -3056,6 +3063,8 @@ async function localCatalog(kit, root, only) {
                     if (row.kind === "ready") {
                         assert.deepEqual(observed.at(-1), { kind: "ready" });
                         assert.equal(engine.plan().brain.model, "fixture-model");
+                        assert.deepEqual(engine.configure({ brain: id, model: row.model, effort: "", fallbacks: row.fallbacks ?? [] }),
+                            { kind: "ready" }, "an identical hello preserves admitted model readiness");
                     } else assert.deepEqual(observed.at(-1), { kind: "unconfigured", cause: row.cause, causes: [row.cause] });
                     assert.equal(requests.length, count + 1, "a primary and backup on one server share their read");
                     assert.equal(engine.modelsHeld(), row.kind !== "ready");
@@ -3113,8 +3122,9 @@ async function groupSelection(root, server) {
         ["local-catalog-audit", "account.readOffers(id, read.stop.signal, audit)", "account.readOffers(id, read.stop.signal)", "chosen"],
         ["local-catalog-cancel", "        for (const read of modelReads.values()) read.stop.abort();", "", "reconfigure"],
         ["local-catalog-stale", "                if (closed || modelReads.get(id) !== read) return;\n                read.answer = answer;", "                read.answer = answer;", "reconfigure"],
-        ["local-catalog-held", 'modelsHeld: () => plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable"),',
-            'modelsHeld: () => false,', "recovered"],
+        ["local-catalog-held", 'return plan.kind === "unconfigured" && plan.causes.some(cause => cause === "brain=models-unavailable" || cause === "brain=model-unavailable");',
+            'return false;', "recovered"],
+        ["local-catalog-unchanged", "if (identity !== modelsFor || modelsHeld()) cancelModels();", "cancelModels();", "chosen"],
         ["local-catalog-close", "            cancelModels();\n            voiceList.net?.close();", "            voiceList.net?.close();", "close"]
     ]) {
         await assert.rejects(() => localCatalog(Fixture.copy(root, [PLAN, [needle, replacement]]), root, scenario),
