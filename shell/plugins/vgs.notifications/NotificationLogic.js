@@ -143,10 +143,11 @@ function sanitizeBody(body, app, appIcon) {
 // into a live image tag the input never held. With an x-vgs-page hint,
 // `page`, the first place its words stand whole in the text between tags
 // draws as LinkText draws a link, underlined in `linkColor`; a body without
-// them draws as it would with no hint.
+// them draws as it would with no hint. The words are read escaped, as the
+// core escapes the message (PluginLogic.notifyArgv) and not the hint.
 function styledBody(body, app, appIcon, page, linkColor) {
     var styled = stripImageTags(sanitizeBody(body, app, appIcon).replace(/\r\n|\r|\n/g, "<br/>"));
-    var words = page ? Commons.PageReference.parse(page).words : "";
+    var words = page ? Commons.PageReference.parse(page).words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
     if (words === "") return styled;
     var i = 0;
     while (i < styled.length) {

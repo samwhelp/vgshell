@@ -95,7 +95,9 @@ expect "Settings is closed before the page link cards" 0 window_count Plugins
 expect_poll "control: the card without its page hint keeps a click that only dismisses" '["Open Details for the rest.", "", "none"]' probe_page "Probe unlinked"
 click_probe_card "Probe unlinked" || fail "notify: the click on the card without its page hint failed"
 expect_poll "control: the card without its page hint leaves on its click" '"none"' probe_page "Probe unlinked"
-expect "control: a click on the card without its page hint leaves Settings closed" 0 window_count Plugins
+# The click opens a page before the card leaves, so a page it opened has
+# its window instance by now.
+expect "control: a click on the card without its page hint leaves Settings closed" absent settings_shown
 expect "a message with a page reference is sent" ok notify_send '{"title": "Probe linked", "message": "Open [Details](page:acme.probe/Details) for the rest.", "urgency": "critical"}'
 expect_poll "its card holds the words with no markup and keeps the reference" '["Open Details for the rest.", "[Details](page:acme.probe/Details)", "none"]' probe_page "Probe linked"
 click_probe_card "Probe linked" || fail "notify: the click on the page link card failed"

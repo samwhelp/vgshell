@@ -170,6 +170,7 @@ const LINKED_BODIES = [
     ["only the first place the words stand", "Setup, then Setup again.", SETUP, LINKED("Setup") + ", then Setup again."],
     ["the words in a tag's attribute stay as they are", '<b title="Setup">Go</b> to Setup', SETUP, '<b title="Setup">Go</b> to ' + LINKED("Setup")],
     ["the words across a line break", "Open Set\nup", SETUP, "Open Set<br/>up"],
+    ["escaped words, as the core sends the body", "Choose it in Settings &amp;gt; Voice.", "[Settings &gt; Voice](page:vgs.voice/Details)", "Choose it in " + LINKED("Settings &amp;gt; Voice") + "."],
     ["a body without the words", "Sync failed.", SETUP, "Sync failed."],
     ["no hint", "Open Setup to finish.", "", "Open Setup to finish."]
 ];
@@ -1484,6 +1485,7 @@ const CONTROLS = [
     ["a page click reaches its page", "if (route !== \"default\") return route !== \"dismiss\";", "if (route !== \"default\") return route === \"open\";"],
     ["a page hint opens its tab", "return { page: reference.page, tab: reference.tab };", "return { page: reference.page, tab: \"\" };"],
     ["a body draws the page words as a link", "return styled.slice(0, at) + \"<font", "return styled; (\"<font"],
+    ["the link words are read escaped", '.words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";', '.words : "";'],
     ["the link words are read between tags", "var end = open === -1 ? styled.length : open;", "var end = styled.length;"],
     ["the state judge reads the hint values", "if (!hintValueFits(HINT_ROLES[h], hint)) return where + \".\" + HINT_ROLES[h] + \" refused\";", "if (false) return \"\";"],
     ["the state judge refuses a hint role that is no string", "if (typeof hint !== \"string\") return where + \".\" + HINT_ROLES[h] + \" want=string\";", "if (false) return \"\";"],
