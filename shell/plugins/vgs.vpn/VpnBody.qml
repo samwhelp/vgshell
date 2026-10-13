@@ -29,11 +29,12 @@ FocusScope {
     readonly property bool busy: vpn.action !== ""
     readonly property bool switchable: ["running", "starting", "stopped"].indexOf(vpn.state) !== -1
     readonly property bool reached: switchable || vpn.state === "signed-out" || vpn.state === "needs-approval"
-    // The setup step the core offers now, { label }, else null.
+    // The setup step the core offers now, { label, hint }, else null.
+    // `hint` is the sentence that says what the step does.
     readonly property var setupAction: {
         if (shell === null) return null;
         const row = shell.status.rows.find(r => r.key === "setup");
-        return row === undefined || row.action === null || !row.action.offered ? null : { label: row.action.label };
+        return row === undefined || row.action === null || !row.action.offered ? null : { label: row.action.label, hint: row.hint };
     }
     readonly property var exitRows: [{ key: "", text: "None", secondary: "Use this computer's own connection", iconName: "globe-off",
         badge: vpn.exit === null ? "In use" : "", badgeTone: "success" }].concat(vpn.exitNodes.map(node => ({
@@ -101,7 +102,17 @@ FocusScope {
             text: root.localProblem !== "" ? root.localProblem : root.profiles.problem !== "" ? root.profiles.problem : root.vpn.problem
             wrapMode: Text.Wrap
         }
+        Label {
+            objectName: "vpn-setup-hint"
+            width: parent.width
+            visible: setupStep.visible && text !== ""
+            role: "hint"
+            textFormat: Text.PlainText
+            text: root.setupAction === null ? "" : root.setupAction.hint
+            wrapMode: Text.Wrap
+        }
         RowAction {
+            id: setupStep
             objectName: "vpn-setup"
             visible: root.vpn.state !== "missing" && root.setupAction !== null
             text: root.setupAction === null ? "" : root.setupAction.label

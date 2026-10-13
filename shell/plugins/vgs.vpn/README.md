@@ -19,11 +19,11 @@ VPN shows your saved VPN profiles and your Tailscale connection. It turns it on 
 
 ## Setup
 
-The VPN section and the plugin's Settings page offer one step at a time. Enable and Let my account control Tailscale run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, Install all missing on the Setup tab installs it.
+The VPN section and the plugin's Settings page offer one step at a time. Enable and Let my login control Tailscale run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, Install all missing on the Setup tab installs it.
 
 | Step | When | What it does |
 | --- | --- | --- |
 | Enable | The Tailscale service is off | Starts the service and keeps it on after a restart. |
-| Let my account control Tailscale | Your account cannot change Tailscale | Makes your account the Tailscale operator, so changes need no administrator password. |
+| Let my login control Tailscale | Only the administrator can change Tailscale | Lets VGS connect, disconnect and choose an exit node for you without a password. |
 
 Check every sets how often VGS reads Tailscale while the flyout and the section are closed: 10, 30 or 60 seconds.

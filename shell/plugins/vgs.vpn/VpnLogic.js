@@ -293,7 +293,7 @@ function setup(context) {
             : { text: "Not checked", hint: "VGS could not check the Tailscale service." };
         return setupState("info", unoffered.text, unoffered.hint, "");
     }
-    if (stepOffered(context.operator)) return setupState("warning", "Access needed", "Your account cannot change Tailscale.", "allow");
+    if (stepOffered(context.operator)) return setupState("warning", "Access needed", "Only the administrator can change Tailscale. After this step, VGS connects and disconnects for you without a password.", "allow");
     if (context.operator === "denied") return setupState("info", "Another account", "Another account controls Tailscale. Only that account can change it.", "");
     // The core's probe could not read the operator, so Ready would be a guess.
     if (context.operator === "unknown" && REACHED.indexOf(context.state) !== -1)
