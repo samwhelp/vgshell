@@ -1464,14 +1464,19 @@ verifyTabIndicator(TOKENS);
 // the state does not rest on the line's colour. This reads the view's
 // source: it holds that the mark is declared before the line in one row,
 // and the rendered line is the theme sheets' to show. The control is the
-// same source without the mark.
+// same source without the mark. The mark takes its top from its line's
+// label, whose placement `scripts/qml-tests/tst_label.qml` holds; the
+// control is the line-box placement.
 const FAILURE_LINE = /Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
 const FAILURE_MARK = /Icon \{[^{}]*name: "circle-alert"[^{}]*\}/;
+const FAILURE_MARK_TOP = /Icon \{[^{}]*y: failureText\.topForLeadingIcon\(height\)[^{}]*name: "circle-alert"/;
 for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     const viewSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.themes", view), "utf8");
     assert.equal(viewSource.split("Theme.carousel.hintDanger").length, 2, `${view} draws one failure line`);
     assert.match(viewSource, FAILURE_LINE, `${view} leads its failure line with the danger mark`);
     assert.doesNotMatch(viewSource.replace(FAILURE_MARK, ""), FAILURE_LINE, `control: ${view} without the mark must fail the check`);
+    assert.match(viewSource, FAILURE_MARK_TOP, `${view} centres the mark on its line's capitals`);
+    assert.doesNotMatch(viewSource.replace("failureText.topForLeadingIcon(height)", "Math.round((failureText.lineBox - height) / 2)"), FAILURE_MARK_TOP, `control: ${view} with the mark on the line box must fail the check`);
 }
 
 // Each token control edits a copy of the shipped table, and the verifier

@@ -14,6 +14,10 @@ import qs.Commons
 // glyph. `topForCapCenter()` gives the top that puts the capital centre on
 // a box centre with the baseline on a whole device pixel of the label's own
 // screen, since a whole pixel spans two device pixels on a 2x screen.
+// `topForLeadingIcon()` gives the top, from the label top, that puts an
+// icon leading the first line on that capital centre: the line box holds
+// the descent too, so its centre is under the capitals the eye levels
+// the icon with.
 // `capTop()` is how far below the label top the first line's capitals
 // start, `inkAbove()` how far below it the first line's ink starts, its
 // glyphs' highest ink for a one-line label and the capital top for a
@@ -96,6 +100,10 @@ Text {
 
     function topForCapCenter(boxHeight) {
         return Math.round((boxHeight / 2 + metrics.capitalHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - metrics.ascent;
+    }
+
+    function topForLeadingIcon(iconHeight) {
+        return Math.round(capCentre - iconHeight / 2);
     }
 
     FontMetrics {

@@ -318,6 +318,7 @@ mutations=(
   "an absent family draws the mono family whatever its token|../Commons/Theme.qml|convertLeaf(level[key], node[key], fallback[key], loaded, families, missing)|convertLeaf(level[key], node[key], loaded[0], loaded, families, missing)|tst_label.qml"
   "the label's letter spacing is not scaled|foundation/Label.qml|font.letterSpacing: typography.letterSpacing * typography.size|font.letterSpacing: typography.letterSpacing|tst_label.qml"
   "the label drops its fixed-height branch|foundation/Label.qml|lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight|lineHeightMode: Text.ProportionalHeight|tst_label.qml"
+  "a leading icon centres on the line box|foundation/Label.qml|return Math.round(capCentre - iconHeight / 2);|return Math.round((lineBox - iconHeight) / 2);|tst_label.qml"
   "the label line box is not whole-pixel floored|foundation/Label.qml|readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))|readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), fontHeight)|tst_label.qml"
   "the icon's stroke scales with its size|foundation/Icon.qml|strokeWidth: root.stroke / root.factor|strokeWidth: root.stroke|tst_icon.qml"
   "the icon's path is not scaled|foundation/Icon.qml|transform: Scale { xScale: root.factor; yScale: root.factor }|transform: Scale { xScale: 1; yScale: 1 }|tst_icon.qml"

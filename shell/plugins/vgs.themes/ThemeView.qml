@@ -469,7 +469,7 @@ FocusScope {
 
                         Icon {
                             id: failureMark
-                            y: Math.round((failureText.lineBox - height) / 2)
+                            y: failureText.topForLeadingIcon(height)
                             name: "circle-alert"
                             size: Theme.icon.size.md
                             color: failureText.color

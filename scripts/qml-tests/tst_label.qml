@@ -14,7 +14,9 @@ import qs.Unit
 // key/value row's label and its value draw in the pair of roles whose
 // capitals are within a pixel of one height, and on the row they share a
 // baseline within a pixel. An absent family draws the bundled family its
-// token's default names.
+// token's default names. An icon that leads a line stands with its centre
+// within a pixel of the line's capital centre, which the line box's
+// centre is not.
 Item {
     id: root
     width: 300
@@ -33,6 +35,13 @@ Item {
     }
     Label { id: bar; role: "bar"; text: "10"; y: 170 }
     FontMetrics { id: barMetrics; font: bar.font }
+    Row {
+        id: led
+        y: 150
+        Icon { id: ledMark; y: ledText.topForLeadingIcon(height); name: "circle-alert" }
+        Label { id: ledText; text: "The catalog is unavailable." }
+    }
+    FontMetrics { id: ledMetrics; font: ledText.font }
     Field { id: pair; label: "Agents running"; inline: true; width: 300; y: 190; Label { id: pairValue; role: "value"; text: "3" } }
 
     TestCase {
@@ -175,6 +184,17 @@ Item {
             compare(bodyTwo.lineHeightMode, Text.FixedHeight);
             compare(bodyTwo.lineHeight, lineBox);
             fuzzyCompare(bodyTwo.implicitHeight, 2 * lineBox, 1);
+        }
+
+        // The capital centre here is read from the drawn text's own
+        // baseline (Text.baselineOffset) and the font's capital height,
+        // not from the label's reading of it.
+        function test_a_leading_icon_centres_on_the_capitals() {
+            const capCentre = ledText.baselineOffset - ledMetrics.capitalHeight / 2;
+            const off = top => Math.abs(top + ledMark.height / 2 - capCentre);
+            verify(off(ledMark.y) <= 1, "the mark is " + off(ledMark.y) + " px off the capital centre");
+            // The same reading must reject the line-box placement.
+            verify(off(Math.round((ledText.lineBox - ledMark.height) / 2)) > 1, "control: the line-box centre reads as level");
         }
 
         function test_measurements_read_back() {
