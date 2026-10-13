@@ -3659,7 +3659,8 @@ const SPOKEN_CONTROLS = [
     ["elevenlabs-unlisted-voice", ": read.known?.has(settings.voice) ? settings.voice : null;", ": settings.voice || null;"],
     ["elevenlabs-failed-read-drops-voice", "known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : read.known", "known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : null"],
     ["elevenlabs-never-held", 'voicesHeld: () => plan.speech?.kind === "unconfigured" && plan.speech.cause === "speech=elevenlabs-voice",', "voicesHeld: () => false,"],
-    ["elevenlabs-list-throw-dropped", "} catch (error) { fatal(error); }", "} catch (error) { void error; }"],
+    ["elevenlabs-list-throw-dropped", "if (lastSettings !== null) configured(judge(lastSettings));\n                } catch (error) { fatal(error); }",
+        "if (lastSettings !== null) configured(judge(lastSettings));\n                } catch (error) { void error; }"],
     ["always-elevenlabs-refused", 'settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) ||',
         'settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || settings.voiceProvider === "elevenlabs" ||']
 ];

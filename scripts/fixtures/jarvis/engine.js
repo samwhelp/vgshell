@@ -182,6 +182,7 @@ function brain(port) {
         return closes.get(socket);
     };
     const requests = [];
+    const catalogs = [];
     const faults = [];
     // A request waits for its case to queue the reply it should receive. A
     // request whose client went away takes none, so it cannot steal one.
@@ -197,6 +198,15 @@ function brain(port) {
         return socket.destroyed ? null : replies.shift();
     };
     const server = http.createServer(async (request, response) => {
+        // The same local server's OpenAI-compatible metadata catalog.
+        // Accounts reads it before accepting the model a daemon hello names.
+        if (request.method === "GET" && request.url === "/v1/models") {
+            assert.equal(request.headers.authorization, undefined);
+            catalogs.push({ method: request.method, url: request.url });
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify({ data: [{ id: "fixture-model" }] }));
+            return;
+        }
         const record = { body: null, closed: closing(request.socket) };
         requests.push(record);
         try {
@@ -229,7 +239,7 @@ function brain(port) {
         server.once("error", reject);
         server.listen(port, "127.0.0.1", resolve);
     });
-    return { ready, requests, replies, faults,
+    return { ready, requests, replies, faults, catalogs,
         close: () => new Promise(resolve => server.close(resolve)), closeAll: () => server.closeAllConnections() };
 }
 

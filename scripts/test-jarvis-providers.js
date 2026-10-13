@@ -127,16 +127,17 @@ assert.throws(() => Providers.assertRow({ ...Providers.select("openai") }), { me
 assert.throws(() => Providers.select("openai").noStore.store = true, TypeError);
 
 let controls = 0;
-// Every call through a network door is a provider request, and each one
-// carries its provider row's noStore fields under its own test: the wire
+// Every call through a network door is named here. Inference carries its
+// provider row's noStore fields under its own test: the wire
 // brain in test-jarvis-brain-openai.js (no-store), the voice engine in
 // test-jarvis-live.js (no-trace) and the key check in
 // test-jarvis-account-verify.js (verify-no-store). Door holders are the
-// names Net.create's result is assigned to; a door passed on under another
+// local catalog in test-jarvis-accounts.js sends a bodyless GET. Door holders
+// are the names Net.create's result is assigned to; a door passed on under another
 // name is not found.
 // The Gemini Live and ElevenLabs rows document no such field, so their
 // requests, ElevenLabs's sentences and voice list both, carry none.
-const NO_STORE_SITES = ["Accounts.js:request", "ElevenLabs.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
+const NO_STORE_SITES = ["Accounts.js:request", "Accounts.js:request", "ElevenLabs.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
 function doorSites(sources) {
     const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
     assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");

@@ -1374,19 +1374,14 @@ world(async () => {
 
     // The real daemon selects Accounts, the configured brain, Session,
     // ToolRouter, Policy, Files, Audit and the duplex speech owner. Only the
-    // provider address, local fixture model and clock are instrumented in its disposable tree.
+    // provider address and clock are instrumented in its disposable tree.
+    // Its hello selects the model the local fixture server's catalog offers.
     async function daemonDelegation(kit, only = "action", P = REALTIME) {
         const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "delegation-daemon-"));
         const plugin = path.join(root, "plugin");
         fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis"), plugin, { recursive: true });
         for (const file of fs.readdirSync(kit.folder).filter(name => name.endsWith(".js")))
             fs.copyFileSync(path.join(kit.folder, file), path.join(plugin, "backend", file));
-        const accountsFile = path.join(plugin, "AccountProviders.js");
-        const accountSource = fs.readFileSync(accountsFile, "utf8");
-        const modelNeedle = 'probe: { driver: "ollama", path: "/api/generate", model: "" }';
-        assert.equal(accountSource.split(modelNeedle).length - 1, 1, "the local fixture names its scripted model");
-        fs.writeFileSync(accountsFile, accountSource.replace(modelNeedle,
-            'probe: { driver: "ollama", path: "/api/generate", model: "fixture-model" }'));
         const runnerFile = path.join(plugin, "backend/jarvisd.js");
         const offset = path.join(root, "clock");
         fs.writeFileSync(offset, "0");
@@ -1461,7 +1456,7 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "", effort: "", fallbacks: [], taskTerminal: "auto",
+            send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "fixture-model", effort: "", fallbacks: [], taskTerminal: "auto",
                 cloudVision: "ask", privateWindows: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             if (only === "wrong-key") {
@@ -1475,6 +1470,8 @@ world(async () => {
                 return;
             }
             await wait(() => last()?.gate.kind === "up", "the configured cloud voice raises the daemon gate");
+            assert.ok(server.catalogs.some(request => request.method === "GET" && request.url === "/v1/models"),
+                "the daemon reads the offered local model before admission");
             assert.equal(last().engine.kind, "duplex");
             // The Voice setting's offers: the selected cloud voice's voices.
             const Adapter = require(path.join(kit.folder, P.file));

@@ -792,7 +792,7 @@ world(async () => {
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CodexHarness.probe(",
                 "(send => send())(() => CodexHarness.probe("]], "verify"],
             ["handoff-release", "backend/Accounts.js", [['const grants = [{ recipients: selected, labels: ["command"] }];', "const grants = [];"]], "verify"],
-            ["harness-brain", "AccountProviders.js", [['return row.kind === "cli" || (', "return ("]], "verify"],
+            ["harness-brain", "AccountProviders.js", [['row.kind === "cli" || ', ""]], "verify"],
             ["handoff-runtime", "backend/Accounts.js", [["CodexHarness.probe({ directory: account.source.directory, env: this.env,\n                        runtime: this.runtime, model, text", 'CodexHarness.probe({ directory: account.source.directory, env: this.env,\n                        runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgshell/jarvis"), model, text']], "verify"],
             ["default-runtime", "backend/Accounts.js", [["runtime = runtimeDirectory(env.XDG_RUNTIME_DIR)) {", 'runtime = "") {']], "verify"],
             ["harness-reason", "backend/Accounts.js", [[": harness ? harness[1]", ": false ? harness[1]"]], "verify"],
