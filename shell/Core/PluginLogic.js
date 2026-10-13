@@ -1969,13 +1969,30 @@ function versionsRead(completion, stdout) {
     return { ok: true, versions: read };
 }
 
+// The word and badge tone a requirement in STATE draws with, OPTIONAL when
+// its owner marks it optional, on its Settings Requirements row and on the
+// requirement notice alike, so one tool reads at one urgency in both:
+// Present in the success tone, Missing in the danger tone, Optional in the
+// info tone for a missing optional one, and Outdated in the warning tone,
+// optional or not.
+function requirementBadge(state, optional) {
+    switch (state) {
+    case "present": return { text: "Present", tone: "success" };
+    case "missing": return optional ? { text: "Optional", tone: "info" } : { text: "Missing", tone: "danger" };
+    case "outdated": return { text: "Outdated", tone: "warning" };
+    }
+    throw new Error("requirementBadge: no rule for requirement state " + JSON.stringify(state));
+}
+
 // The rows a plugin's requirements are reported as: each normalized entry
 // of MANIFEST's `requirements`, in order, with `state` as requirementState
-// reads it from MISSING and VERSIONS.
+// reads it from MISSING and VERSIONS and `badge` as requirementBadge draws
+// that state.
 function requirementRows(manifest, missing, versions) {
     return manifest.requirements.map(function (entry) {
         var row = clone(entry);
         row.state = requirementState(entry, missing, versions);
+        row.badge = requirementBadge(row.state, row.optional);
         return row;
     });
 }
@@ -2215,10 +2232,12 @@ function noticeTitle(owner, view) {
 // ROWS, noticeView's, as the user installs them: one entry per package,
 // keyed by its manager and name, or per requirement when no package is
 // known, keyed by the requirement's name, in first-appearance order, each
-// { chip, packaged, manager, update, optional, purposes }, `manager` the
-// package's or null, `update` while every requirement of the entry is
-// outdated, so its step is an update, and `optional` while every one is
-// optional. Two requirements one package provides
+// { chip, packaged, manager, update, optional, purposes, badge }, `manager`
+// the package's or null, `update` while every requirement of the entry is
+// outdated, so its step is an update, `optional` while every one is
+// optional, and `badge` the state requirementBadge draws beside the chip:
+// Outdated for an update, else Missing or Optional. Two requirements one
+// package provides
 // read as one thing to install, and a package is never merged with a
 // requirement of its name.
 function noticeGroups(rows) {
@@ -2236,7 +2255,7 @@ function noticeGroups(rows) {
             held.purposes.push(row.purpose);
         }
     });
-    return out;
+    return out.map(function (g) { return Object.assign(g, { badge: requirementBadge(g.update ? "outdated" : "missing", g.optional) }); });
 }
 
 // What a run of RAN left as it was, or null when it left nothing: RAN is

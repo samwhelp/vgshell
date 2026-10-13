@@ -11,8 +11,9 @@ import qs.Ui
 // taking the keyboard on demand. It draws one Dialog at a time. A
 // requirement notice has priority: one entry per package its step installs
 // for a missing requirement or updates for an outdated one, its name as a
-// chip with Missing, Optional or Outdated beside it and each purpose under
-// it, then one per package a later step offers, drawn alike with a line
+// chip with its state beside it, Missing, Optional or Outdated in the tone
+// the Requirements row draws it with (PluginLogic.requirementBadge), and
+// each purpose under it, then one per package a later step offers, drawn alike with a line
 // naming the manager that offers it, its title counting the entries whose
 // chip reads Missing or Outdated, then
 // Install, Update or Install and update, with Not now, or Close alone when
@@ -71,7 +72,7 @@ Scope {
     function leftLine(shown, entry) {
         switch (entry.kind) {
         case "missing":
-            return entry.optional ? entry.name + " is optional and was not installed." : entry.name + " is still missing after the install.";
+            return entry.optional ? entry.name + " is optional. The install skipped it." : entry.name + " is still missing after the install.";
         case "outdated":
             return entry.name + " is still version " + entry.version + " after the update. " + shown.name + " needs version " + entry.floor + " or later.";
         }
@@ -226,8 +227,8 @@ Scope {
                                 }
                                 Badge {
                                     id: entryState
-                                    text: modelData.update ? "Outdated" : modelData.optional ? "Optional" : "Missing"
-                                    tone: !modelData.update && modelData.optional ? "info" : "warning"
+                                    text: modelData.badge.text
+                                    tone: modelData.badge.tone
                                     size: "sm"
                                 }
                             }

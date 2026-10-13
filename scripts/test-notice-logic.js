@@ -280,6 +280,18 @@ function suite(ctx, check) {
     }
     check("control: the optional-only notice draws its optional entry", optionalView.drawn.map(e => [e.chip, e.optional]), [["two-git", true]]);
     check("control: the mixed notice draws an outdated optional entry and a missing optional one", mixedView.drawn.map(e => [e.chip, e.update, e.optional]), [["old", true, false], ["pi", true, true], ["vox", false, true]]);
+    // Each chip's state reads in the tone its Requirements row draws
+    // (requirementBadge): a missing required tool Missing in the danger
+    // tone, a missing optional one Optional in the info tone, and an
+    // outdated one Outdated in the warning tone, optional or not.
+    const badgeOf = e => [e.chip === undefined ? e.name : e.chip, e.badge.text, e.badge.tone];
+    check("requirementRows: each row's badge reads its state in its tone", ctx.requirementRows(needs, ["vgs-one", "vgs-two"], {}).map(badgeOf),
+        [["vgs-one", "Missing", "danger"], ["vgs-two", "Optional", "info"], ["vgs-bare", "Present", "success"], ["sh", "Present", "success"], ["vgs-nix", "Present", "success"]]);
+    check("noticeView: a missing required package's chip reads Missing in the danger tone, a missing optional one Optional in the info tone",
+        ctx.noticeView(needs, ["vgs-one", "vgs-two"], {}, { id: "acme.needs", commands: ["vgs-one", "vgs-two"], required: ["vgs-one", "vgs-two"] }, ARCH).drawn.map(badgeOf),
+        [["one", "Missing", "danger"], ["two-git", "Optional", "info"]]);
+    check("noticeView: an outdated package's chip reads Outdated in the warning tone, optional or not", mixedView.drawn.map(badgeOf),
+        [["old", "Outdated", "warning"], ["pi", "Outdated", "warning"], ["vox", "Optional", "info"]]);
     // noticeUnchanged names an optional package the install left missing
     // as optional, so the notice says so rather than reporting a failure.
     check("noticeUnchanged: an install that left an optional package missing names it optional",
@@ -572,6 +584,10 @@ const CONTROLS = [
     ["the title leaves missing optional entries out", "view.drawn.filter(function (e) { return e.update || !e.optional; })", "view.drawn"],
     ["the title counts an outdated optional entry", "view.drawn.filter(function (e) { return e.update || !e.optional; })", "view.drawn.filter(function (e) { return !e.optional; })"],
     ["a missing package left by an install says whether it is optional", "return r.package.name !== row.package.name || r.optional;", "return false;"],
+    ["a missing required tool draws in the danger tone", "{ text: \"Missing\", tone: \"danger\" }", "{ text: \"Missing\", tone: \"warning\" }"],
+    ["a missing optional tool draws Optional in the info tone", "optional ? { text: \"Optional\", tone: \"info\" } : ", "false ? { text: \"Optional\", tone: \"info\" } : "],
+    ["an outdated tool draws in the warning tone", "{ text: \"Outdated\", tone: \"warning\" }", "{ text: \"Outdated\", tone: \"danger\" }"],
+    ["a notice entry reads Outdated for an update", "requirementBadge(g.update ? \"outdated\" : \"missing\", g.optional)", "requirementBadge(\"missing\", g.optional)"],
     ["a group is optional only while each requirement is", "            held.optional = held.optional && row.optional;\n", ""],
     ["a view lists only the packages its press handles", "entries.filter(function (e) { return e.manager === pressed.manager; })", "entries"],
     ["a press updates only a package of its own manager", "e.manager === group.manager && e.chip === name && e.update", "e.chip === name && e.update"],

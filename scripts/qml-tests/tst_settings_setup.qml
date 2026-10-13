@@ -522,8 +522,9 @@ Item {
             ];
         }
         function test_an_outdated_requirement_reads_one_state(data) {
-            const row = createTemporaryObject(requirementComponent, root, { requirement: { name: "acme-tool", purpose: "A tool", optional: data.optional, state: "outdated" } });
-            compare([row.view.text, row.view.tone], ["Outdated", "warning"]);
+            const row = createTemporaryObject(requirementComponent, root, { requirement: { name: "acme-tool", purpose: "A tool", optional: data.optional, state: "outdated", badge: PluginLogic.requirementBadge("outdated", data.optional) } });
+            const chip = descendants(row).find(item => item instanceof Badge);
+            compare([chip.text, chip.tone], ["Outdated", "warning"]);
         }
     }
 
