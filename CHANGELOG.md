@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A floating terminal that opens with the VGS logo leaves one blank row between the logo and its first box, such as Remove recording and Set up local voice. Before, it left two.
 - Set up screen sharing accepts a link on the way to your Hyprland config folder that leads to a folder only the system can write, such as /home on Fedora Atomic. When setup cannot use the folder, it says why in one sentence that names the folder once, and says what you can do: replace it with a folder you own. Before, setup refused a link to any folder the system owns, and showed its refusal with an internal prefix at the window's left edge.
 - Words that name a page of Plugins can be a link that opens the page. The question before a bar item is hidden links the page that shows it again. A plugin writes such a link in a hint as `[words](page:<plugin id>)`, and the plugin check refuses a page named in plain words.
 - A setting's name in Settings never ends in "…": a long name wraps onto a second line. Capture's Trim and level finished recordings is now Clean up recordings, and Click to select a window or display and Constant frame rate explain themselves when you point at them or reach them with Tab. A plugin's setting may declare `tooltip`, one short sentence shown that way, and a plugin whose setting name does not fit two lines of the Settings name column is refused.

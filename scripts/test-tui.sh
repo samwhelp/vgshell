@@ -140,6 +140,16 @@ check "a step after a split that showed nothing shares the question's blank line
 check "a step after a split that showed a line keeps its own blank line" gap_after_split_line
 cleared_step() { on_tty 'vgs_tui_clear; vgs_tui_step "Removing"'; test "$(tr -d '\r' <"$tmp/out")" == "${esc}[H${esc}[2J$edge${esc}[32m${esc}[1mRemoving${esc}[0m"; }
 check "a step on a cleared screen starts on its first row" cleared_step
+# bin/vgshell-tui hands the blank row under its logo to the first script
+# that sources the library, as VGS_TUI_GAP_LEFT=1, and to that script's
+# logged run.
+logo_gap_header() { rm -f -- "$tmp/gum"; run 'vgs_tui_header "-Title" "a line"' VGS_TUI_GAP_LEFT=1; [[ ! -s $tmp/out && -s $tmp/gum ]]; }
+logo_gap_spent() { run 'printenv VGS_TUI_GAP_LEFT || echo unset' VGS_TUI_GAP_LEFT=1; test "$(cat "$tmp/out")" == unset; }
+printf 'source "$LIB"\nvgs_tui_log %q\nvgs_tui_header "-Title"\n' "$tmp/gap.log" >"$tmp/logged-gap.sh"
+logo_gap_logged() { "${lib_env[@]}" LIB="$LIB" VGS_TUI_GAP_LEFT=1 "$BASH" "$tmp/logged-gap.sh" </dev/null >"$tmp/out" 2>&1 && test ! -s "$tmp/out"; }
+check "a header under the logo draws no blank line" logo_gap_header
+check "the logo's mark reaches no program the script runs" logo_gap_spent
+check "a logged script's header under the logo draws no blank line" logo_gap_logged
 # Every colour a yes-or-no question draws, against the colour under it,
 # meets 4.5 to 1, the WCAG ratio for text, on vgs dark and flexoki-light.
 # The host's gum draws the question through the library on an 80-column
@@ -867,6 +877,12 @@ control split-keeps-mark '  [[ ${piped[1]} == 4 ]] || _vgs_tui_gap_left=""' '  :
 check "the split-keeps-mark mutant fails the shown split row" test "$(gap_after_split_line && echo green || echo red)" == red
 control clear-leaves-blank "printf '\\033[H\\033[2J'; _vgs_tui_gap_left=1; }" "printf '\\033[H\\033[2J'; }"
 check "the clear-leaves-blank mutant fails the cleared screen row" test "$(cleared_step && echo green || echo red)" == red
+control logo-gap-unread '_vgs_tui_gap_left="${VGS_TUI_GAP_LEFT:-}"' '_vgs_tui_gap_left=""'
+check "the logo-gap-unread mutant fails the logo header row" test "$(logo_gap_header && echo green || echo red)" == red
+control logo-gap-kept 'unset VGS_TUI_GAP_LEFT' ':'
+check "the logo-gap-kept mutant fails the spent mark row" test "$(logo_gap_spent && echo green || echo red)" == red
+control logo-gap-unlogged ' VGS_TUI_GAP_LEFT="$_vgs_tui_gap_left" SHELL' ' SHELL'
+check "the logo-gap-unlogged mutant fails the logged logo header row" test "$(logo_gap_logged && echo green || echo red)" == red
 control no-prompt-blank "_vgs_tui_prompt_gap() { _vgs_tui_gap >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red

@@ -116,10 +116,14 @@ _vgs_tui_terminal() { # KEY
 }
 # _vgs_tui_gap_left marks a row that already stands where a block's blank
 # line would go: the blank line above a question, which gum leaves when it
-# erases the answered question, or the top of a cleared screen. The next
-# blank line is then not drawn, and every library write clears the mark. A
-# line a program the script runs itself writes does not clear it.
-_vgs_tui_gap_left=""
+# erases the answered question, the top of a cleared screen, or the blank
+# row under the logo, which bin/vgshell-tui hands the script it runs as
+# VGS_TUI_GAP_LEFT=1. The next blank line is then not drawn, and every
+# library write clears the mark. A line a program the script runs itself
+# writes does not clear it. The hand-off reaches only the first script that
+# sources the library, so a script that one runs draws its own blank line.
+_vgs_tui_gap_left="${VGS_TUI_GAP_LEFT:-}"
+unset VGS_TUI_GAP_LEFT
 _vgs_tui_gap() {
   [[ -n $_vgs_tui_gap_left ]] || printf '\n'
   _vgs_tui_gap_left=""
@@ -436,7 +440,7 @@ vgs_tui_log() { # FILE [ARG...]
   shift
   cmd="$(printf '%q ' "$BASH" "$0" "$@")"
   exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" || return
-  env VGS_TUI_LOGGED=1 SHELL="$BASH" script -qef --log-out >(_vgs_tui_log_clean >&"$fd") -c "$cmd" {fd}>&- || status=$?
+  env VGS_TUI_LOGGED=1 VGS_TUI_GAP_LEFT="$_vgs_tui_gap_left" SHELL="$BASH" script -qef --log-out >(_vgs_tui_log_clean >&"$fd") -c "$cmd" {fd}>&- || status=$?
   exec {fd}>&-
   wait "$!" || :
   exit "$status"

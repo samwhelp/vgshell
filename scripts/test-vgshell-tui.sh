@@ -3,7 +3,8 @@
 # present`, which hands it a command. present runs on a pseudo-terminal
 # script(1) opens, with a key typed every 0.2 s, and runs stub commands: the
 # Done and Failed prompts, the skip on 130, a typed Ctrl-C, the exit code,
-# the logo, every line of bin/lib/logo.txt at the content edge, the plain presentation, the gum.env parse, the argv list, the exported paths and
+# the logo, every line of bin/lib/logo.txt at the content edge, the one blank
+# row under it, the plain presentation, the gum.env parse, the argv list, the exported paths and
 # the plugin copy, and the exit record: its running and ended files, the
 # key's lock, a busy key, a termination and reap, and the failure marker
 # through which a later run of a plugin closes that plugin's older failed
@@ -188,6 +189,15 @@ on_tty "$subject" present -- exits 0
 logo_accent() { python3 -c 'import re,sys; o = open(sys.argv[1], encoding="utf-8").read()
 sys.exit(0 if "\033[3J\033[38;2;255;90;54m" + " " * int(sys.argv[4]) + sys.argv[2] in o and re.search(re.escape(sys.argv[3]) + "\r?\n\033\\[0m", o) else 1)' "$tmp/out" "${logo_lines[0]}" "${logo_lines[-1]}" "$logo_edge"; }
 check "the logo is drawn in the theme accent" logo_accent
+# One blank row stands between the logo and a script's first header: the
+# row present draws under the logo and hands the library, and no second.
+stub headed 'exec bash -c '\''source "$VGS_TUI_LIB"; vgs_tui_header Title'\'''
+logo_gap_row() { # BIN
+  on_tty "$1" present -- headed
+  python3 -c 'import re,sys; o = open(sys.argv[1], encoding="utf-8").read()
+sys.exit(0 if re.search(re.escape(sys.argv[2]) + r"\r?\n\033\[0m\r?\n(?:\033\[[0-9;?]*[A-Za-z])*┌", o) else 1)' "$tmp/out" "${logo_lines[-1]}"
+}
+check "one blank row stands between the logo and the first header" logo_gap_row "$subject"
 bad_lines=(
   "PATH=#000000"
   "GUM_CONFIRM_PROMPT_FOREGROUND=red"
@@ -872,6 +882,9 @@ printf '%s\n' "GUM_CONFIRM_PROMPT_FOREGROUND=\$(touch $tmp/planted)" >"$gum_env"
 plain_run "$control_bin" present --presentation plain -- exits 0
 check "the sourced-gum-env mutant runs the planted line" test -e "$tmp/planted"
 rm -f -- "$gum_env" "$tmp/planted"
+
+control logo-gap-unhanded vgshell-tui '    export VGS_TUI_GAP_LEFT=1' '    :'
+check "the logo-gap-unhanded mutant fails the logo gap row" test "$(logo_gap_row "$control_bin" && echo green || echo red)" == red
 
 # The prompt is the library's: this control's tree holds a copy of bin/lib
 # rather than the link tui_tree makes, so the mutant never reaches the

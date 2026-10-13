@@ -60,6 +60,8 @@
 #     gum-env=default-unavailable exit=<n>` and exports none;
 #   - VGS_TUI_LIB, this checkout's bin/lib/tui.sh, and VGS_TUI_LOGO, its
 #     bin/lib/logo.txt;
+#   - under the full presentation, VGS_TUI_GAP_LEFT=1: the blank row under
+#     the logo stands, so the library's first block draws no second one;
 #   - with --plugin, VGS_PLUGIN_ID and VGS_PLUGIN_DIR, a private copy of the
 #     whole snapshot under $XDG_RUNTIME_DIR that present removes when it
 #     exits, so a `vgshell restart`, which removes the snapshot, cannot pull a
@@ -472,6 +474,7 @@ present() {
     printf -v edge '%*s' "$_vgs_tui_edge" ''
     (( ${#logo_lines[@]} == 0 )) || printf '%s\n' "${logo_lines[@]/#/$edge}"
     printf '\033[0m\n'
+    export VGS_TUI_GAP_LEFT=1
   fi
   if [[ -n $refusal ]]; then
     printf 'vgshell-tui: refused: %s\n' "$refusal" >&2
