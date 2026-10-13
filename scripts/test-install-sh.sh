@@ -484,7 +484,9 @@ launcher_row() { # BIN: prerequisite and real presenter both stop before launch
 }
 
 # Real reports read a PATH made only from fixture providers and bootstrap
-# tools. The available required set has no optional or unmapped providers.
+# tools. The available required set has no optional, unmapped or on-request
+# providers: an on-request command installs from its plugin's Requirements,
+# so the Nix rows pass without it.
 nix_present="$tmp/nix-present"; nix_missing="$tmp/nix-missing"; nix_manager="$tmp/nix-manager"
 mkdir -p "$nix_present" "$nix_missing" "$nix_manager"
 stub "$nix_manager" nix "" 1
@@ -499,8 +501,10 @@ root=pathlib.Path(sys.argv[1])
 rows=json.loads((root/'config/requirements.json').read_text())
 for manifest in (root/'shell/plugins').glob('*/manifest.json'):
     rows.extend(json.loads(manifest.read_text()).get('requirements', []))
-commands=sorted({row['command'] for row in rows if 'command' in row and not row.get('optional', False) and 'nix' in row.get('packages', {})})
-assert len(commands)>6 and 'qrencode' in commands and 'bwrap' in commands
+nix_required=[row for row in rows if 'command' in row and not row.get('optional', False) and 'nix' in row.get('packages', {})]
+commands=sorted({row['command'] for row in nix_required if row.get('install') != 'on-request'})
+on_request={row['command'] for row in nix_required if row.get('install') == 'on-request'}
+assert len(commands)>6 and 'qrencode' in commands and 'bwrap' in commands and {'voxtype', 'voxtype-audio-bridge'} <= on_request
 print('\n'.join(commands))
 names=sorted({row['dbus']['name'] for row in rows if row.get('dbus', {}).get('bus') == 'system'})
 pathlib.Path(sys.argv[2]).write_text(''.join(name + '\n' for name in names))
@@ -602,7 +606,7 @@ row_job check "the caller's terminal installs launcher packages and preserves fa
 row_job check "required packages install through the floating presenter, with AUR and English data and no optional packages" packages_row "$installer"
 row_job check "a failed dependency install keeps the previous release and removes staging" runtime_failure_row "$installer"
 row_job check "the launcher prerequisite and real presenter refuse before fetch or launch" launcher_row "$installer"
-row_job check "Nix with every available required command permits release, current and Git installs" nix_present_row "$installer"
+row_job check "Nix with every available required command but the on-request ones permits release, current and Git installs" nix_present_row "$installer"
 row_job check "Nix names only the missing available required package" nix_missing_row "$installer"
 row_job check "run hands the script it runs the suite's private system bus" bus_address_row
 row_job pinned_row
@@ -1006,7 +1010,8 @@ row_job rule launcher-prerequisite launcher_row 'start_tools=(xdg-terminal-exec)
 row_job rule caller-terminal terminal_row 'if { : 2>/dev/null <>/dev/tty; }; then' 'if false; then'
 row_job rule nix-present nix_present_row '[[ -z $names ]] || refuse 78 "requirements=configuration manager=nix"' '[[ -n $names ]] || refuse 78 "requirements=configuration manager=nix"'
 row_job rule nix-missing nix_missing_row 'row.state === "missing"' 'row.state === "present"'
-row_job rule nix-optional nix_present_row '!row.optional && row.state' 'true && row.state'
+row_job rule nix-optional nix_present_row '!row.optional && !row.onRequest && row.state' 'true && !row.onRequest && row.state'
+row_job rule nix-on-request nix_present_row '!row.optional && !row.onRequest && row.state' '!row.optional && row.state'
 row_job rule probe-runtime runtime_row 'XDG_RUNTIME_DIR="$tmp/runtime" "${argv[@]}"' 'XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" "${argv[@]}"'
 row_job rule unknown-not-installable unreadable_row '[[ $have == unknown ]] || names+=' '[[ $have == nothing ]] || names+='
 copy_with manager-order "$installer" 'fedora        dnf5,dnf' 'fedora        dnf,dnf5'

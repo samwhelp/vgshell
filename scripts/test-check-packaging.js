@@ -244,6 +244,8 @@ const ROWS = [
         1, () => refused("requirement=voxtype package=voxtype-bin want=depends channel=pacman recipe=vgshell scope=vgs.voice")],
     ["Arch: an on-request package dropped from optdepends is refused", t => edit(t, SRC, "^\\toptdepends = voxtype-bin: .*\\n", ""),
         1, () => refused("requirement=voxtype package=voxtype-bin want=optdepends channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["Nix: an on-request package in the runtime closure is refused", t => edit(t, "flake.nix", "^(      runtimePackages = pkgs: \\[\\n)", "$1        pkgs.voxtype\n"),
+        1, () => refused("on-request=voxtype field=runtimePackages channel=nix recipe=flake scope=vgs.voice")],
     ["a floor on an on-request command is refused", t => edit(t, "bin/vgshell", "^(preflight_floor='\\n)", "$1voxtype    1.0     ^([0-9.]+)   voxtype --version\n"),
         1, () => refused("floor=on-request command=voxtype tool=voxtype scope=vgs.voice")],
     ["Arch: a hardware option promoted to required is refused", t => {

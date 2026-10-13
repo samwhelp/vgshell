@@ -70,7 +70,8 @@
     {
       "command": "voxtype",
       "packages": {
-        "aur": "voxtype-bin"
+        "aur": "voxtype-bin",
+        "nix": "voxtype"
       },
       "optional": false,
       "install": "on-request",
@@ -79,7 +80,8 @@
     {
       "command": "voxtype-audio-bridge",
       "packages": {
-        "aur": "voxtype-bin"
+        "aur": "voxtype-bin",
+        "nix": "voxtype"
       },
       "optional": false,
       "install": "on-request",

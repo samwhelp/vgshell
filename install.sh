@@ -353,7 +353,8 @@ process.stdout.write(found.primary.id + (found.overlays.some(row => row.id === "
       if [[ $manager == nix ]]; then
         # Doctor owns the core report. Plugin requirements owns the same
         # report for each shipped plugin, including ones disabled by default.
-        # An unmapped command is an approved channel gap, judged by packaging.
+        # An unmapped command is an approved channel gap, judged by packaging,
+        # and an on-request one installs from its plugin's Requirements.
         "$tree/bin/vgshell" doctor --json >"$tmp/requirements.jsonl" || refuse 1 "requirements=report-failed manager=nix"
         for manifest in "$tree/shell/plugins"/*/manifest.json; do
           [[ -f $manifest ]] || continue
@@ -364,7 +365,7 @@ process.stdout.write(found.primary.id + (found.overlays.some(row => row.id === "
 const fs = require("fs");
 const reports = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(line => JSON.parse(line));
 const rows = reports[0].core.concat(...reports.slice(1));
-const missing = new Set(rows.filter(row => !row.optional && row.state === "missing" && row.packages.nix !== undefined).map(row => row.packages.nix));
+const missing = new Set(rows.filter(row => !row.optional && !row.onRequest && row.state === "missing" && row.packages.nix !== undefined).map(row => row.packages.nix));
 process.stdout.write([...missing].sort().join(" "));
 ' "$tmp/requirements.jsonl")" || refuse 1 "requirements=report-unreadable manager=nix"
         [[ -z $names ]] || refuse 78 "requirements=configuration manager=nix" "Add these required packages to the Nix configuration: $names"
