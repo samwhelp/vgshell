@@ -432,6 +432,7 @@ Item {
             tip.box = Qt.rect(0, 0, control.width, control.height);
             openReason(control);
             compare(headerFaults(placedBox(tip)), ["covers Tailscale"], "a switch-only anchor's place " + JSON.stringify(placedBox(tip)));
+            tip.box = Qt.binding(() => control.lock.reasonBox);
         }
 
         // A header switch named as its title draws no label, and its reason
