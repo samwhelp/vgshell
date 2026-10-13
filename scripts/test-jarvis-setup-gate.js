@@ -366,7 +366,8 @@ const VOICE = [
 const VOICE_KEY = [["no key", [], "realtime", ["info", true]], ["a stored key", KEY, "realtime", ["ok", false]],
     ["keys unread", null, "realtime", ["warning", true]], ["a stored key of the other voice", KEY, "gemini", ["info", true]],
     ["a stored Gemini key", [...KEY, ...GEMINI_KEY], "gemini", ["ok", false]], ["Gemini keys unread", null, "gemini", ["warning", true]],
-    ["Local beside a stored key", KEY, "local", ["ok", false]], ["Auto with no key", [], "auto", ["info", true]],
+    ["Local beside a stored key", KEY, "local", ["ok", false]], ["Local with no key", [], "local", ["info", true]],
+    ["Auto with no key", [], "auto", ["info", true]],
     ["a stored ElevenLabs key", [...KEY, ...ELEVEN_KEY], "elevenlabs", ["ok", false]], ["no ElevenLabs key", KEY, "elevenlabs", ["info", true]]];
 // The keyed start causes the service can publish before the first ready state.
 // The widget and the Setup page both read these words from SetupGate.
@@ -823,6 +824,8 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             assert.deepEqual(plain(gate.voiceKeys(every, { voiceProvider })), want.map(value =>
                 ({ value, label: every.find(key => key.value === value).label })), voiceProvider + ": the Voice key choices");
         const hints = { realtime: new Set(), gemini: new Set(), local: new Set(), auto: new Set(), elevenlabs: new Set() };
+        // The hints of the rows with a key stored, by Voice provider.
+        const stored = {};
         // The row's one link, as the Settings page draws it: where the hint holds its words.
         const linked = {};
         for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
@@ -844,8 +847,12 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                 ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
             assert.equal(typeof entry.hint === "string" && entry.hint !== "", true, label + ": the row says what the key unlocks");
             assert.equal(oneSentence(entry.hint), true, label + ": the key row's hint is one sentence");
-            hints[voiceProvider].add(entry.hint);
-            linked[voiceProvider] = entry.link !== null && entry.hint.includes(entry.link.text) ? entry.link.url : null;
+            const link = entry.link !== null && entry.hint.includes(entry.link.text) ? entry.link.url : null;
+            if (want[0] === "ok") stored[voiceProvider] = { hint: entry.hint, link };
+            else {
+                hints[voiceProvider].add(entry.hint);
+                linked[voiceProvider] = link;
+            }
         }
         assert.deepEqual(Object.values(hints).map(set => set.size), [1, 1, 1, 1, 1], "one hint for each Voice provider");
         const [realtimeHint, geminiHint, localHint, autoHint, elevenHint] = ["realtime", "gemini", "local", "auto", "elevenlabs"].map(name => [...hints[name]][0]);
@@ -876,6 +883,19 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         assert.deepEqual([field, manifest.schema.voice, row, eleven].map(entry => typeof entry.info === "string" && entry.info !== ""),
             [true, true, true, true], "each voice entry keeps its longer help behind the info button");
         assert.equal(row.hint, localHint, "the declared key hint is the one Local and Auto read");
+        // A row with a key stored asks for no key: its hint says what the
+        // key gives and where another goes in, the API keys row's Add key,
+        // which stays offered, and the Voice key field.
+        const kept = [stored.realtime, stored.gemini, stored.local, stored.elevenlabs];
+        assert.deepEqual(kept.map(item => [[realtimeHint, geminiHint, localHint, elevenHint].includes(item.hint), item.link,
+            pages.some(page => item.hint.includes(page))]), kept.map(() => [false, null, false]), "a stored key's row sends nobody for a key");
+        assert.deepEqual([stored.local.hint === stored.realtime.hint, new Set(kept.map(item => item.hint)).size], [true, 3],
+            "a stored key's row names the voice its key runs");
+        const adds = manifest.status.keyStore;
+        assert.deepEqual(kept.map(item => ["Setup > " + adds.label, "Settings > Jarvis > " + field.label, adds.action.label].map(words => item.hint.includes(words))),
+            kept.map(() => [true, true, true]), "a stored key's row names where another key goes in and where it is chosen");
+        assert.deepEqual([adds.action.tui, plain(words.keysValue({ kind: "listed", rows: [{ label: "OpenAI", value: "present" }] })).action],
+            ["add-key", true], "the API keys row offers Add key while a key is stored");
         // The preview row of a cloud voice names whose key it uses.
         const preview = serviceSource.match(/^    function publishPreview\(\) \{\n[\s\S]*?^    \}/m);
         assert.ok(preview);
@@ -1526,7 +1546,10 @@ const CONTROLS = [
     ["an unread key list runs Realtime", ' || offered === undefined) return "local";', ') return "local";\n    if (offered === undefined) return "realtime";'],
     ["Always talk mode runs Realtime", 'if (settings.mode === "always" || ', "if ("],
     ["no key offers no Add key", 'text: "No key stored", hint: hint, action: true }', 'text: "No key stored", hint: hint, action: false }'],
-    ["a stored key still offers Add key", 'text: "Key stored", hint: hint, action: false }', 'text: "Key stored", hint: hint, action: true }'],
+    ["a stored key still offers Add key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: true }'],
+    ["a stored key's row says to get a key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: hint, action: false }'],
+    ["a stored key's row names one voice", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED.openai, action: false }'],
+    ["a stored key's row names no field", 'then choose it in Settings > Jarvis > Voice key."', 'then choose it."'],
     ["a failed key read offers no Add key", 'text: "Could not check", hint: hint, action: true }', 'text: "Could not check", hint: hint, action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],

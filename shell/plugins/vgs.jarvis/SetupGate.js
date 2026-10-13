@@ -434,6 +434,18 @@ var VOICE_KEY_HINTS = {
     elevenlabs: "Get an ElevenLabs key from ElevenLabs API keys to speak in your ElevenLabs voices.",
     other: "Get an OpenAI key from OpenAI API keys for the Realtime voice, or a Gemini key from Google AI Studio for Gemini Live."
 };
+// The hint of a row with a key stored, by the provider of the offered keys
+// (voiceKeyProvider): what the key gives, and how to use another. Jarvis
+// stores its keys itself, several for one provider, each under a name, so
+// the row is no line of a key the core stores and takes no Replace or
+// Remove: a new key goes in through Add key on the API keys row, which
+// stays offered, and the Voice key field chooses it.
+var VOICE_KEY_CHANGE = "; to use another key, press Add key under Setup > API keys, then choose it in Settings > Jarvis > Voice key.";
+var VOICE_KEY_STORED = {
+    openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
+    gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
+    elevenlabs: "Jarvis can speak in your ElevenLabs voices with your ElevenLabs key" + VOICE_KEY_CHANGE
+};
 // The Voice group's key row for OFFERED, the stored keys of the cloud voice
 // SETTINGS select (voiceKeys), or null while the account reader could not
 // read them: Add key is offered until one is stored.
@@ -441,7 +453,7 @@ function voiceKey(offered, settings) {
     var hint = VOICE_KEY_HINTS[cloudSpeech(settings.voiceProvider) ? settings.voiceProvider : "other"];
     if (offered === null) return { tone: "warning", text: "Could not check", hint: hint, action: true };
     return offered.length === 0 ? { tone: "info", text: "No key stored", hint: hint, action: true }
-        : { tone: "ok", text: "Key stored", hint: hint, action: false };
+        : { tone: "ok", text: "Key stored", hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false };
 }
 
 // The ElevenLabs voices row (the manifest's elevenLabs) from FACTS:
