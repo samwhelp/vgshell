@@ -2367,7 +2367,7 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // What NOTICE, { commands, required }, shows for plugin MANIFEST after the
 // last scan, which read its requirements as MISSING and VERSIONS say, on a
 // system whose managers are FOUND, detect's answer, or null when detection
-// has no answer: { satisfied, rows, groups, later, run, byHand }.
+// has no answer: { satisfied, rows, drawn, run, byHand }.
 // `satisfied` holds once no requirement of `required` is missing or
 // outdated. `rows` are the listed requirements still missing or outdated,
 // in declaration order, each { name, purpose, optional, state, package },
@@ -2381,19 +2381,20 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
 // ones. `action` is `install`, with PackageManagers.installArgs' arguments
 // after `vgshell pkg run install`, when `updates` is empty; else `update`,
 // with those arguments over `updates` after `vgshell pkg run update`, then
-// `--install` and `installs` when both are owed. `groups` are the rows
-// noticeGroups gathers that `run` handles, every one when it is null.
-// `later` holds the noticeGroups entries the presses after this one
-// offer, once a rescan finds these installed or updated, in the order
-// those presses take their managers: the other managers that install, the
-// ones holding an update first, then installGroups' order, as `run` picks
-// its own. noticeSettle closes the notice once `required` is found, and a
-// closed notice offers nothing, so `later` stops at the last of those
-// managers that holds a lacking requirement of `required`, and is empty
-// when none does. A lacking requirement of `required` that no manager here
-// installs keeps the notice open past every press, so then it holds every
-// other manager that installs. An entry `later` does not hold is neither
-// drawn nor promised.
+// `--install` and `installs` when both are owed. `drawn` is every entry
+// the notice draws, each a noticeGroups entry with `later`: first the
+// entries `run` handles, every one when it is null, `later` false; then
+// the entries the presses after this one offer, once a rescan finds these
+// installed or updated, `later` true, in the order those presses take
+// their managers: the other managers that install, the ones holding an
+// update first, then installGroups' order, as `run` picks its own.
+// noticeSettle closes the notice once `required` is found, and a closed
+// notice offers nothing, so the later entries stop at the last of those
+// managers that holds a lacking requirement of `required`, and there are
+// none when no such manager does. A lacking requirement of `required` that
+// no manager here installs keeps the notice open past every press, so then
+// they hold every other manager that installs. An entry `drawn` does not
+// hold is neither drawn nor promised.
 // `byHand` is each group whose manager installs nothing through vgshell,
 // nix, as { manager, names }.
 function noticeView(manifest, missing, versions, notice, found) {
@@ -2430,11 +2431,21 @@ function noticeView(manifest, missing, versions, notice, found) {
     return {
         satisfied: satisfied,
         rows: shown,
-        groups: handled,
-        later: waiting,
+        drawn: handled.map(function (e) { return Object.assign({}, e, { later: false }); }).concat(waiting.map(function (e) { return Object.assign({}, e, { later: true }); })),
         run: run,
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
     };
+}
+
+// The title of OWNER's notice over VIEW, noticeView's answer: "<OWNER>
+// needs one package" or "<OWNER> needs N packages", counting every entry
+// VIEW draws, so the count is the number of entries the user sees;
+// requirements when no entry has a package, and updates when every entry
+// is one.
+function noticeTitle(owner, view) {
+    var drawn = view.drawn;
+    var noun = drawn.every(function (e) { return e.update; }) ? "update" : drawn.some(function (e) { return e.packaged; }) ? "package" : "requirement";
+    return owner + " needs " + (drawn.length === 1 ? "one " + noun : drawn.length + " " + noun + "s");
 }
 
 // ROWS, noticeView's, as the user installs them: one entry per package,

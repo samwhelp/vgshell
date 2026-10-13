@@ -12,6 +12,8 @@ import qs.Ui
 // requirement notice has priority: one entry per package its step installs
 // for a missing requirement or updates for an outdated one, its name as a
 // chip with Missing or Outdated beside it and each purpose under it, then
+// one per package a later step offers, drawn alike with a line naming the
+// manager that offers it, its title counting every entry it draws, then
 // Install, Update or Install and update, with Not now, or Close alone when
 // no manager here installs a listed package. The step runs Notices.accept, every other
 // answer Notices.dismiss. The consent slot draws its view's title, message,
@@ -40,17 +42,6 @@ Scope {
     readonly property Item dialog: loader.item === null ? null : loader.item.dialog
     // The scrim under it, for a validation row that reads where it is drawn.
     readonly property Item scrim: loader.item === null ? null : loader.item.scrim
-
-    // "<Name> needs one package" or "<Name> needs N packages", counting
-    // every package the notice asks for: its step's and the later steps'
-    // (PluginLogic.noticeView's `groups` and `later`, noticeGroups
-    // entries); requirements when no entry has a package, and updates when
-    // every entry is one.
-    function title(shown) {
-        const asked = shown.groups.concat(shown.later);
-        const noun = asked.every(g => g.update) ? "update" : asked.some(g => g.packaged) ? "package" : "requirement";
-        return shown.name + " needs " + (asked.length === 1 ? "one " + noun : asked.length + " " + noun + "s");
-    }
 
     // The label of the step the notice runs, PluginLogic.noticeView's
     // `run`, "" when no manager here runs one.
@@ -94,7 +85,8 @@ Scope {
     // later step offers, named with its manager, or how to install its
     // requirements when no manager here installs them.
     function message(shown) {
-        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there." + (shown.later.length === 0 ? "" : " After this step, VGS offers " + spoken(shown.later.map(e => e.chip + " from " + e.manager)) + ".");
+        const later = shown.drawn.filter(e => e.later);
+        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there." + (later.length === 0 ? "" : " After this step, VGS offers " + spoken(later.map(e => e.chip + " from " + e.manager)) + ".");
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -136,7 +128,7 @@ Scope {
                 id: card
                 anchors.centerIn: parent
                 width: implicitWidth
-                title: win.consentMode ? win.consent.title : host.title(win.shown)
+                title: win.consentMode ? win.consent.title : win.shown.title
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
                 actions: win.consentMode ? win.consent.actions : host.step(win.shown) !== "" ? [{ label: host.step(win.shown), role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy
@@ -203,19 +195,22 @@ Scope {
                         }
                     }
                 }
-                // The packages this step handles, a block of the dialog's body
-                // `dialog.gap` under the message: each its name as a chip
+                // The packages the notice asks for, a block of the dialog's body
+                // `dialog.gap` under the message: first those this step
+                // handles, each its name as a chip
                 // and its state beside it, a chip that elides before the
                 // state leaves the dialog,
                 // with each purpose under it as a hint, as a Field draws a
-                // label's hint. The entries are groups of the shared
+                // label's hint, then the packages a later step offers,
+                // drawn alike with one more hint naming the manager that
+                // offers them. The entries are groups of the shared
                 // GroupList, which spaces them and centres the hairline
                 // between two of them by their drawn ink.
                 GroupList {
                     id: entryList
                     visible: !win.consentMode
                     Repeater {
-                        model: win.consentMode ? [] : win.shown.groups
+                        model: win.consentMode ? [] : win.shown.drawn
                         Column {
                             required property var modelData
                             width: entryList.width
@@ -249,6 +244,13 @@ Scope {
                                     wrapMode: Text.Wrap
                                     text: modelData
                                 }
+                            }
+                            Label {
+                                role: "hint"
+                                width: parent.width
+                                wrapMode: Text.Wrap
+                                visible: modelData.later
+                                text: "Offered after this step, through " + modelData.manager + "."
                             }
                         }
                     }

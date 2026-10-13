@@ -188,7 +188,10 @@ function suite(ctx, check) {
         ["outdated packages alone are an update with no install", [], below,
             ["update", ["old"], [], ["old"]], [["old", true]], []],
     ];
-    const laterOf = v => v.later.map(e => [e.manager, e.chip]);
+    // The entries a view draws for its own step, and those it draws for
+    // later presses as manager and chip.
+    const stepOf = v => v.drawn.filter(e => !e.later);
+    const laterOf = v => v.drawn.filter(e => e.later).map(e => [e.manager, e.chip]);
     // One name under two managers is two packages: the AUR one, outdated,
     // gives the primary's missing one no update.
     const twins = ctx.validateManifest({
@@ -200,11 +203,11 @@ function suite(ctx, check) {
         ],
     }, "/p").manifest;
     const twinView = ctx.noticeView(twins, ["vgs-here"], { "vgs-there": "1.0.0" }, { commands: ["vgs-here", "vgs-there"], required: ["vgs-here"] }, ARCH);
-    check("noticeView press: a package is updated only through its own manager", [twinView.run.action, twinView.run.args, twinView.groups.map(g => [g.manager, g.chip, g.update]), laterOf(twinView)], ["update", ["--manager", "aur", "twin"], [["aur", "twin", true]], [["pacman", "twin"]]]);
+    check("noticeView press: a package is updated only through its own manager", [twinView.run.action, twinView.run.args, stepOf(twinView).map(g => [g.manager, g.chip, g.update]), laterOf(twinView)], ["update", ["--manager", "aur", "twin"], [["aur", "twin", true]], [["pacman", "twin"]]]);
     check("noticeUnchanged: a package of another manager with the name the press installed is not named", ctx.noticeUnchanged(twins, ["vgs-there"], {}, { commands: ["vgs-here", "vgs-there"], required: ["vgs-here"] }, ARCH, { manager: "pacman", installs: ["twin"], updates: [] }), null);
     for (const [name, missing, versions, run, groups, later] of pressRows) {
         const v = ctx.noticeView(floored, missing, versions, three, ARCH);
-        check("noticeView press: " + name, [[v.run.action, v.run.args, v.run.installs, v.run.updates], v.groups.map(g => [g.chip, g.update]), laterOf(v)], [run, groups, later]);
+        check("noticeView press: " + name, [[v.run.action, v.run.args, v.run.installs, v.run.updates], stepOf(v).map(g => [g.chip, g.update]), laterOf(v)], [run, groups, later]);
     }
     // Three required packages, one for each manager that installs here
     // (VGS-1490), declared in another order than the presses take them:
@@ -223,7 +226,7 @@ function suite(ctx, check) {
     const worldNames = ["pi", "agent-browser", "gum"];
     const worldView = ctx.noticeView(world, worldNames, {}, { commands: worldNames, required: worldNames }, MISE_TOO);
     check("noticeView press: a notice of three managers names every package with its manager across its step and the later ones, in press order",
-        [worldView.run.args, worldView.groups.map(e => [e.manager, e.chip]), laterOf(worldView), worldView.later.map(e => [e.packaged, e.update, e.purposes])],
+        [worldView.run.args, stepOf(worldView).map(e => [e.manager, e.chip]), laterOf(worldView), worldView.drawn.filter(e => e.later).map(e => [e.packaged, e.update, e.purposes])],
         [["gum"], [["pacman", "gum"]], [["aur", "agent-browser-bin"], ["mise", "npm:pi"]], [[true, false, ["Browser"]], [true, false, ["Agent"]]]]);
     // A required package for each of two managers and an optional one of a
     // third that the presses reach after them: the notice closes once the
@@ -240,6 +243,21 @@ function suite(ctx, check) {
     const reachView = ctx.noticeView(reach, ["gum", "pi", "agent-browser"], {}, { commands: ["gum", "pi", "agent-browser"], required: ["gum", "agent-browser"] }, MISE_TOO);
     check("noticeView press: later stops at the last manager that holds a required package",
         [reachView.run.args, laterOf(reachView)], [["gum"], [["aur", "agent-browser-bin"]]]);
+    // noticeTitle: [name, view, want as the count and the noun the title
+    // reads]. The count is the number of entries the view draws, its later
+    // ones included.
+    const titleReads = t => { const m = / needs (one|\d+) (update|package|requirement)s?$/.exec(t); return m === null ? t : [m[1] === "one" ? 1 : Number(m[1]), m[2]]; };
+    const titleRows = [
+        ["a notice with later entries counts them beside its step's", worldView, [3, "package"]],
+        ["a notice without later entries counts its step's", ctx.noticeView(floored, ["vgs-one"], below, three, ARCH), [2, "package"]],
+        ["a notice of updates alone counts updates", ctx.noticeView(floored, [], below, three, ARCH), [1, "update"]],
+        ["a notice with no package counts requirements", ctx.noticeView(needs, allMissing, {}, { id: "acme.needs", commands: allMissing, required: ["vgs-one"] }, null), [4, "requirement"]],
+    ];
+    for (const [name, view, want] of titleRows) {
+        const read = titleReads(ctx.noticeTitle("Owner", view));
+        check("noticeTitle: " + name, read, want);
+        check("noticeTitle counts the entries the view draws: " + name, read[0], view.drawn.length);
+    }
 
     // The core's owner: the core's list, drawn under the name VGS, asked
     // for as a plugin's manifest is.
@@ -320,7 +338,7 @@ function suite(ctx, check) {
     for (const [name, missing, notice, found, want] of viewRows) {
         const v = ctx.noticeView(needs, missing, {}, notice, found);
         check("noticeView: " + name, [v.satisfied, v.rows.map(rowText), v.run === null ? null : [v.run.action, v.run.args], v.byHand, laterOf(v)], want);
-        check("noticeView lists every entry while no press runs, and offers none for later: " + name, v.run !== null || v.groups.length === v.rows.length, true);
+        check("noticeView lists every entry while no press runs, and offers none for later: " + name, v.run !== null || stepOf(v).length === v.rows.length, true);
     }
     // noticeGroups over noticeView's rows: [name, found, want as chip,
     // packaged and purposes per group]. vgs-a and vgs-b come from one
@@ -517,7 +535,9 @@ const CONTROLS = [
     ["later holds every manager while no press reaches a required package", "unreached ? next.length : reach", "reach"],
     ["later holds no entry of the press's own manager", "var next = order.slice(1);", "var next = order;"],
     ["later follows the order of the presses", "reached.reduce(function (held, manager) { return held.concat(entries.filter(function (e) { return e.manager === manager; })); }, [])", "entries.filter(function (e) { return reached.indexOf(e.manager) !== -1; })"],
-    ["a view names the later entries, not their count", "        later: waiting,\n", "        later: waiting.length,\n"],
+    ["a view draws its later entries", ".concat(waiting.map(function (e) { return Object.assign({}, e, { later: true }); }))", ""],
+    ["a view marks the entries of later presses", "Object.assign({}, e, { later: true })", "Object.assign({}, e, { later: false })"],
+    ["the title counts every entry the view draws", "    var drawn = view.drawn;\n", "    var drawn = view.drawn.filter(function (e) { return !e.later; });\n"],
     ["a view lists only the packages its press handles", "entries.filter(function (e) { return e.manager === pressed.manager; })", "entries"],
     ["a press updates only a package of its own manager", "e.manager === group.manager && e.chip === name && e.update", "e.chip === name && e.update"],
     ["an offer is a list", "if (!Array.isArray(commands) || commands.length === 0", "if (commands.length === 0"],

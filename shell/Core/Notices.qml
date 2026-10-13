@@ -133,8 +133,9 @@ Singleton {
     readonly property bool showingResetDone: current === null && !restart && !resetAsked && resetBackup !== ""
     readonly property bool showingConsent: current === null && !restart && !resetAsked && resetBackup === "" && consent !== null
     // What the shown notice draws, PluginLogic.noticeView with the owner's
-    // id and name, or null while none shows, before the first detection
-    // ended, or while its owner is gone before the scan that drops it.
+    // id and name and its PluginLogic.noticeTitle, or null while none
+    // shows, before the first detection ended, or while its owner is gone
+    // before the scan that drops it.
     readonly property var view: {
         const notice = current;
         const owners = Registry.requirementOwners;
@@ -145,6 +146,7 @@ Singleton {
         const shown = Logic.noticeView(owners[notice.id], Logic.hasOwn(missing, notice.id) ? missing[notice.id] : [], versions, notice, found);
         shown.id = notice.id;
         shown.name = owners[notice.id].name;
+        shown.title = Logic.noticeTitle(shown.name, shown);
         return shown;
     }
     readonly property bool installing: current !== null && installingId === current.id

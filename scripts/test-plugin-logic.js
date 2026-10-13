@@ -507,7 +507,7 @@ function suite(ctx, check) {
         check("noticeRequest: " + name, [r.answer, r.commands, r.required], want);
     }
     const toolNotice = { commands: ["vgs-tool"], required: ["vgs-tool"] };
-    const shows = (missing, versions) => { const v = ctx.noticeView(floored, missing, versions, toolNotice, pacmanOnly); return [v.satisfied, v.rows.map(r => [r.name, r.state]), v.groups.map(g => [g.chip, g.update]), v.run === null ? null : [v.run.action, v.run.args]]; };
+    const shows = (missing, versions) => { const v = ctx.noticeView(floored, missing, versions, toolNotice, pacmanOnly); return [v.satisfied, v.rows.map(r => [r.name, r.state]), v.drawn.map(g => [g.chip, g.update]), v.run === null ? null : [v.run.action, v.run.args]]; };
     check("noticeView: an outdated command is offered its update, and no install", shows([], { "vgs-tool": "1.9.12" }), [false, [["vgs-tool", "outdated"]], [["tool", true]], ["update", ["tool"]]]);
     check("noticeView: a missing command is offered its install, and no update", shows(["vgs-tool"], {}), [false, [["vgs-tool", "missing"]], [["tool", false]], ["install", ["tool"]]]);
     check("noticeView: a command at its floor satisfies the notice", shows([], { "vgs-tool": "1.10.1" }), [true, [], [], null]);

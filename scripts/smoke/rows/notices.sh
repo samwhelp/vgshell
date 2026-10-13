@@ -7,9 +7,10 @@
 # window closed throughout. Rows: `vgshell plugin add` raises the notice
 # through pluginInstalled, which maps one surface on the focused monitor
 # holding the keyboard and drawing one chip per package its step handles,
-# with its state beside it and the purposes under it, counting in its
-# title and naming in its message, each with its manager, the required
-# packages a later step installs; the surface fills the monitor less the bar's reserved space less
+# with its state beside it and the purposes under it, then one per
+# required package a later step installs, with a line naming its manager,
+# which its message names with that manager too, its title counting every
+# chip it draws; the surface fills the monitor less the bar's reserved space less
 # `dialog.margin`, clears the bar by that margin and centres the dialog; a
 # click on the bar's acme.tick widget reaches it while the notice shows; a
 # click beside the dialog lands on the scrim, which fills the surface in
@@ -140,12 +141,25 @@ install_words() {
   words --app-id=org.vgs.tui "--title=VGS · Install requirements" -- "$tui_self" present --presentation full \
     --record core/requirements-install --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Install requirements" -- "$core_vgshell" pkg run install "$@"
 }
-# The notice draws one entry per package its step handles: its name as a
-# chip with each purpose under it, or the command's name when no package is
-# known (D061). group_shape reads each entry as [chip, the number of lines
-# under it], and group_states the state drawn beside each chip.
+# The notice draws one entry per package its step handles, then one per
+# package a later step offers: its name as a chip with each purpose under
+# it, or the command's name when no package is known (D061), and for a
+# later one a line naming its manager. group_shape reads each entry as
+# [chip, the number of lines under it], and group_states the state drawn
+# beside each chip.
 group_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 group_states() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([g[2] for g in json.load(sys.stdin)["groups"]]))'; }
+# `equal` when the number the drawn title counts is the number of name
+# chips the notice draws, else [the title's number, the chips]. `chip`
+# reads one chip fewer, the check's planted control.
+title_counts_chips() { # [chip]
+  ipc smoke noticeDrawn | py_reply 'import json,re,sys
+d = json.load(sys.stdin)
+m = re.search(r" needs (one|\d+) ", d["title"])
+counted = None if m is None else 1 if m.group(1) == "one" else int(m.group(1))
+chips = len(d["groups"]) - (1 if sys.argv[1] == "chip" else 0)
+print("equal" if counted == chips else json.dumps([counted, chips]))' "${1:-}"
+}
 needs_groups='[["vgs-smoke-needs-pkg", 1]]'
 # The packages the drawn message names for a later step, each as [package,
 # manager] from its "PACKAGE from MANAGER", in the order it names them; []
@@ -262,6 +276,9 @@ expect "an offer that is not a list is refused" "refused: requirements=malformed
 expect "the merged notice is still the one notice" "[\"acme.needs\", $all_needs, [\"vgs-smoke-needs\", \"vgs-smoke-extra\"], false]" notice_shown
 expect_poll "the merged notice names the required AUR package for a later step, and not the command no manager provides" '[["vgs-smoke-extra-git", "aur"]]' message_later
 expect "the merged notice's title counts the step's package and the later one" '"Acme Sync needs 2 packages"' drawn title
+expect "the merged notice draws the step's package, then the later one with a line naming its manager" '[["vgs-smoke-needs-pkg", 1], ["vgs-smoke-extra-git", 2]]' group_shape
+expect "the merged notice's title counts every chip it draws" equal title_counts_chips
+expect "control: a reading of one chip fewer is refused" '[2, 1]' title_counts_chips chip
 expect_poll "the notice holds the keyboard again" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the enabled notice" null notice_shown
@@ -515,6 +532,7 @@ expect_poll "the mixed notice offers one step for both" '["Install and update", 
 expect "the mixed notice draws both packages" '[["vgs-smoke-old-aur", 1], ["vgs-smoke-extra-git", 1]]' group_shape
 expect "the mixed notice marks one outdated and one missing" '[["Outdated"], ["Missing"]]' group_states
 expect "the mixed notice counts both packages" '"Acme Sync needs 2 packages"' drawn title
+expect "the mixed notice's title counts every chip it draws" equal title_counts_chips
 # The mixed notice's two entries are groups of a GroupList with one shown
 # hairline in the gap between them, drawn within a pixel of the place
 # GroupList computes from the entries' ink (Theme.inkBelow of the entry
