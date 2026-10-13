@@ -370,6 +370,60 @@ assert " ".join(descriptions[sys.argv[3]].split()) in before
 PY
 }
 check "every system step has its own apply and undo description" descriptions_complete "$source_file"
+
+# The real stdin planner and runner, with only main omitted and sudo
+# recording argv and bytes. Records from the closed table must fit an
+# 80-column terminal without terminal-driven wrapping inside a word.
+stdin_preview_rows() { # SOURCE
+  local text command hash payloads=()
+  hash="$(sha256sum <"$rule_src")" || return
+  hash="${hash%% *}"
+  payloads=("uid=$uid"$'\n'"rule=$hash"
+    "uid=$uid"$'\n'"enabled=1"$'\n'"started=1"$'\n'"boot=$boot_a"
+    "uid=$uid"$'\n'"binary=/usr/bin/bandwhich"$'\n'"hash=$hash"
+    "uid=$uid"$'\n'"config=$hash"$'\n'"pam=$hash"$'\n'"dropin=$hash"
+    "uid=$uid"$'\n'"pam=$hash"$'\n'"state-dir=1"$'\n'"deferred=$boot_a")
+  python3 - "$1" "$vgs/bin/stdin-preview-owner" <<'PY' || return
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+assert source.count('\nmain "$@"\n') == 1
+pathlib.Path(sys.argv[2]).write_text(source.replace('\nmain "$@"\n', '\n'))
+PY
+  cat >"$tmp/stdin-preview.sh" <<'SH'
+set -euo pipefail
+source "$1"
+source "$lib_dir/tui.sh"
+stty cols 80
+mode=show shown="" shown_commands=()
+cmd_in "$2" /usr/bin/tee -- /var/lib/vgshell/system/.greeter
+cmd /usr/bin/mv -- /var/lib/vgshell/system/.greeter /var/lib/vgshell/system/greeter
+printf '%s' "$shown" >"$3/stdin-shown"
+vgs_tui_commands "${shown_commands[@]}" >"$3/stdin-block"
+mode=run
+# The stub records this run alone and writes only in the suite's scratch.
+scratch=$3
+sudo() { printf '%s\0' "$@" >"$scratch/stdin-argv"; cat >"$scratch/stdin-bytes"; }
+cmd_in "$2" /usr/bin/tee -- /var/lib/vgshell/system/.greeter
+SH
+  for text in "${payloads[@]}"; do
+    printf -v command '%q ' "$BASH" "$tmp/stdin-preview.sh" "$vgs/bin/stdin-preview-owner" "$text" "$tmp"
+    "${row_env[@]}" SHELL="$BASH" "$script_bin" -qec "$command" /dev/null </dev/null >"$tmp/stdin-terminal" 2>&1 || { cat "$tmp/stdin-terminal" >&2; return 1; }
+    python3 - "$tmp" "$text" <<'PY' || return
+import pathlib, sys
+scratch, payload = pathlib.Path(sys.argv[1]), sys.argv[2]
+lines = (scratch / "stdin-block").read_text().splitlines()
+assert lines and all(line.startswith("   │") and len(line) <= 80 for line in lines)
+assert lines.count("   │") == 1
+assert all(any(field in line for line in lines) for field in payload.splitlines())
+shown = (scratch / "stdin-shown").read_text()
+assert "<<'VGS_SYSTEM_INPUT'\n" + payload + "\nVGS_SYSTEM_INPUT\n" in shown
+assert (scratch / "stdin-bytes").read_bytes() == (payload + "\n").encode()
+assert (scratch / "stdin-argv").read_bytes().split(b"\0") == [
+    b"--", b"/usr/bin/tee", b"--", b"/var/lib/vgshell/system/.greeter", b""]
+PY
+  done
+}
+check "record previews fit physical rows and preserve stdin and argv" stdin_preview_rows "$source_file"
 place "$source_file"
 
 # vgshell's own refusal of a subcommand it does not route.
@@ -814,7 +868,7 @@ check "greeter writes its files, makes its directories, reloads and enables gree
   "-- $(p install) -d -m 0700 -o 958 -g 958 -- $greeter_dir/state" \
   "-- $(p systemctl) daemon-reload" \
   "-- $(p systemctl) enable greetd.service")"
-check "apply shows the greetd configuration it writes before asking" grep -qF -- "sudo $(p tee) -- $root/etc/greetd/.vgshell.toml <<<" < <(shown_commands)
+check "apply shows the greetd configuration it writes before asking" grep -qF -- "sudo $(p tee) -- $root/etc/greetd/.vgshell.toml <<'VGS_SYSTEM_INPUT'" < <(shown_commands)
 check "the greetd configuration names the VGS PAM service, the greeter account and the greeter's command" holds_text "$greeter_toml" "$want_toml"
 check "the PAM service is the shipped file byte for byte" cmp -s -- "$greeter_src/vgs-greeter.pam" "$greeter_pam"
 check "the drop-in runs greetd with the VGS configuration" holds_text "$greeter_dropin" "$want_dropin"
@@ -1189,6 +1243,8 @@ check "the missing-description control fails the step coverage check" test "$(de
 control description-unused '  vgs_tui_step "${step_description[$verb:$step]}"' '  vgs_tui_step "$step"'
 run_tty "the unused-description control runs the step" 0 apply tailscale-operator
 check "the unused-description control fails the popup check" test "$(description_precedes_commands apply tailscale-operator && echo green || echo red)" == red
+control flattened-stdin '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''"$text"$'\''\n'\'''\''VGS_SYSTEM_INPUT'\''' '      line="sudo$(printf '\'' %q'\'' "$@") <<<$(printf '\''%q'\'' "$text")"'
+check "the old flattened stdin control fails the physical-row contract" test "$(stdin_preview_rows "$helper" && echo green || echo red)" == red
 control writes-before-question '  # A root command is never answered for the user, unattended or not.' '  vgs_tui_sudo_session start; mode=run; plan "$verb" "$step"; mode=show
   # A root command is never answered for the user, unattended or not.'
 printf '1\n' >"$tmp/gum-answer"

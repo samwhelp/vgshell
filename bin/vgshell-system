@@ -907,10 +907,15 @@ read_record() { # STEP
 # runs them through sudo. Both passes resolve the same programs.
 mode=show
 shown=""
+shown_commands=()
 cmd() { # ARGV...
-  local status=0
+  local status=0 line
   case "$mode" in
-    show) shown+="sudo$(printf ' %q' "$@")"$'\n' ;;
+    show)
+      line="sudo$(printf ' %q' "$@")"
+      shown+="$line"$'\n'
+      shown_commands+=("$line")
+      ;;
     run)
       sudo -- "$@" </dev/null || status=$?
       ((status == 0)) || refuse 1 "command=failed exit=$status argv=$(printf '%q' "$*")"
@@ -920,10 +925,17 @@ cmd() { # ARGV...
 }
 # The same, with TEXT on the command's stdin and its stdout dropped.
 cmd_in() { # TEXT ARGV...
-  local text="$1" status=0
+  local text="$1" status=0 line
   shift
   case "$mode" in
-    show) shown+="sudo$(printf ' %q' "$@") <<<$(printf '%q' "$text")"$'\n' ;;
+    show)
+      # The closed table makes records and greeter files, none with a
+      # VGS_SYSTEM_INPUT line. Quoting the delimiter shows their literal
+      # bytes without merging every record field into one escaped word.
+      line="sudo$(printf ' %q' "$@") <<'VGS_SYSTEM_INPUT'"$'\n'"$text"$'\n''VGS_SYSTEM_INPUT'
+      shown+="$line"$'\n'
+      shown_commands+=("$line")
+      ;;
     run)
       sudo -- "$@" <<<"$text" >/dev/null || status=$?
       ((status == 0)) || refuse 1 "command=failed exit=$status argv=$(printf '%q' "$*")"
@@ -1274,18 +1286,19 @@ plan() { # VERB STEP
 # the record directory's lock plans again and runs it.
 confirm_and_run() { # VERB STEP
   local verb="$1" step="$2" planned make_dir="" install answer=0 lock commands=()
-  mode=show shown=""
+  mode=show shown="" shown_commands=()
   plan "$verb" "$step"
   planned="$shown"
+  commands=("${shown_commands[@]}")
   if [[ ! -d $record_dir ]]; then
     program install install
     make_dir="sudo$(printf ' %q' "$install" -d -m 0755 -o root -g root -- "$record_dir")"$'\n'
+    commands=("${make_dir%$'\n'}" "${commands[@]}")
   fi
   # shellcheck source=lib/tui.sh
   source "$lib_dir/tui.sh" || refuse 1 "library=missing path=$lib_dir/tui.sh"
   vgs_tui_step "${step_description[$verb:$step]}"
   vgs_tui_text 'These commands run as root:'
-  mapfile -t commands <<<"$make_dir${planned%$'\n'}"
   vgs_tui_commands "${commands[@]}"
   # A root command is never answered for the user, unattended or not.
   VGS_TUI_UNATTENDED='' vgs_tui_confirm "Run these commands as root?" || answer=$?
@@ -1300,7 +1313,7 @@ confirm_and_run() { # VERB STEP
   trusted "$record_dir" || refuse 1 "untrusted=$record_dir"
   exec {lock}<"$record_dir" || refuse 1 "lock=open path=$record_dir"
   flock -w 60 "$lock" || refuse 1 "lock=busy path=$record_dir" "another system step held the lock for 60 s"
-  mode=show shown=""
+  mode=show shown="" shown_commands=()
   plan "$verb" "$step"
   [[ $shown == "$planned" ]] || refuse 1 "plan=changed step=$step" "the commands differ from the ones shown; nothing more was run"
   mode=run
