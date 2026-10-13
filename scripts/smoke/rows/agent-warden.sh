@@ -323,9 +323,10 @@ warden_info_unready() {
    if settings_press --type InfoButton "About Warden" Field Warden 2>&1 >/dev/null; then echo pressed; fi)
 }
 expect "a scoped press the Warden row's info icon cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=InfoButton About Warden" warden_info_unready
-info_control_dir="$repo/shell/Core/InfoButtonControl"
-mkdir -p -- "$info_control_dir"
-python3 - "$repo/shell/Ui/controls/InfoButton.qml" "$info_control_dir/InfoButton.qml" <<'PY'
+# The copy sits beside DismissScope, a type internal to qs.Ui, which the
+# directory's own files reach and a file outside the module does not.
+info_control_dir="$repo/shell/Ui/overlay"
+python3 - "$repo/shell/Ui/controls/InfoButton.qml" "$info_control_dir/InfoButtonControl.qml" <<'PY'
 import sys
 src, dst = sys.argv[1:]
 text = open(src).read()
@@ -335,7 +336,7 @@ if text.count(needle) != 1:
     raise SystemExit("needle count is %d" % text.count(needle))
 open(dst, "w").write(text.replace(needle, replacement))
 PY
-cat >"$info_control_dir/Item.qml" <<'QML'
+cat >"$info_control_dir/InfoButtonControlItem.qml" <<'QML'
 import QtQuick
 
 Item {
@@ -344,20 +345,20 @@ Item {
     height: 80
     property bool opened: info.infoOpen
     function openInfo() { info.openInfo(Qt.TabFocusReason); }
-    InfoButton {
+    InfoButtonControl {
         id: info
         title: "Control"
         info: "Control copy without the Close action."
     }
 }
 QML
-expect "the info dialog close control builds" ok ipc smoke popupLoad info-control "$info_control_dir/Item.qml" window vgs.settings '{}'
+expect "the info dialog close control builds" ok ipc smoke popupLoad info-control "$info_control_dir/InfoButtonControlItem.qml" window vgs.settings '{}'
 expect "the info dialog close control opens" ok ipc smoke popupCall info-control openInfo
 expect_poll "the info dialog close control is open" true ipc smoke popupRead info-control opened
 info_close_click Control || fail "the click on the control info dialog's Close button failed"
 expect "control: an info dialog whose Close action is removed stays open" true ipc smoke popupRead info-control opened
 expect "the info dialog close control is released" ok ipc smoke popupDrop info-control
-rm -r -- "${info_control_dir:?}" || fail "removing the info dialog close control failed"
+rm -- "${info_control_dir:?}/InfoButtonControl.qml" "${info_control_dir:?}/InfoButtonControlItem.qml" || fail "removing the info dialog close control failed"
 # The Requirements section draws on the Setup tab.
 settings_setup
 expect_poll "the vsys requirement draws Present" "$(words vsys Present "Shows your agents and provides Agent Warden")" vsys_drawn
