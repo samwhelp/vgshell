@@ -79,6 +79,7 @@ chmod +x "$stubs"/*
 # Every child: the stubs first, git isolated from the developer's
 # configuration, and fixed identities and dates so each row is repeatable.
 export PATH="$stubs:$PATH" HOME="$tmp/home" TMPDIR="$tmp" STUB_RECORD="$record"
+export XDG_RUNTIME_DIR="$rt_empty"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CEILING_DIRECTORIES="$tmp"
 export GIT_AUTHOR_NAME="Ada Packager" GIT_AUTHOR_EMAIL="ada@example.org" GIT_COMMITTER_NAME="Ada Packager" GIT_COMMITTER_EMAIL="ada@example.org"
 export GIT_AUTHOR_DATE="2026-09-27T23:30:00-05:00" GIT_COMMITTER_DATE="2026-09-27T23:30:00-05:00"
