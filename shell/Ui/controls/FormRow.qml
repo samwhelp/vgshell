@@ -28,14 +28,18 @@ import qs.Ui
 // column, it opens under the row's label and control, as wide as the
 // row, so it covers the whole of the line it lies on: the first line under
 // the value, the row's message or text its owner draws there while
-// `textBelow` holds, which it covers from that line's top. It stays clear
+// `textBelow` holds, which it covers from that line's top. That band is one
+// line: the room under that line's top holds no more. It stays clear
 // of the label's focus ring, which draws outside the label's box: where
 // the ring reaches that line, as under a label of two lines, it starts on
 // the value column, beside the ring, and still covers the line from its
-// top. A row with no such line has no room of its own under it, so there
-// the label opens no tooltip and is no Tab stop: the row's info button
-// holds the explanation and opens it in its dialog, before `info` where
-// the row has both. `warning` is the row's message:
+// top. A row with no such line has no room of its own under it, and an
+// explainer too long for one line of the value column would run past that
+// line onto the next row, so there the label opens no tooltip and is no Tab
+// stop: the row's info button holds the explanation and opens it in its
+// dialog, before `info` where the row has both. That button opens no
+// tooltip: under it lies the next row's label, and past it its own row's
+// control. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
@@ -117,10 +121,21 @@ Item {
     readonly property real underX: ringAtUnderText ? valueX : 0
     // The box a one-line label centres on, whatever the label's own lines.
     readonly property real oneLineBox: controlFirstLine > 0 ? controlFirstLine : Math.max(Theme.row.height, slot.childrenRect.height)
-    // Whether the info button holds the explainer: under a row with no line
-    // under its value, a tooltip would cover the next row. The button
-    // narrows the label, so this reads no line count of the label.
-    readonly property bool explainInDialog: labelTooltip !== "" && labelColumn && underText < 0 && !(besideWrap > 0 && besideHeight <= oneLineBox + 2 * Theme.stack.row)
+    // Whether the row has a line under its value.
+    readonly property bool underLine: textBelow || warning !== ""
+    // Whether the explainer has room past the control beside a label of any
+    // line count, and ends above a line under the value: less a pixel, which
+    // the control's rounded centre can take.
+    readonly property bool besideRoom: besideWrap > 0 && besideHeight <= oneLineBox + 2 * Theme.stack.row && (!underLine || besideHeight <= slot.childrenRect.height + 2 * Theme.field.gap - 1)
+    // Whether the band over that line holds the explainer on one line of the
+    // value column, the room it has beside a label ring that reaches the line.
+    // A wrapped Text's implicitWidth is its width on one line.
+    readonly property bool bandOneLine: underLine && Math.ceil(besideMeasure.implicitWidth) <= valueRoom - 2 * Theme.tooltip.paddingX
+    // Whether the info button holds the explainer: a band under a row with
+    // no line under its value, or of more than one line, would cover the
+    // next row. The button narrows the label, so this reads neither the
+    // label's line count nor a place that moves with it.
+    readonly property bool explainInDialog: labelTooltip !== "" && labelColumn && !besideRoom && !bandOneLine
     readonly property string tipText: explainInDialog ? "" : labelTooltip
     readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n\n" + info
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
@@ -207,8 +222,8 @@ Item {
         sourceComponent: InfoButton {
             title: root.label
             info: root.dialogText
-            // Under the button a tooltip of the explainer would cover the next row.
-            tooltip: root.explainInDialog ? "" : info
+            // Under the button a tooltip would cover the next row's label.
+            tooltip: ""
             onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
         }
     }

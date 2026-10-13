@@ -16,12 +16,40 @@ import qs.Unit
 // field's tool row, and its hint actions on a line under the hint, taking
 // no room while none shows. The explanation of a bind with no hint is
 // in its info icon's dialog: the label opens no tooltip, which would lie
-// on the bind under it. The capture here answers every conflict question with
+// on the bind under it. A bind with a hint opens its explanation in a band
+// of one line over that hint, and one too long for that line is in the info
+// icon's dialog too. The capture here answers every conflict question with
 // one hint and records each question as "KEY ID SHORTCUT".
 Item {
     id: root
     width: 480
     height: 300
+
+    // Two key rows as a Settings page draws them, each with a hint, and the
+    // row under them.
+    Column {
+        id: hinted
+        y: 600
+        width: 570
+        BindField {
+            id: longKey
+            width: parent.width
+            hint: "Default shortcut: SUPER+CTRL+X"
+            bind: ({ shortcut: "toggle", key: "SUPER+CTRL+X", default: "SUPER+CTRL+X", description: "Start or stop dictation", info: "A key combination that turns dictation on and off. Press it once to start, speak, and press it again to stop. VGS then types what you said into the field that has focus." })
+        }
+        BindField {
+            id: shortKey
+            width: parent.width
+            hint: "Default shortcut: F9"
+            bind: ({ shortcut: "talk", key: "F9", default: "F9", description: "Push to talk", info: "Hold the key while you speak." })
+        }
+        BindField {
+            id: underKeys
+            width: parent.width
+            hint: "No default shortcut"
+            bind: ({ shortcut: "lock", key: null, default: null })
+        }
+    }
 
     QtObject {
         id: asker
@@ -126,6 +154,36 @@ Item {
             compare(mark.info, "Locks the screen at once.");
             compare(mark.tooltip, "");
             compare(descendant(later, item => String(item).indexOf("InfoButton") === 0), null, "a bind with no explanation draws an info icon");
+        }
+
+        function tipOf(f) {
+            return descendant(descendant(f, item => item.objectName === "fieldLabel"), item => String(item).indexOf("Tooltip") === 0);
+        }
+
+        // The room under a hint's top holds a band of one line. A key row's
+        // explanation of one line opens there and ends above the next row;
+        // a longer one opens in the info icon's dialog and in no band.
+        function test_a_key_explanation_over_its_hint_keeps_one_line() {
+            const tip = tipOf(shortKey);
+            compare(tip.text, "Hold the key while you speak.");
+            compare(descendant(shortKey, item => String(item).indexOf("InfoButton") === 0), null, "a key row with room for its explanation draws an info icon");
+            tip.shown = true;
+            try {
+                verify(tip.opened, "the explanation opens its own surface");
+                const popup = tip.tracker.popup;
+                compare(popup.anchor.edges, Edges.Bottom | Edges.Left, "the explanation opens under its row");
+                const title = descendant(popup.contentItem, item => item.objectName === "tooltipTitle");
+                compare(title.lineCount, 1);
+                const top = tip.anchorItem.mapToItem(hinted, popup.anchor.rect.x, popup.anchor.rect.y + popup.anchor.rect.height - popup.anchor.margins.bottom);
+                verify(top.y + popup.implicitHeight <= underKeys.y, "the band reaches the next row: " + (top.y + popup.implicitHeight) + " next " + underKeys.y);
+            } finally {
+                tip.shown = false;
+            }
+            compare(tipOf(longKey).text, "", "a long explanation opens in a band over the next row");
+            const mark = descendant(longKey, item => String(item).indexOf("InfoButton") === 0);
+            verify(mark !== null, "the key row draws its info icon");
+            compare(mark.info, longKey.bind.info);
+            compare(mark.tooltip, "");
         }
 
         function test_the_field_holds_the_key_in_effect() {

@@ -9,7 +9,9 @@ import qs.Unit
 // Return and Space; the dialog closes by Escape, its Close button and a
 // press outside, and focus returns to the icon. The open dialog draws one
 // frame, centred inside the window's dialog margin over a scrim that washes
-// every row of the window. A Field draws the icon only when `info` is set.
+// every row of the window. A Field draws the icon only when `info` is set,
+// and beside its label that icon opens no tooltip, which would lie on the
+// label of the row under it.
 // A page reference in the explanation is a link in the dialog: activating
 // it closes the dialog and asks for its page and tab through
 // `infoPageActivated`, which a Field forwards whether its label stands
@@ -346,6 +348,32 @@ Item {
             compare(data.spy.signalArguments[0][1], data.tab);
             tryCompare(buttons[0], "activeFocus", true);
             buttons[0].destroyPopup();
+        }
+
+        // Under a row's icon lies the next row's label and past it the
+        // row's own control, so the icon opens its dialog on a press alone.
+        function test_a_rows_icon_opens_no_tooltip() {
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            const mark = infoButtons(explained)[0];
+            const tip = tooltipOf(mark);
+            const opened = [];
+            const record = () => { if (tip.opened) opened.push(tip.text); };
+            tip.openedChanged.connect(record);
+            try {
+                rest(mark);
+                mark.forceActiveFocus(Qt.TabFocusReason);
+                compare(mark.visualFocus, true);
+                wait(4 * Theme.tooltip.delay);
+                compare(opened.length, 0, "the icon opens a tooltip over the next row: " + opened);
+            } finally {
+                tip.openedChanged.disconnect(record);
+                mouseMove(root, root.width - 1, root.height - 1);
+            }
+            mouseClick(mark);
+            tryCompare(mark, "infoOpen", true);
+            mark.closeInfo();
+            tryCompare(mark, "activeFocus", true);
+            mark.destroyPopup();
         }
 
         function test_field_draws_icon_only_with_info() {

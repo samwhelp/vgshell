@@ -445,12 +445,14 @@ Item {
         }
 
         // Whether the setting's explainer, opened under its row over the
-        // description, takes more than one line. The room under a
+        // description, takes more than one line, which the row hands to its
+        // info dialog. The room under a
         // description's top holds a band of one line and no more. The row
         // is as wide as a Settings page: the window less its panel inset.
         function explainerWraps(key, spec) {
             const made = createTemporaryObject(shippedField, root, { width: Theme.size.window.width - 2 * Theme.surface.padding, key: key, spec: spec, value: spec.default });
             const row = descendants(made).find(child => child.objectName === "fieldRow");
+            if (row.explainInDialog) return true;
             if (row.explainBeside) return false;
             const tip = descendants(labelOf(made)).find(child => String(child).indexOf("Tooltip") === 0);
             compare(tip.text, spec.tooltip);

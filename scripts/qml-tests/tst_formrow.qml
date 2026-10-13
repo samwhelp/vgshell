@@ -32,8 +32,9 @@ import qs.Unit
 // under its row lies on the row's hint, clear of the label's focus ring,
 // beside it on the value column where the ring reaches the hint, and draws
 // a lifted fill with no outline, unlike an input. A row with no hint and no
-// room past its control opens no explainer: its info button holds the text
-// for its dialog, the label is no Tab stop, and neither opens a tooltip.
+// room past its control, or with an explainer too long for one line over
+// its hint, opens no explainer: its info button holds the text for its
+// dialog, the label is no Tab stop, and neither opens a tooltip.
 Item {
     id: root
     width: 480
@@ -135,7 +136,18 @@ Item {
         width: 570
         inline: true
         label: "Constant frame rate"
-        labelTooltip: "Records every frame at the same interval, even when nothing on the screen moves."
+        labelTooltip: "Records frames at a fixed interval, even when nothing moves."
+        hint: "Some video editors need it"
+        Switch { size: "sm" }
+    }
+    // An explainer of more than one line of the value column, over a hint.
+    Field {
+        id: hintedLong
+        y: 2040
+        width: 570
+        inline: true
+        label: "Frame rate"
+        labelTooltip: "Records every frame at the same interval, even when nothing on the screen moves, for as long as the recording runs."
         hint: "Some video editors need it"
         Switch { size: "sm" }
     }
@@ -331,8 +343,9 @@ Item {
             });
         }
 
-        // A row with no hint has no line of its own under it, so a band
-        // there would lie on the next row. Its label opens nothing on hover
+        // A row with no hint has no line of its own under it, and the room
+        // under a hint's top holds a band of one line, so a longer band
+        // would lie on the next row. Its label opens nothing on hover
         // or keyboard focus, and its info button holds the explainer for
         // its dialog and opens no tooltip under itself either.
         function test_a_label_tooltip_with_no_hint_and_no_room_goes_to_the_info_dialog_data() {
@@ -341,6 +354,7 @@ Item {
                 { tag: "too tall past the control", row: explainedTall },
                 { tag: "control taller than the label's box", row: explainedLines },
                 { tag: "label of two lines", row: explainedLong },
+                { tag: "too long for one line over its hint", row: hintedRow(hintedLong).row },
                 { tag: "with info of its own", row: explainedInfo, text: "The clock's format.\n\nIt follows the locale." }
             ];
         }
