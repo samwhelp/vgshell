@@ -140,14 +140,46 @@ const LOCAL_READY = { tone: "ok", text: "Ready: small", action: false };
 // Add key draws in the AI model and Voice sections, one for each kind of
 // key. [label, the voice the daemon runs, the daemon's causes, the local
 // voice, browser and input readings, the rows of the tab that offer those
-// three screens].
+// three screens, the Local voice row's chip tone].
 const ONCE = [
     ["partial under Local", "local", ["brain=unselected", "speech=local-not-set-up"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
-        { "setup-local": ["setupVoice"], "setup-browser": ["browser"], "setup-input": ["input"] }],
-    ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY, { "setup-local": [], "setup-browser": [], "setup-input": ["input"] }],
+        { "setup-local": ["setupVoice"], "setup-browser": ["browser"], "setup-input": ["input"] }, "info"],
+    ["local voice open under Local beside a done Voice step", "local", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
+        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
+    ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY, { "setup-local": [], "setup-browser": [], "setup-input": ["input"] }, "success"],
     ["partial under Realtime", "realtime", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
-        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }]
+        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "info"]
 ];
+// One task, setting up the local voice, takes one open step of the Setup
+// tab (VGS-1508). Every pair of a Voice step and a Local voice reading under
+// each voice: `voice` is [label, the daemon's answer the Voice step reads],
+// `local` is [label, setup-local's reading, or the kind of a failed check
+// (SetupGate.checkFailure)].
+const LOCAL_VOICE_TASK = {
+    voice: [
+        ["To do: not set up", { kind: "answered", causes: ["speech=local-not-set-up"] }],
+        ["checking", { kind: "checking" }],
+        ["stopped", { kind: "stopped" }],
+        ["a failed start", { kind: "problem", cause: "jarvis: hello=timeout" }],
+        ["done", { kind: "answered", causes: [] }],
+        ["To do: did not start", { kind: "answered", causes: ["speech=local-not-ready"] }],
+        ["timed out", { kind: "answered", causes: ["speech=local-ready-timeout"] }],
+        ["loading", { kind: "answered", causes: ["speech=local-loading"] }],
+        ["not enough memory", { kind: "answered", causes: ["speech=local-memory-insufficient"] }],
+        ["dictation to set up", { kind: "answered", causes: ["speech=dictation-absent"] }],
+        ["a cloud voice key to choose", { kind: "answered", causes: ["speech=live-key-required"] }]
+    ],
+    local: [
+        ["not set up", LOCAL_ABSENT],
+        ["setting up", { tone: "info", text: "Setting up", action: false }],
+        ["ready", LOCAL_READY],
+        ["needs verification", { tone: "warning", text: "Setup needs verification", action: true }],
+        ["check failed", "failed"],
+        ["check unreadable", "unreadable"],
+        ["check timed out", "timeout"]
+    ],
+    providers: ["local", "elevenlabs", "realtime", "gemini"]
+};
 // [label, probe value, requires, missing, null for the probe value itself or
 // the commands the withheld value names].
 const SETUP = [
@@ -691,7 +723,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "" }, sessionState: null, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, sessionState: null, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
@@ -978,23 +1010,31 @@ function verifyReadiness(gate) {
     assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     // An optional step reads its reader's state, in the info tone while it
-    // is not ok, and the Local voice row is required under Local alone,
-    // where it leaves its setup to the Voice step: [label, entry, the
-    // reader's value, the voice the daemon runs or null for an optional
-    // step, the published [tone, text, action]].
-    for (const [label, key, value, provider, want] of [
-        ["browser ready", "browser", READY, null, ["ok", "Private browser ready", false]],
-        ["browser to set up", "browser", ABSENT, null, ["info", "Browser needs setup", true]],
-        ["browser withheld", "browser", { tone: "warning", text: "Needs agent-browser", action: false }, null, ["info", "Needs agent-browser", false]],
-        ["input ready", "input", INPUT_READY, null, ["ok", "Keys ready; pointer ready", true]],
-        ["input missing", "input", INPUT_ABSENT, null, ["info", "Input tools unavailable", true]],
-        ["local voice to set up under Local", "localRuntime", LOCAL_ABSENT, "local", ["warning", "Not set up", false]],
-        ["local voice ready under Local", "localRuntime", LOCAL_READY, "local", ["ok", "Ready: small", false]],
-        ["local voice to set up under Realtime", "localRuntime", LOCAL_ABSENT, "realtime", ["info", "Not set up", true]],
-        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", ["info", "Not set up", true]],
-        ["local voice to set up under ElevenLabs, which hears through it", "localRuntime", LOCAL_ABSENT, "elevenlabs", ["warning", "Not set up", false]]]) {
-        const got = plain(provider === null ? gate.optionalStep(value) : gate.localVoiceStep(value, provider));
+    // is not ok. The Local voice row is a state of the Voice step while
+    // that step offers Set up local voice, else required under a voice that
+    // hears the user on this computer and optional under another: [label,
+    // entry, the reader's value, the voice the daemon runs or null for an
+    // optional step, the Voice step's value, the published [tone, text,
+    // action]].
+    const voiceTodo = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }).setupVoice, null);
+    const voiceDone = gate.voiceCheck(gate.DONE, null);
+    for (const [label, key, value, provider, voice, want] of [
+        ["browser ready", "browser", READY, null, null, ["ok", "Private browser ready", false]],
+        ["browser to set up", "browser", ABSENT, null, null, ["info", "Browser needs setup", true]],
+        ["browser withheld", "browser", { tone: "warning", text: "Needs agent-browser", action: false }, null, null, ["info", "Needs agent-browser", false]],
+        ["input ready", "input", INPUT_READY, null, null, ["ok", "Keys ready; pointer ready", true]],
+        ["input missing", "input", INPUT_ABSENT, null, null, ["info", "Input tools unavailable", true]],
+        ["local voice to set up under Local, beside a Voice step to do", "localRuntime", LOCAL_ABSENT, "local", voiceTodo, ["info", "Not set up", false]],
+        ["local voice to set up under Local, beside a done Voice step", "localRuntime", LOCAL_ABSENT, "local", voiceDone, ["warning", "Not set up", true]],
+        ["local voice ready under Local", "localRuntime", LOCAL_READY, "local", voiceTodo, ["ok", "Ready: small", false]],
+        ["local voice to set up under Realtime", "localRuntime", LOCAL_ABSENT, "realtime", voiceDone, ["info", "Not set up", true]],
+        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", voiceDone, ["info", "Not set up", true]],
+        ["local voice to set up under ElevenLabs, beside a Voice step to do", "localRuntime", LOCAL_ABSENT, "elevenlabs", voiceTodo, ["info", "Not set up", false]],
+        ["local voice to set up under ElevenLabs, which hears through it", "localRuntime", LOCAL_ABSENT, "elevenlabs", voiceDone, ["warning", "Not set up", true]]]) {
+        const got = plain(provider === null ? gate.optionalStep(value) : gate.localVoiceStep(value, provider, voice));
         assert.deepEqual([got.tone, got.text, got.action], want, label);
+        if (voice === voiceTodo && value.tone !== "ok")
+            assert.equal((got.lines ?? []).length, (value.lines ?? []).length + 1, label + ": a line says where its setup is");
         assert.equal(judge.statusWrite(manifest, {}, key, got).ok, true, label + ": the manifest judge accepts " + key);
     }
     // Every value the service publishes is one the manifest judge accepts
@@ -1292,7 +1332,9 @@ function verify(gate) {
         "the setup terminal needs git and kendex");
     for (const command of ["git", "kendex"])
         assert.equal(judged.requirements.find(row => row.name === command).optional, true, command + " is optional: Jarvis works without the fleet");
-    verifyProbeTimeoutConsumer(fs.readFileSync(localRuntimeFile, "utf8"));
+    verifyCheckFailureConsumer(fs.readFileSync(localRuntimeFile, "utf8"));
+    verifyCheckFailures(gate);
+    verifyOneLocalVoiceTask(gate, gate.localVoiceStep);
     for (const [label, cause, kind] of START_CAUSES) {
         const words = gate.startCause(cause);
         assert.equal(words.kind, kind, label + ": classified");
@@ -1344,8 +1386,11 @@ const CONTROLS = [
     ["checking account discovery offers Add key", 'access.kind === "absent"', 'access.kind !== "present"'],
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
     ["an optional reading keeps its open tone", 'value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" })', "value", "the browser and input read optional"],
-    ["Local voice offers setup beside the Voice step", 'Object.assign({}, value, { action: false }) : optionalStep(value)', "value : optionalStep(value)", "partial under Local: each screen once"],
-    ["Local voice is required under a cloud voice", 'return hearsLocally(provider) ? Object.assign', "return true ? Object.assign", "partial under Realtime: "],
+    ["Local voice offers setup beside the Voice step", 'if (voice.action === "setup") {', "if (false) {", "partial under Local: each screen once"],
+    ["Local voice is required under a cloud voice", "return hearsLocally(provider) ? value : optionalStep(value);", "return true ? value : optionalStep(value);", "partial under Realtime: "],
+    ["Local voice stays open beside the Voice step", 'var row = { tone: "info", text: value.text,', "var row = { tone: value.tone, text: value.text,", "partial under Local: the browser and input read optional"],
+    ["Local voice does not say where its setup is", "lines: (value.lines || []).concat([VOICE_STEP_SETS_UP]), ", "", "beside a Voice step to do: a line says where"],
+    ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {'],
@@ -1545,13 +1590,24 @@ try {
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
     const localRuntimeSource = fs.readFileSync(localRuntimeFile, "utf8");
     {
-        const needle = 'const problem = Gate.startCause(setupCause);';
+        const needle = 'if (code !== 0) return Gate.checkFailure("failed", entry);';
         assert.equal(localRuntimeSource.split(needle).length, 2);
         let failure = null;
-        try { verifyProbeTimeoutConsumer(localRuntimeSource.replace(needle, 'const problem = { title: "Setup check timed out", action: "Turn Jarvis off and on again in Settings > Jarvis.", lines: ["jarvis: setup=probe-timeout"] };')); }
+        try { verifyCheckFailureConsumer(localRuntimeSource.replace(needle, 'if (code !== 0) return { tone: "warning", text: "Setup check failed", action: true };')); }
         catch (error) { failure = error; }
         assert.ok(failure instanceof assert.AssertionError);
-        console.log("test-jarvis-setup-gate: control=LocalRuntime.qml check=probe-timeout-owner rejected=true");
+        console.log("test-jarvis-setup-gate: control=LocalRuntime.qml check=check-failure-owner rejected=true");
+    }
+    {
+        // The Local voice row as published before VGS-1508: required and
+        // without its setup under a voice that hears the user on this
+        // computer, whatever the Voice step offers.
+        const shipped = load(file);
+        const before = (value, provider) => shipped.hearsLocally(provider) ? Object.assign({}, value, { action: false }) : shipped.optionalStep(value);
+        assert.throws(() => verifyOneLocalVoiceTask(shipped, before), error => error instanceof assert.AssertionError
+            && error.message.startsWith(LOCAL_VOICE_TASK.voice[0][0] + " / " + LOCAL_VOICE_TASK.local[0][0] + " / " + LOCAL_VOICE_TASK.providers[0] + ":"),
+            "the Local voice row of before VGS-1508 turns the one-step check red on the first pair");
+        console.log("test-jarvis-setup-gate: control=local-voice-two-steps rejected=true");
     }
     for (const [target, original, needle, replacement] of [
         ["Service.qml", serviceSource, 'values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);', 'values.setupModel = values.setupModel;'],
@@ -1754,7 +1810,8 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length} controls=${CONTROLS.length + 10 + 56}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
+    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 10 + 57}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
@@ -1786,11 +1843,11 @@ function drawnTwice(sections) {
 }
 function verifyScreensOnce(gate) {
     const tuis = judge.listedTuiRows(manifest, []);
-    for (const [label, provider, causes, local, browser, input, offering] of ONCE) {
+    for (const [label, provider, causes, local, browser, input, offering, localTone] of ONCE) {
         const values = plain(gate.readiness({ kind: "answered", causes }));
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         values.setupModel = gate.modelStep(values.setupModel, [{ value: "absent" }], { kind: "absent" });
-        Object.assign(values, plain({ localRuntime: gate.localVoiceStep(local, provider), browser: gate.optionalStep(browser), input: gate.optionalStep(input),
+        Object.assign(values, plain({ localRuntime: gate.localVoiceStep(local, provider, values.setupVoice), browser: gate.optionalStep(browser), input: gate.optionalStep(input),
             keyStore: { tone: "ok", text: "1 key stored", action: true }, voiceKey: { tone: "info", text: "No key stored", action: true } }));
         const sections = Array.from(settings.setupSections(tuis, judge.statusRows(manifest, values, [])));
         assert.deepEqual(drawnTwice(sections), [], label + ": each screen once");
@@ -1799,8 +1856,8 @@ function verifyScreensOnce(gate) {
             offering, label + ": the rows that offer the local voice, browser and input screens");
         const tones = Object.fromEntries(settingsRows(sections).filter(item => ["localRuntime", "browser", "input"].includes(item.key)).map(item => [item.key, item.entry.tone]));
         const open = causes.length > 0;
-        assert.deepEqual(tones, { localRuntime: !open ? "success" : provider === "local" ? "warning" : "info", browser: open ? "info" : "success", input: open ? "info" : "success" },
-            label + ": the browser and input read optional, Local voice required under Local alone");
+        assert.deepEqual(tones, { localRuntime: localTone, browser: open ? "info" : "success", input: open ? "info" : "success" },
+            label + ": the browser and input read optional, Local voice required under Local while it holds its own setup");
     }
     // Its control: the Voice step's and the Local voice row's setup both
     // offered, as the two entries published before VGS-1486.
@@ -1809,6 +1866,58 @@ function verifyScreensOnce(gate) {
     both.localRuntime = LOCAL_ABSENT;
     assert.deepEqual(drawnTwice(Array.from(settings.setupSections(tuis, judge.statusRows(manifest, both, [])))), ["Setup: setup-local"],
         "two rows that offer Set up local voice turn the check red");
+}
+// Over LOCAL_VOICE_TASK, through the shipped judge and Setup tab, with STEP
+// for SetupGate.localVoiceStep: a step describes the local-voice task while
+// it is the Local voice row, or the Voice step offering Set up local voice.
+// At most one such step is open, and while one is, exactly one row offers
+// Set up local voice.
+function verifyOneLocalVoiceTask(gate, step) {
+    const tuis = judge.listedTuiRows(manifest, []);
+    for (const [voiceLabel, answer] of LOCAL_VOICE_TASK.voice)
+        for (const [localLabel, reading] of LOCAL_VOICE_TASK.local)
+            for (const provider of LOCAL_VOICE_TASK.providers) {
+                const label = voiceLabel + " / " + localLabel + " / " + provider;
+                const values = plain(gate.readiness(answer));
+                values.setupVoice = plain(gate.voiceCheck(values.setupVoice, null));
+                const local = typeof reading === "string" ? gate.checkFailure(reading, manifest.status.localRuntime) : reading;
+                values.localRuntime = plain(step(local, provider, values.setupVoice));
+                assert.equal(judge.statusWrite(manifest, {}, "localRuntime", values.localRuntime).ok, true, label + ": the manifest judge accepts the Local voice row");
+                const sections = Array.from(settings.setupSections(tuis, judge.statusRows(manifest, values, [])));
+                const rows = settingsRows(sections);
+                const describes = rows.filter(item => item.key === "localRuntime"
+                    || item.key === "setupVoice" && item.button !== null && item.button.name === "setup-local");
+                const open = describes.filter(item => settings.stepOpen(item.entry)).map(item => String(item.key));
+                const offering = rows.filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key))
+                    .concat(sections.flatMap(section => Array.from(section.buttons)).filter(button => button.name === "setup-local").map(() => "More setup"));
+                assert.equal(open.length <= 1, true, label + ": one open step for the local voice, not " + open.join(" and "));
+                if (open.length > 0) assert.equal(offering.length, 1, label + ": one row offers Set up local voice, not " + JSON.stringify(offering));
+            }
+}
+// A failed, unreadable or timed-out check of each setup reader that shares
+// LocalRuntime.qml: each published value fits its entry, and a failed or
+// unreadable one names the action that sets it up again, read from the
+// manifest by its own path: [status key, the path of its setup action's
+// label, the reader's shape].
+function verifyCheckFailures(gate) {
+    const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
+    const voiceDone = gate.voiceCheck(gate.DONE, null);
+    for (const [key, labelPath, shape] of [
+        ["localRuntime", ["action", "label"], value => gate.localVoiceStep(value, "local", voiceDone)],
+        ["browser", ["action", "label"], value => gate.optionalStep(value)],
+        ["setupFleet", ["action", "label"], value => value],
+        ["clonedVoiceSetup", ["actions", "setup", "label"], value => gate.clonedVoiceStep(value, "local")]]) {
+        const label = labelPath.reduce((at, name) => at[name], raw.status[key]);
+        for (const kind of ["failed", "unreadable", "timeout"]) {
+            const value = plain(shape(gate.setupValue(gate.checkFailure(kind, manifest.status[key]), [], [])));
+            assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, key + " " + kind + ": the manifest judge accepts the value");
+            assert.equal(typeof value.hint, "string", key + " " + kind + ": the row says why");
+            if (kind !== "timeout") assert.equal(value.hint.includes(label), true, key + " " + kind + ": the hint names " + label);
+            const row = judge.statusRows(manifest, { [key]: value }, []).find(entry => entry.key === key);
+            assert.equal(row.action.offered, true, key + " " + kind + ": the row offers its setup");
+        }
+    }
+    assert.throws(() => gate.checkFailure("lost", manifest.status.localRuntime), /^Error: jarvis-setup: check-failure=lost unexpected/);
 }
 // Every cause the Setup table knows states one readiness on the bar and in
 // the Setup status. Session's gate follows the daemon alone (jarvisd.js
@@ -1832,7 +1941,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
             return "ok";
         } } };
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: { modelAccess: { kind: "checking" } },
-            localRuntime: { setupCause: "" }, sessionState: null, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
+            localRuntime: { setupCause: "", republish: () => {} }, sessionState: null, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
             assert.deepEqual([voice_.tone, voice_.action, "hint" in voice_], ["warning", "dictation", false], label + ": the Voice step");
@@ -1964,7 +2073,10 @@ function verifyChipTitles(gate) {
         assert.equal(title.length <= CHIP_TITLE_MAX, true, JSON.stringify(title) + " fits the Setup status chip");
 }
 
-function verifyProbeTimeoutConsumer(source) {
-    assert.equal(source.includes('Gate.startCause(setupCause)'), true,
-        "probe timeout words come from SetupGate");
+// A setup reader's failed, unreadable and timed-out checks take their
+// values from SetupGate, and the reader words none itself.
+function verifyCheckFailureConsumer(source) {
+    for (const kind of ["failed", "unreadable", "timeout"])
+        assert.equal(source.includes('Gate.checkFailure("' + kind + '", '), true, kind + ": the check failure comes from SetupGate");
+    assert.equal(/tone: "warning"/.test(source), false, "the reader writes no value of its own");
 }

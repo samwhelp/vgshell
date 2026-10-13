@@ -7,7 +7,8 @@ import "SetupGate.js" as Gate
 // triggers a fresh check. While the last scan misses a command of `requires`,
 // the published value withholds the setup step (SetupGate.setupValue). A
 // reader's `shape` turns that value into the one it publishes. Each
-// published check emits `refreshed`.
+// published check emits `refreshed`; `republish` shapes the last check again
+// and emits nothing.
 Item {
     id: root
     property var shell: null
@@ -21,6 +22,9 @@ Item {
     property bool timedOut: false
     property int code: -1
     property string output: ""
+    // The value the last check gave, before `shape`, null before the first
+    // check: a shape that reads more than the check publishes it again.
+    property var reading: null
     readonly property string setupCause: timedOut ? "setup=probe-timeout" : ""
     readonly property var tuiState: shell === null ? null : shell.tui.state[tuiName]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
@@ -42,22 +46,33 @@ Item {
         probe.running = true;
         probeDeadline.restart();
     }
-    function publish() {
-        let value = { tone: "warning", text: "Setup check failed", action: true };
+    // The check's value: its answer, else the failure SetupGate words from
+    // the manifest entry this reader publishes.
+    function checked() {
+        const entry = shell.manifest.status[statusKey];
+        if (timedOut) return Gate.checkFailure("timeout", entry);
+        if (code !== 0) return Gate.checkFailure("failed", entry);
         try {
-            if (timedOut) {
-                const problem = Gate.startCause(setupCause);
-                value = { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] };
-            }
-            else if (code === 0) value = JSON.parse(output);
+            return JSON.parse(output);
         } catch (error) {
-            value = { tone: "warning", text: "Setup check returned invalid status", action: true };
+            return Gate.checkFailure("unreadable", entry);
         }
+    }
+    function publish() {
         const missing = shell.requirements.missing;
-        if (shell.status.set(statusKey, shape(Gate.setupValue(value, requires, missing))) !== "ok"
-                && shell.status.set(statusKey, shape(Gate.setupValue({ tone: "warning", text: "Setup check returned invalid status", action: true }, requires, missing))) !== "ok")
-            throw new Error("jarvis-setup: status=refused");
+        reading = Gate.setupValue(checked(), requires, missing);
+        if (shell.status.set(statusKey, shape(reading)) !== "ok") {
+            reading = Gate.setupValue(Gate.checkFailure("unreadable", shell.manifest.status[statusKey]), requires, missing);
+            if (shell.status.set(statusKey, shape(reading)) !== "ok") throw new Error("jarvis-setup: status=refused");
+        }
         refreshed();
+    }
+    // Publishes the last check again through `shape`, for a shape whose
+    // other input changed; it emits no `refreshed`.
+    function republish() {
+        if (reading === null) return;
+        const reply = shell.status.set(statusKey, shape(reading));
+        if (reply !== "ok") throw new Error("jarvis-setup: " + reply);
     }
     Process {
         id: probe

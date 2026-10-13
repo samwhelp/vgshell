@@ -27,6 +27,9 @@ Item {
     property var sessionState: null
     property var conversationLog: []
     property var setupAnswer: ({ kind: "checking" })
+    // The Voice step's last published value, which shapes the Local voice
+    // row (SetupGate.localVoiceStep).
+    property var voiceStep: Gate.readiness({ kind: "checking" }).setupVoice
     // How many voices the daemon offers the Voice setting, from its last
     // voices message; 0 before one.
     property int voiceOffers: 0
@@ -203,6 +206,8 @@ Item {
             const reply = shell.status.set(key, values[key]);
             if (reply !== "ok") throw new Error("jarvis: " + reply);
         }
+        voiceStep = values.setupVoice;
+        localRuntime.republish();
     }
     function publishShellSetup() {
         publishSetup(setupAnswer);
@@ -1096,7 +1101,11 @@ Item {
         id: localRuntime
         readonly property string provider: accountReader.voiceProvider
         shell: root.shell
-        shape: value => Gate.localVoiceStep(value, localRuntime.provider)
+        // The binding's value is the function: QML records the properties
+        // a binding reads while it evaluates (Qt 6 Property Binding), so
+        // root.voiceStep, read when the reader calls it, is no dependency.
+        // publishSetup republishes the row after each Voice step value.
+        shape: value => Gate.localVoiceStep(value, localRuntime.provider, root.voiceStep)
         onProviderChanged: refresh()
         onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); }
     }

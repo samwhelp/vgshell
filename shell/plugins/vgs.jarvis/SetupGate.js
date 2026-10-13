@@ -601,13 +601,43 @@ function optionalStep(value) {
 }
 
 // The Local voice row from VALUE, setup-local's reading, under PROVIDER,
-// the voice the daemon runs (voiceProvider). Under a voice that hears the
-// user on this computer it is required, and the Voice step offers Set up
-// local voice (voiceCheck), so this row offers none: the Setup tab offers
-// each screen once. Under a voice that hears the user elsewhere it is
-// optional and offers setup as its reading does.
-function localVoiceStep(value, provider) {
-    return hearsLocally(provider) ? Object.assign({}, value, { action: false }) : optionalStep(value);
+// the voice the daemon runs (voiceProvider), beside VOICE, the Voice step's
+// published value (voiceCheck). One task, setting up the local voice, takes
+// one open step. While the Voice step offers Set up local voice, whatever
+// the voice, this row is a state of that step: never open, offering no
+// setup, and a reading that is not ready says where its setup is. Else,
+// under a voice that hears the user on this computer, the row is the
+// required step itself and offers setup as its reading does. Under a voice
+// that hears the user elsewhere it is optional.
+var VOICE_STEP_SETS_UP = "Press Set up local voice on the Voice step to set it up.";
+function localVoiceStep(value, provider, voice) {
+    if (voice.action === "setup") {
+        if (value.tone === "ok") return Object.assign({}, value, { action: false });
+        var row = { tone: "info", text: value.text, lines: (value.lines || []).concat([VOICE_STEP_SETS_UP]), action: false };
+        if (value.hint !== undefined) row.hint = value.hint;
+        return row;
+    }
+    return hearsLocally(provider) ? value : optionalStep(value);
+}
+
+// The value a setup reader publishes when its check gives no answer, by
+// KIND: "failed" for a check that ended in error, "unreadable" for an
+// answer that is no status, "timeout" for a check past its deadline.
+// ENTRY is the reader's manifest status entry, whose setup action the hint
+// names: its one action, or its named setup action.
+var CHECK_FAILURES = {
+    failed: { text: "Setup check failed", reason: "Jarvis could not check this setup." },
+    unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check." }
+};
+function checkFailure(kind, entry) {
+    if (kind === "timeout") {
+        var problem = startCause("setup=probe-timeout");
+        return { tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] };
+    }
+    if (!Object.prototype.hasOwnProperty.call(CHECK_FAILURES, kind)) throw new Error("jarvis-setup: check-failure=" + kind + " unexpected");
+    var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;
+    return { tone: "warning", text: CHECK_FAILURES[kind].text,
+        hint: CHECK_FAILURES[kind].reason + " Press " + label + " to set it up and check it again.", action: true };
 }
 
 // The Local voice setting (`localTier`) and its downloads. WANTED is the

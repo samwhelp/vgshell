@@ -20,17 +20,25 @@ jarvis_enable
 settings_page_open vgs.jarvis
 
 # The browser is optional: a reading that is not ready takes the info tone.
+# A failed or unreadable check also says why in a hint that names Set up
+# browser: [tone, text and action, whether that hint shows].
 browser_value() {
   status_row vgs.jarvis browser | py_reply '
 import json,sys
 r=json.load(sys.stdin)
-expected={"absent":{"tone":"info","text":"Browser needs setup","action":True},
-          "ready":{"tone":"ok","text":"Private browser ready","action":False},
-          "failed":{"tone":"info","text":"Setup check failed","action":True},
-          "invalid":{"tone":"info","text":"Setup check returned invalid status","action":True},
-          "withheld":{"tone":"info","text":"Needs agent-browser","action":False}}[sys.argv[1]]
-print("matched" if r["value"]==expected and r["action"]["offered"]==expected["action"] else "pending")
-' "$1"
+with open(sys.argv[2]) as stream:
+    label=json.load(stream)["status"]["browser"]["action"]["label"]
+expected={"absent":({"tone":"info","text":"Browser needs setup","action":True},False),
+          "ready":({"tone":"ok","text":"Private browser ready","action":False},False),
+          "failed":({"tone":"info","text":"Setup check failed","action":True},True),
+          "invalid":({"tone":"info","text":"Setup check returned invalid status","action":True},True),
+          "withheld":({"tone":"info","text":"Needs agent-browser","action":False},False)}[sys.argv[1]]
+v=r["value"]
+fields,reasoned=expected
+ok=set(v)<=set(fields)|{"hint"} and {k:v.get(k) for k in fields}==fields
+ok=ok and ("hint" in v)==reasoned and (not reasoned or label in v["hint"])
+print("matched" if ok and r["action"]["offered"]==fields["action"] else "pending")
+' "$1" "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
 # The browser driver's own row says whether the scan finds the driver,
 # misses it or reads it below the floor the manifest gives it, and offers
@@ -130,9 +138,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='if (code === 0) value = JSON.parse(output);'
+needle='        reading = Gate.setupValue(checked(), requires, missing);'
 assert s.count(needle)==1
-changed=s.replace(needle, 'if (code !== 0) return;\n            ' + needle)
+changed=s.replace(needle, '        if (code !== 0) return;\n' + needle)
 assert changed != s
 p.write_text(changed)
 PY

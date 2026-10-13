@@ -64,17 +64,29 @@ jarvis_enable
 settings_page_open vgs.jarvis
 settings_setup
 
+# The Local voice row by its reading: [tone, text and action, whether a
+# hint naming its setup action says why, its line count]. While the Voice
+# step offers Set up local voice the row is a state of it, in the info
+# tone with one line saying where its setup is (`-under-voice`); beside a
+# Voice step that offers none it is its own open step (`-open`).
 local_value() {
   status_row vgs.jarvis localRuntime | py_reply '
 import json,sys
 r=json.load(sys.stdin)
-expected={"absent":{"tone":"warning","text":"Not set up","action":False},
-          "optional":{"tone":"info","text":"Not set up","action":True},
-          "ready":{"tone":"ok","text":"Ready: small","action":False},
-          "failed":{"tone":"warning","text":"Setup check failed","action":False},
-          "invalid":{"tone":"warning","text":"Setup check returned invalid status","action":False}}[sys.argv[1]]
-print("matched" if r["value"]==expected and r["action"]["offered"]==expected["action"] else "pending")
-' "$1"
+with open(sys.argv[2]) as stream:
+    label=json.load(stream)["status"]["localRuntime"]["action"]["label"]
+expected={"absent-under-voice":({"tone":"info","text":"Not set up","action":False},False,1),
+          "absent-open":({"tone":"warning","text":"Not set up","action":True},False,0),
+          "optional":({"tone":"info","text":"Not set up","action":True},False,0),
+          "ready":({"tone":"ok","text":"Ready: small","action":False},False,0),
+          "failed-open":({"tone":"warning","text":"Setup check failed","action":True},True,0),
+          "invalid-open":({"tone":"warning","text":"Setup check returned invalid status","action":True},True,0)}[sys.argv[1]]
+v=r["value"]
+fields,reasoned,lines=expected
+ok=set(v)<=set(fields)|{"hint","lines"} and {k:v.get(k) for k in fields}==fields
+ok=ok and ("hint" in v)==reasoned and (not reasoned or label in v["hint"]) and len(v.get("lines",[]))==lines
+print("matched" if ok and r["action"]["offered"]==fields["action"] else "pending")
+' "$1" "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
 local_control_count() {
   local output
@@ -360,7 +372,7 @@ local_open() { # status | launcher
   expect_run_end "the fixture local setup terminal ends" vgs.jarvis/setup-local
 }
 local_ready() { printf 'ready\n' >"$sandbox/jarvis-world/local-mode" && setup_write_marker; }
-expect_poll "Local voice reads not set up and leaves its setup to the Voice step" matched local_value absent
+expect_poll "Local voice reads not set up and leaves its setup to the Voice step" matched local_value absent-under-voice
 ipc shell listTuis | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
@@ -496,10 +508,10 @@ jarvis_rescan
 expect_poll "the restored Local voice reader reads the default answer" '["small", null]' setup_tier_reading
 printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
-expect_poll "exit 77 replaces a previous ready status" matched local_value failed
+expect_poll "exit 77 replaces a previous ready status" matched local_value failed-open
 printf 'invalid\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
-expect_poll "invalid output cannot retain ready" matched local_value invalid
+expect_poll "invalid output cannot retain ready" matched local_value invalid-open
 
 # Preserve the handler text and drop its effect on a disposable copy.
 python3 - "$local_reader" <<'PY'
@@ -522,23 +534,23 @@ printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
 local_refresh_control() {
   (failures=0 behaviour_failures=0
-   expect_poll "the completed TUI must replace ready" matched local_value failed
+   expect_poll "the completed TUI must replace ready" matched local_value failed-open
    echo "$failures")
 }
 expect "removing end refresh breaks its consumer read" 1 local_control_count local_refresh_control
 cp -- "$sandbox/local-reader-original" "$local_reader"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
-expect_poll "the restored reader reads not set up" matched local_value absent
+expect_poll "the restored reader reads not set up" matched local_value absent-open
 
 python3 - "$local_reader" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='if (code === 0) value = JSON.parse(output);'
+needle='        reading = Gate.setupValue(checked(), requires, missing);'
 assert s.count(needle)==1
-changed=s.replace(needle, 'if (code !== 0) return;\n            ' + needle)
+changed=s.replace(needle, '        if (code !== 0) return;\n' + needle)
 assert changed != s
 p.write_text(changed)
 PY
@@ -550,7 +562,7 @@ printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
 local_failure_control() {
   (failures=0 behaviour_failures=0
-   expect_poll "a failed check must clear ready" matched local_value failed
+   expect_poll "a failed check must clear ready" matched local_value failed-open
    echo "$failures")
 }
 expect "retaining ready after probe failure breaks its consumer read" 1 local_control_count local_failure_control
@@ -560,7 +572,7 @@ cp -- "$sandbox/accounts-tui-original" "$accounts_tui"
 cp -- "$sandbox/sign-in-tui-original" "$sign_in_tui"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
-expect_poll "the restored reader reads not set up again" matched local_value absent
+expect_poll "the restored reader reads not set up again" matched local_value absent-open
 rm -f -- "$setup_marker" "$setup_state/accounts.json"
 [[ ! -e $sandbox/setup-accounts-before ]] || cp -- "$sandbox/setup-accounts-before" "$setup_state/accounts.json"
 rm -rf -- "${setup_codex:?}"
@@ -685,7 +697,7 @@ setup_provider realtime
 expect_poll "with Realtime chosen the setup row offers nothing" '["Setup", false, ""]' setup_clone_row
 expect_poll "with Realtime chosen Local voice reads optional and offers its setup" matched local_value optional
 setup_provider ""
-expect_poll "the default voice, Local, makes Local voice required again" matched local_value absent
+expect_poll "the default voice, Local, hands Local voice setup to the Voice step again" matched local_value absent-under-voice
 expect_poll "the default voice, Local, offers the clone setup again" '["Setup", true, "clone-voice"]' setup_clone_row
 
 setup_clone_ready_answer true

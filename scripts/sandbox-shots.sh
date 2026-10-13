@@ -2913,9 +2913,12 @@ function detail(gate) {
 }
 // The steps as Service.qml's publishSetup words them: the Voice step
 // declares named actions, so the judge refuses readiness's boolean on it.
+// voiceStep keeps the last Voice step value, which shapes Local voice.
+let voiceStep = null;
 function addSetup(answer, check) {
   const values = gate.readiness(answer);
   values.setupVoice = gate.voiceCheck(values.setupVoice, check);
+  voiceStep = values.setupVoice;
   for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
 }
 function addReady(answer, gateValue) {
@@ -2933,10 +2936,11 @@ if (phase === "before") {
 } else if (cause === "speech=local-ready-timeout" || cause === "setup=probe-timeout") {
   addReady({ kind: "answered", causes: [cause] }, cause === "speech=local-ready-timeout" ? { kind: "down", reason: "unconfigured" } : { kind: "up" });
   if (cause === "setup=probe-timeout") {
-    const problem = gate.startCause(cause);
+    const manifest = JSON.parse(fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/manifest.json"), "utf8"));
     // The row as Service.qml shapes LocalRuntime's reading: the sandbox
-    // keeps the manifest's default voice, Local, whose row offers no setup.
-    rows.push(["localRuntime", gate.localVoiceStep({ tone: "warning", text: problem.title, hint: problem.action, action: true, lines: [problem.lines[0]] }, "local")]);
+    // keeps the manifest's default voice, Local, and beside the done Voice
+    // step the row offers its own setup.
+    rows.push(["localRuntime", gate.localVoiceStep(gate.checkFailure("timeout", manifest.status.localRuntime), "local", voiceStep)]);
   }
 } else {
   rows.push(["detail", null], ["daemon", gate.startStatus(cause, false)]);
