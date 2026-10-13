@@ -895,7 +895,7 @@ mutations=(
   "link text's box stops before the punctuation against it|feedback/LinkText.qml|        while (end < plain.length && !/\\s/.test(plain.charAt(end))) end++;|        end = end + 0;|tst_linktext.qml"
   "link text draws a page reference's target|feedback/LinkText.qml|        text: root.markup(root.plain, root.words)|        text: root.markup(root.text, root.words)|tst_linktext.qml"
   "link text activates no page|feedback/LinkText.qml|pageActivated(reference.page, reference.tab);|activated();|tst_linktext.qml"
-  "link text drops a page reference's tab|feedback/LinkText.qml|tab: found[3] === undefined ? \"\" : found[3] };|tab: \"\" };|tst_linktext.qml"
+  "link text drops a page reference's tab|../Commons/PageReference.js|tab: found[3] === undefined ? \"\" : found[3], reference: found[0] };|tab: \"\", reference: found[0] };|tst_linktext.qml"
   "link text links a reference to no page|feedback/LinkText.qml|cited ? link : reference.page !== \"\" ? reference.words : \"\"|cited ? link : reference.words|tst_linktext.qml"
   "link text keeps a link its text does not hold|feedback/LinkText.qml|readonly property bool cited: link !== \"\" && plain.indexOf(link) !== -1|readonly property bool cited: link !== \"\"|tst_linktext.qml"
   "link text measures a shorter text with the longer text's run|feedback/LinkText.qml|twin.length === plain.length && run[1] <= plain.length ? wordsBox(|twin.length === plain.length ? wordsBox(|tst_linktext.qml"

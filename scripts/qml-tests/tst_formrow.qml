@@ -140,7 +140,7 @@ Item {
         width: 420
         label: "Voice"
         warning: "Set it up on the [Voice page](page:acme.voice/Setup)."
-        info: "Keys are on the [Models page](page:acme.models)."
+        info: "Keys are on the [Models page](page:acme.models/Keys)."
         Switch { size: "sm" }
     }
     SignalSpy { id: warningPages; target: paged; signalName: "warningPageActivated" }
@@ -498,7 +498,7 @@ Item {
             tryCompare(button, "infoOpen", false);
             compare(infoPages.count, 1);
             compare(infoPages.signalArguments[0][0], "acme.models");
-            compare(infoPages.signalArguments[0][1], "");
+            compare(infoPages.signalArguments[0][1], "Keys");
             button.destroyPopup();
         }
 
