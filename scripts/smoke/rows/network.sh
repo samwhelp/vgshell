@@ -49,7 +49,30 @@ PYJOINWORLD
 net_join_world 802-11-wireless-security.psk refused
 # A details read waits while $net_hold exists, so the row sees its loading state.
 net_hold="$sandbox/network-details-hold"
-printf '#!/usr/bin/env bash\nif [[ " $* " == *" --get-values "* ]]; then\n  export NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\n  exec python3 %q "$@"\nfi\nif [[ " $* " == *" connection add "* || " $* " == *" connection up "* || " $* " == *" connection delete "* ]]; then exec python3 %q %q %q %q "$@"; fi\nif [[ " $* " == *" device show "* ]]; then while [[ -e %q ]]; do sleep 0.05; done; fi\nexec %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/nmcli" "$repo/scripts/smoke/fixtures/devices/network-join-nmcli.py" "$net_join_dir/world.json" "$net_join_dir/calls" "$net_join_dir/ready" "$net_hold" "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
+net_connectivity_dir="$sandbox/network-connectivity"
+mkdir -p -- "$net_connectivity_dir"
+cat >"$net_connectivity_dir/PollObserver.qml" <<'QMLPOLL'
+import QtQuick
+QtObject {
+    property var service: null
+    readonly property var timer: service === null ? null : Array.from(service.resources).find(resource => resource.objectName === "network-connectivity-poll") || null
+    readonly property var reading: timer === null ? null : ({ interval: timer.interval, running: timer.running })
+}
+QMLPOLL
+cat >"$net_connectivity_dir/check.py" <<'PYNMCHECK'
+import pathlib,sys,time
+import dbus
+address,folder=sys.argv[1:]
+root=pathlib.Path(folder)
+(root/"ready").touch()
+while (root/"hold").exists(): time.sleep(0.05)
+if (root/"skip-call").exists():
+    print("portal")
+else:
+    manager=dbus.Interface(dbus.bus.BusConnection(address).get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager"), "org.freedesktop.NetworkManager")
+    print({0:"unknown",1:"none",2:"portal",3:"limited",4:"full"}[int(manager.CheckConnectivity())])
+PYNMCHECK
+printf '#!/usr/bin/env bash\nif [[ " $* " == *" --get-values "* ]]; then\n  export NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\n  exec python3 %q "$@"\nfi\nif [[ " $* " == *" connection add "* || " $* " == *" connection up "* || " $* " == *" connection delete "* ]]; then exec python3 %q %q %q %q "$@"; fi\nif [[ " $* " == *" networking connectivity check "* && -e %q ]]; then exec python3 %q %q %q; fi\nif [[ " $* " == *" device show "* ]]; then while [[ -e %q ]]; do sleep 0.05; done; fi\nexec %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/nmcli" "$repo/scripts/smoke/fixtures/devices/network-join-nmcli.py" "$net_join_dir/world.json" "$net_join_dir/calls" "$net_join_dir/ready" "$net_connectivity_dir/active" "$net_connectivity_dir/check.py" "unix:path=$rt_dir/system-bus" "$net_connectivity_dir" "$net_hold" "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
 net_qr_had_shim=false
 if [[ -e $shim/qrencode ]]; then net_qr_had_shim=true; else printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/qrencode"; fi
 printf '#!/usr/bin/env bash\nexport NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\nexec python3 %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/qrencode" | sentinel_stand_over "$shim/qrencode"
@@ -112,6 +135,13 @@ net_widget_click() { rest_pointer && click_centre "$(bar_key)" vgs.network; }
 # whether the dialog names the prompted network, and its top in the body.
 net_dialog() { ipc smoke readMatchingDescendant "$1" vgs.network Dialog objectName network-prompt visible; }
 net_dialog_names() { ipc smoke readMatchingDescendant "$1" vgs.network Label objectName network-prompt-name text | py_reply 'import json,sys; print("VGS Smoke Wi-Fi" in json.load(sys.stdin))'; }
+net_reason_matches() {
+  local reason
+  reason="$(ipc smoke readMatchingDescendant "$1" vgs.network Label objectName network-prompt-reason text)" || return 1
+  net_snapshot | py_reply 'import json,sys; problem=json.load(sys.stdin)["network"]["problem"]; print("same" if problem and json.loads(sys.argv[1])==problem else "different")' "$reason"
+}
+net_saved_reason() { expect "$1: the dialog draws the service failure reason" same net_reason_matches panel; }
+net_hint_suppressed() { expect "$1: the list hint is hidden under the dialog" false ipc smoke readMatchingDescendant panel vgs.network Label objectName network-problem visible; }
 # net_dialog_focus HOST: [whether the dialog holds the focus, whether the
 # body holds it].
 net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin "$1" vgs.network Dialog)" "$(ipc smoke activeFocusIn "$1" vgs.network)"; }
@@ -464,6 +494,8 @@ expect_poll "a network that needs a password opens the dialog" true net_dialog p
 expect "the dropdown stays open under its dialog" shown net_shown panel
 expect "the dialog is drawn in the dropdown, on no layer of its own" 0 layer_count vgs:dialog
 expect "the dialog names the network" True net_dialog_names panel
+net_saved_reason "Saved password"
+net_hint_suppressed "Saved password"
 expect_poll "the dialog focuses its masked field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
 expect "the focused field is the dialog's own" true ipc smoke activeFocusWithin panel vgs.network Dialog
 type_keys partial
@@ -535,8 +567,48 @@ type_keys partial
 expect_poll "the field holds text before the dropdown closes" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
 expect "the dropdown closes over its prompt" ok ipc shell hide panel vgs.network
 expect_poll "closing the dropdown leaves no password field" absent ipc smoke networkField panel
-expect "the closed dropdown's prompt is cancelled" ok ipc vgs.network invoke action '{"kind":"cancel"}'
-expect_poll "the service holds no prompt after the dropdown" none net_prompt
+net_closed_prompt() { expect "$1: the service holds no prompt after close" none net_prompt; }
+net_closed_prompt "Dropdown"
+expect "the dropdown reopens after canceling its prompt" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the reopened dropdown is mounted" shown net_shown panel
+expect_poll "the prompt does not return on reopen" false net_dialog panel
+expect "the dropdown closes after its reopen check" ok ipc shell hide panel vgs.network
+
+# First-time NoSecrets uses the mock's existing new-profile verb, held in
+# Connecting like its saved-profile verb, then the same native failure signal.
+net_new_profile_mode() { python3 - "unix:path=$rt_dir/system-bus" "$1" <<'PYNEWPROFILE'
+import dbus,sys
+bus=dbus.bus.BusConnection(sys.argv[1]);nm="org.freedesktop.NetworkManager"
+manager=dbus.Interface(bus.get_object(nm,"/org/freedesktop/NetworkManager"),"org.freedesktop.DBus.Mock")
+code='ret = self.add_and_activate_connection(self, args[0], args[1], args[2])'
+if sys.argv[2]=="hold":
+    code='''
+root=objects["/org/freedesktop"]
+profile=dbus.ObjectPath(root.AddWiFiConnection(args[1], "network_saved", "VGS Smoke Wi-Fi", "wpa-psk"))
+objects[profile].log=lambda msg: None
+active=dbus.ObjectPath(root.AddActiveConnection([args[1]], profile, args[2], "network_active", 1))
+objects[active].log=lambda msg: None
+ret=(profile, active)
+'''
+manager.AddMethod(nm,"AddAndActivateConnection","a{sa{sv}}oo","oo",code)
+print("ok")
+PYNEWPROFILE
+}
+expect "the first-time case forgets its saved profile" ok net_do forget
+expect_poll "the first-time network has no saved profile" False net_known
+expect "the new-profile mock holds activation" ok net_new_profile_mode hold
+expect "the first-time password case opens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the first-time password case is mounted" shown net_shown panel
+net_reprompt "First-time password" || return 0
+expect_poll "the first-time password dialog shows" true net_dialog panel
+expect "the first-time dialog has no failure reason line" false ipc smoke readMatchingDescendant panel vgs.network Label objectName network-prompt-reason visible
+expect "the first-time dialog still names its network" True net_dialog_names panel
+expect "the first-time password view closes" ok ipc shell hide panel vgs.network
+expect_poll "closing the first-time view cancels its prompt" none net_prompt
+expect "the first-time case removes its new profile" ok net_do forget
+expect_poll "the first-time profile is removed" False net_known
+expect "the new-profile mock restores its normal activation" ok net_new_profile_mode normal
+net_expect_fixture "the saved profile returns for the keyboard case" prepare || return 0
 
 # Keyboard-only join and forget, through the actual NM failure signal.
 hypr_lua_save network
@@ -737,35 +809,113 @@ expect_poll "the connected wired device connects the computer" '"connected"' net
 net_portal_url='http://captive.apple.com/hotspot-detect.html'
 device_reply xdg-open 0 ""
 net_portal_calls_before="$(device_calls xdg-open | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
-net_portal_calls() { device_calls xdg-open | py_reply 'import json,sys; calls=json.load(sys.stdin)[int(sys.argv[1]):]; print(json.dumps([[arg.split("?vgs=",1)[0] for arg in call] for call in calls]))' "$net_portal_calls_before"; }
+net_portal_calls() { device_calls xdg-open | py_reply 'import json,sys; calls=json.load(sys.stdin)[int(sys.argv[1]):]; print(json.dumps([[arg.split("?",1)[0] for arg in call] for call in calls]))' "$net_portal_calls_before"; }
 net_portal_available() { net_snapshot | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["portalAvailable"])'; }
-cp -- "$devices_dir/replies/nmcli.json" "$sandbox/network-before-connectivity-replies.json"
-device_reply nmcli 0 "portal" --wait 10 networking connectivity check
-net_expect_fixture "the network requires browser sign-in" portal || return 0
-expect_poll "the native portal result reaches Network" '"portal"' net_state
-expect_poll "the connected portal offers sign-in" True net_portal_available
+net_native_checks() { python3 - "unix:path=$rt_dir/system-bus" <<'PYNMCOUNT'
+import sys,dbus
+manager=dbus.Interface(dbus.bus.BusConnection(sys.argv[1]).get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager"), "org.freedesktop.DBus.Mock")
+print(len(manager.GetMethodCalls("CheckConnectivity")))
+PYNMCOUNT
+}
+net_probe_held() { [[ -f $net_connectivity_dir/ready ]] && echo held || echo waiting; }
+net_probe_running() { ipc smoke readInstance service vgs.network connectivityRequest | py_reply 'import json,sys; print(str(json.load(sys.stdin) is not None).lower())'; }
+net_poll() {
+  local reading
+  ipc smoke popupLoad network-poll-observer "$net_connectivity_dir/PollObserver.qml" service vgs.network '{"service":"@instance"}' >/dev/null || return 1
+  reading="$(ipc smoke popupRead network-poll-observer reading)" || return 1
+  ipc smoke popupDrop network-poll-observer >/dev/null || return 1
+  printf '%s\n' "$reading"
+}
+net_slow_poll() { expect "$1: a closed limited network backs off" '{"interval":300000,"running":true}' net_poll; }
+net_known_portal() { expect "$1: the native known portal offers Sign in before the check returns" True net_portal_available; }
+net_check_progress() { local after; after="$(net_native_checks)" || return 1; [[ $after -gt $net_checks_before ]] && echo yes || echo no; }
+net_check_called() { expect "$1: CheckConnectivity reaches the private NetworkManager" yes net_check_progress; }
+touch "$net_connectivity_dir/hold" "$net_connectivity_dir/active"
+net_checks_before="$(net_native_checks)"
+net_expect_fixture "the network already requires browser sign-in" portal || return 0
+expect_poll "the fresh CLI probe reaches its fixture barrier" held net_probe_held
+expect_poll "Network follows the native portal before the held check completes" '"portal"' net_state
+net_known_portal "Native follow"
+# Rebuild while NM reports Portal and the CLI result remains held.
+net_connectivity_copy="$home/.config/vgshell/plugins/vgs.network"
+mkdir -p -- "$net_connectivity_copy"
+cp -R -- "$repo/shell/plugins/vgs.network/." "$net_connectivity_copy/"
+rescan "the known-portal seed check rebuilds Network"
+expect_poll "the rebuilt Network seeds the known portal" '"portal"' net_state
+net_known_portal "Native seed"
 expect "portal detection waits for the user to open the browser" '[]' net_portal_calls
 expect "the sign-in dropdown opens" ok ipc shell summon panel vgs.network '{}'
 expect_poll "the sign-in dropdown is mounted" shown net_shown panel
 click_in vgs:panel panel vgs.network RowAction 'Sign in' || fail "network: sign-in action was not clickable"
 expect_poll "Sign in opens the fixed HTTP page through the browser stand-in" "[[\"$net_portal_url\"]]" net_portal_calls
-device_reply nmcli 0 "full" --wait 10 networking connectivity check
+rm -f -- "${net_connectivity_dir:?}/hold"
+expect_poll "the fresh check returns from the private mock" false net_probe_running
+net_check_called "Fresh check"
 net_expect_fixture "the portal grants internet access" full || return 0
 expect_poll "successful sign-in clears the portal result" '"connected"' net_state
 expect_poll "successful sign-in removes the sign-in actions" False net_portal_available
-device_reply nmcli 0 "limited" --wait 10 networking connectivity check
 net_expect_fixture "an inconclusive check reports limited access" limited || return 0
-expect_poll "the fresh check publishes limited access" '"limited"' net_state
+expect_poll "Network follows limited access" '"limited"' net_state
+expect "an open Network view keeps its fast check" '{"interval":10000,"running":true}' net_poll
 expect "limited access does not claim browser sign-in is needed" False net_portal_available
 expect "limited access refuses an unrelated sign-in request" 'refused: portal=unavailable' ipc vgs.network invoke action '{"kind":"sign-in"}'
 expect "limited access opens no browser" "[[\"$net_portal_url\"]]" net_portal_calls
+expect "the portal test closes the dropdown" ok ipc shell hide panel vgs.network
+expect_poll "the closed limited view releases its scan lease" '{"leases":0,"device":null,"scanning":false}' ipc smoke networkScan
+net_slow_poll "Limited state"
+# Control: preserve limited state but replace its backoff with fast polling.
+python3 - "$net_connectivity_copy/Service.qml" <<'PYPOLLCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='? 10000 : 300000'
+assert s.count(old)==1
+p.write_text(s.replace(old,'? 10000 : 10000'))
+PYPOLLCONTROL
+rescan "the limited fast-poll control is discovered"
+expect_poll "the poll control reports the same limited state" '"limited"' net_state
+net_poll_control() { (failures=0 behaviour_failures=0; net_slow_poll control >"$net_connectivity_dir/poll-control.log"; echo "$failures"); }
+expect "control: fast polling fails the same closed-limited assertion" 1 net_poll_control
+control_output "$net_connectivity_dir/poll-control.log"
+cp -- "$repo/shell/plugins/vgs.network/Service.qml" "$net_connectivity_copy/Service.qml"
+# Control: discard native seed and follow while the CLI reply stays held.
+touch "$net_connectivity_dir/hold"
+rm -f -- "${net_connectivity_dir:?}/ready"
+net_expect_fixture "the native-off control starts with a known portal" portal || return 0
+python3 - "$net_connectivity_copy/Service.qml" <<'PYSEEDCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text()
+old='property string checkedConnectivity: nativeConnectivity'
+assert s.count(old)==1
+s=s.replace(old,'property string checkedConnectivity: "Unknown"')
+old='checkedConnectivity = nativeConnectivity;'
+assert s.count(old)==2
+p.write_text(s.replace(old,'checkedConnectivity = "Unknown";'))
+PYSEEDCONTROL
+rescan "the native seed and follow control is discovered"
+expect_poll "the native-off control reaches its held fresh check" held net_probe_held
+expect_poll "without native seed the held check leaves Connected" '"connected"' net_state
+net_seed_control() { (failures=0 behaviour_failures=0; net_known_portal control >"$net_connectivity_dir/seed-control.log"; echo "$failures"); }
+expect "control: discarded native connectivity fails the same immediate Sign in assertion" 1 net_seed_control
+control_output "$net_connectivity_dir/seed-control.log"
+# Control: a CLI-looking result without CheckConnectivity fails the call check.
+touch "$net_connectivity_dir/skip-call"
+net_checks_before="$(net_native_checks)"
+rm -f -- "${net_connectivity_dir:?}/hold"
+expect_poll "the no-call CLI control returns" false net_probe_running
+net_call_control() { (failures=0 behaviour_failures=0; net_check_called control >"$net_connectivity_dir/call-control.log"; echo "$failures"); }
+expect "control: a CLI result without the mock method fails the same CheckConnectivity assertion" 1 net_call_control
+control_output "$net_connectivity_dir/call-control.log"
+rm -f -- "${net_connectivity_dir:?}/skip-call"
+rm -rf -- "${net_connectivity_copy:?}"
+rescan "the shipped connectivity service is restored"
+expect_poll "the restored service reports its known portal" '"portal"' net_state
+expect_poll "the restored probe finishes before the manual check" false net_probe_running
+net_checks_before="$(net_native_checks)"
 expect "the user can request a fresh connectivity check" ok ipc vgs.network invoke action '{"kind":"check-connectivity"}'
+expect_poll "the manual check reaches CheckConnectivity" yes net_check_progress
 net_expect_fixture "the portal test restores disabled checks" checks-off || return 0
 expect_poll "the portal test restores the connected result" '"connected"' net_state
 expect "a full connection refuses an unrelated sign-in request" 'refused: portal=unavailable' ipc vgs.network invoke action '{"kind":"sign-in"}'
-expect "the portal test closes the dropdown" ok ipc shell hide panel vgs.network
 device_reply_clear xdg-open
-cp -- "$sandbox/network-before-connectivity-replies.json" "$devices_dir/replies/nmcli.json"
 net_widget_click || fail "the click on the Network widget failed"
 expect_poll "a click on the widget opens the dropdown" shown net_shown panel
 summon_drawn panel vgs.network || fail "the dropdown never drew a frame"
@@ -874,6 +1024,61 @@ mkdir -p -- "$net_copy"
 cp -R -- "$repo/shell/plugins/vgs.network/." "$net_copy/"
 rescan "the disposable service source is discovered"
 expect_poll "the disposable service is ready" '"offline"' net_state
+python3 - "$net_copy/NetworkBody.qml" <<'PYREASONCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='text: root.network.problem || ""'
+assert s.count(old)==1
+p.write_text(s.replace(old,'text: ""'))
+PYREASONCONTROL
+rescan "the missing dialog reason control is discovered"
+expect_poll "the dialog reason control is ready" '"offline"' net_state
+expect "the dialog reason control opens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the dialog reason control is mounted" shown net_shown panel
+net_reprompt "Missing reason control" || return 0
+net_reason_control() { (failures=0 behaviour_failures=0; net_saved_reason control >"$sandbox/network-reason-control.log"; echo "$failures"); }
+expect "control: the missing message fails the same dialog reason assertion" 1 net_reason_control
+control_output "$sandbox/network-reason-control.log"
+expect "the dialog reason control closes" ok ipc shell hide panel vgs.network
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
+python3 - "$net_copy/NetworkBody.qml" <<'PYHINTCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='visible: text !== "" && !root.prompting'
+assert s.count(old)==1
+p.write_text(s.replace(old,'visible: text !== ""'))
+PYHINTCONTROL
+rescan "the duplicate list hint control is discovered"
+expect_poll "the list hint control is ready" '"offline"' net_state
+expect "the list hint control opens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the list hint control is mounted" shown net_shown panel
+net_reprompt "Duplicate hint control" || return 0
+net_hint_control() { (failures=0 behaviour_failures=0; net_hint_suppressed control >"$sandbox/network-hint-control.log"; echo "$failures"); }
+expect "control: the duplicate hint fails the same single-reason assertion" 1 net_hint_control
+control_output "$sandbox/network-hint-control.log"
+expect "the list hint control closes" ok ipc shell hide panel vgs.network
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
+python3 - "$net_copy/NetworkBody.qml" <<'PYCLOSEPROMPT'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='if (promptKey !== "") cancelPassword(false);'
+assert s.count(old)==1
+p.write_text(s.replace(old,'if (false) cancelPassword(false);'))
+PYCLOSEPROMPT
+rescan "the prompt-close cancellation control is discovered"
+expect_poll "the prompt-close control is ready" '"offline"' net_state
+expect "the prompt-close control opens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "the prompt-close control is mounted" shown net_shown panel
+net_reprompt "Close cancellation control" || return 0
+expect "the prompt-close control closes" ok ipc shell hide panel vgs.network
+expect_poll "the prompt-close control destroys its view" absent ipc smoke networkField panel
+net_close_prompt_control() { (failures=0 behaviour_failures=0; net_closed_prompt control >"$sandbox/network-close-prompt-control.log"; echo "$failures"); }
+expect "control: skipped cancellation fails the same null-prompt assertion" 1 net_close_prompt_control
+control_output "$sandbox/network-close-prompt-control.log"
+expect "the prompt-close control reopens" ok ipc shell summon panel vgs.network '{}'
+expect_poll "control: the retained service prompt returns on reopen" true net_dialog panel
+expect "the row cancels the control prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
+expect "the prompt-close control closes after cleanup" ok ipc shell hide panel vgs.network
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
+rescan "the shipped prompt cancellation is restored"
+expect_poll "the restored prompt service is ready" '"offline"' net_state
 expect "System opens the rebuild cancellation test" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
 expect_poll "the rebuild cancellation pane is mounted" shown net_shown window
 net_join_close_test private-cleaned idle rebuild || return 0

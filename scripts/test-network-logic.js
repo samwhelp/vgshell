@@ -45,16 +45,22 @@ function portalSuite(source) {
     ]) {
         const calls = [];
         const offers = [];
-        const context = { portalAvailable: available, problem: "", console: { warn() {} }, Date: { now: () => 123 },
+        let randomReads = 0;
+        const context = { portalAvailable: available, problem: "", console: { warn() {} }, Date: { now: () => { throw new Error("clock read"); } }, Math: { random: () => ++randomReads / 4 },
             shell: { requirements: { missing, offer(value) { offers.push(value); } },
                 run: { detached(argv) { calls.push(argv); return launchReply; } } } };
         vm.createContext(context);
         vm.runInContext(open[0], context);
         assert.equal(context.openPortal(), expected);
         assert.deepEqual(JSON.parse(JSON.stringify(calls)), available && missing.length === 0
-            ? [["xdg-open", "http://captive.apple.com/hotspot-detect.html?vgs=123"]] : []);
+            ? [["xdg-open", "http://captive.apple.com/hotspot-detect.html?4"]] : []);
         assert.deepEqual(JSON.parse(JSON.stringify(offers)), available && missing.length !== 0 ? [["xdg-open"]] : []);
         assert.equal(context.problem !== "", available && missing.length === 0 && launchReply !== "ok");
+        if (available && missing.length === 0) {
+            assert.equal(context.openPortal(), launchReply);
+            assert.equal(calls[1][1], "http://captive.apple.com/hotspot-detect.html?8");
+            assert.equal(randomReads, 2);
+        }
         context.shell = null;
         assert.equal(context.openPortal(), "refused: portal=unavailable");
     }
@@ -120,22 +126,51 @@ function portalSuite(source) {
         assert.equal(recovery.connectivityProblem !== "", failed);
     }
     const polling = source.match(/running: (root.portalConnectionKey[^]*?)\n        onTriggered/);
-    assert.ok(polling);
+    const interval = source.match(/readonly property int connectivityInterval: ([^\n]*)/);
+    assert.ok(polling && interval);
+    assert.match(source, /interval: root\.connectivityInterval/);
     const polls = new Function("root", "Networking", "return " + polling[1]);
-    for (const [key, value, state, failed, enabled, expected] of [
-        ["wlan0", "Portal", "portal", false, true, true],
-        ["wlan0", "Full", "connected", false, true, false],
-        ["wlan0", "Full", "connected", true, true, true],
-        ["wlan0", "Unknown", "connected", false, true, true],
-        ["wlan0", "Limited", "limited", false, true, true],
-        ["", "Unknown", "connected", true, true, false],
-        ["wlan0", "Portal", "portal", false, false, false]
-    ]) assert.equal(polls({ portalConnectionKey: key, checkedConnectivity: value, state,
-        connectivityProblem: failed ? "unavailable" : "", access: "allowed", nmcliPresent: true },
-        { canCheckConnectivity: true, connectivityCheckEnabled: enabled }), expected);
+    const delay = new Function("state", "leaseCount", "return " + interval[1]);
+    for (const [key, value, state, failed, leases, enabled, expected, milliseconds] of [
+        ["wlan0", "Portal", "portal", false, 0, true, true, 10000],
+        ["wlan0", "Full", "connected", false, 0, true, false, 300000],
+        ["wlan0", "Full", "connected", false, 1, true, true, 10000],
+        ["wlan0", "Full", "connected", true, 0, true, true, 300000],
+        ["wlan0", "Unknown", "connected", false, 0, true, true, 300000],
+        ["wlan0", "Limited", "limited", false, 0, true, true, 300000],
+        ["wlan0", "Limited", "limited", false, 1, true, true, 10000],
+        ["", "Unknown", "connected", true, 0, true, false, 300000],
+        ["wlan0", "Portal", "portal", false, 0, false, false, 10000]
+    ]) {
+        const root = { portalConnectionKey: key, checkedConnectivity: value, state, leaseCount: leases,
+            connectivityProblem: failed ? "unavailable" : "", access: "allowed", nmcliPresent: true };
+        assert.equal(polls(root, { canCheckConnectivity: true, connectivityCheckEnabled: enabled }), expected);
+        assert.equal(delay(state, leases), milliseconds);
+    }
     for (const [access, present] of [["denied", true], ["allowed", false]]) assert.equal(polls({ portalConnectionKey: "wlan0",
-        checkedConnectivity: "Unknown", state: "connected", connectivityProblem: "unavailable", access, nmcliPresent: present },
+        checkedConnectivity: "Unknown", state: "connected", leaseCount: 0, connectivityProblem: "unavailable", access, nmcliPresent: present },
         { canCheckConnectivity: true, connectivityCheckEnabled: true }), false);
+    const seed = source.match(/property string checkedConnectivity: ([^\n]*)/);
+    const follow = source.match(/onNativeConnectivityChanged: \{([^]*?)\n    \}/);
+    const appears = source.match(/onNmcliPresentChanged: \{([^]*?)\n    \}/);
+    assert.ok(seed && follow && appears);
+    assert.equal(new Function("nativeConnectivity", "return " + seed[1])("Portal"), "Portal");
+    const context = { nativeConnectivity: "Portal", checkedConnectivity: "Unknown", connectivityGeneration: 0,
+        connectivityProblem: "unavailable", nmcliPresent: true, access: "allowed", checks: 0, publish() {},
+        checkConnectivity() {}, Qt: { callLater() { context.checks++; } } };
+    context.root = context;
+    vm.createContext(context);
+    vm.runInContext("function follow() {" + follow[1] + "}\nfunction appears() {" + appears[1] + "}", context);
+    for (const result of ["Portal", "Full", "Limited"]) {
+        context.nativeConnectivity = result;
+        context.follow();
+        assert.equal(context.checkedConnectivity, result);
+        assert.equal(context.connectivityProblem, "");
+    }
+    context.checks = 0;
+    context.appears();
+    assert.equal(context.checks, 1);
+
 }
 portalSuite(service);
 for (const [before, after] of [
@@ -155,12 +190,64 @@ for (const [before, after] of [
     ['if (value === "Unknown")', "if (false)"],
     ['root.connectivityProblem !== "" ||', ""],
     ['root.checkedConnectivity === "Unknown"\n            ||', "false ||"],
+    ['? 10000 : 300000', '? 10000 : 10000'],
+    ['connectivityInterval: state === "portal" || leaseCount > 0', 'connectivityInterval: leaseCount > 0'],
+    ['connectivityInterval: state === "portal" || leaseCount > 0', 'connectivityInterval: state === "portal" || false'],
+    ['interval: root.connectivityInterval', 'interval: 10000'],
+    ['|| root.leaseCount > 0)', ')'],
+    ['property string checkedConnectivity: nativeConnectivity', 'property string checkedConnectivity: "Unknown"'],
+    ['onNativeConnectivityChanged: {\n        connectivityGeneration++;\n        checkedConnectivity = nativeConnectivity;', 'onNativeConnectivityChanged: {\n        connectivityGeneration++;\n        checkedConnectivity = "Unknown";'],
+    ['else Qt.callLater(root.checkConnectivity);', 'else void 0;'],
+    ['Math.random().toString(16).slice(2)', 'String(Date.now())'],
+    ['Math.random().toString(16).slice(2)', '"4"'],
     ['state === "portal"', '["portal", "limited"].includes(state)']
 ]) {
     assert.ok(service.includes(before));
     assert.throws(() => portalSuite(service.replace(before, after)));
 }
 console.log("network-logic: control=portal launch and native checks red");
+function promptDescriptionSuite(source) {
+    const dialog = source.slice(source.indexOf('objectName: "network-prompt"'));
+    const description = dialog.match(/Accessible\.description: ([^\n]+)/);
+    assert.ok(description);
+    const read = new Function("root", "return " + description[1]);
+    for (const [name, reason, expected] of [
+        ["VGS Smoke Wi-Fi", "saved-password-failure", "VGS Smoke Wi-Fi. saved-password-failure"],
+        ["<b>Hotel</b>", "", "<b>Hotel</b>"], ["", "", ""]
+    ]) assert.equal(read({ promptName: name, network: { problem: reason } }), expected);
+}
+promptDescriptionSuite(body);
+assert.throws(() => promptDescriptionSuite(body.replace('Accessible.description: [root.promptName, root.network.problem || ""].filter(Boolean).join(". ")', 'Accessible.description: ""')));
+console.log("network-logic: control=dialog description names network red");
+function promptReasonSuite(serviceSource, bodySource) {
+    const failed = serviceSource.match(/function failed\(n, reason\) \{[\s\S]*?\n    \}/);
+    const hint = bodySource.match(/objectName: "network-problem"[\s\S]*?visible: ([^\n]*)/);
+    const message = bodySource.match(/objectName: "network-prompt-reason"[\s\S]*?text: ([^\n]*)/);
+    assert.ok(failed && hint && message);
+    const visible = new Function("text", "root", "return " + hint[1]);
+    const reasonText = new Function("root", "return " + message[1]);
+    for (const known of [true, false]) {
+        const n = { name: "Hotel", security: 2 };
+        const context = { operation: { network: n, kind: "connect", key: "hotel", known },
+            problem: "", prompt: null, securityVariants: { Wpa2Psk: 2 }, failureVariants: { NoSecrets: 1 },
+            Logic: load(file, commons), finishOperation() { context.operation = null; } };
+        vm.createContext(context);
+        vm.runInContext(failed[0], context);
+        context.failed(n, 1);
+        assert.equal(context.prompt.name, "Hotel");
+        assert.equal(context.problem !== "", known);
+        assert.equal(reasonText({ network: { problem: context.problem } }), context.problem);
+        assert.equal(visible(context.problem, { prompting: true }), false);
+        assert.equal(visible(context.problem, { prompting: false }), known);
+    }
+}
+promptReasonSuite(service, body);
+assert.throws(() => promptReasonSuite(service, body.replace('visible: text !== "" && !root.prompting', 'visible: text !== ""')));
+assert.throws(() => promptReasonSuite(service, body.replace('text: root.network.problem || ""', 'text: ""')));
+const firstTimeReason = service.replace(/(problem = pending\.known \? [^\n]* : )"";/, '$1"unexpected-reason";');
+assert.notEqual(firstTimeReason, service);
+assert.throws(() => promptReasonSuite(firstTimeReason, body));
+console.log("network-logic: control=prompt reason drawn once and absent for first join red");
 activateSuite(body);
 assert.equal(body.split("!row.known && Logic.supportsEnterprise").length - 1, 1);
 assert.throws(() => activateSuite(body.replace("!row.known && Logic.supportsEnterprise", "Logic.supportsEnterprise")));

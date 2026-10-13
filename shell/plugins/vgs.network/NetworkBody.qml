@@ -71,6 +71,7 @@ FocusScope {
     function close() {
         closeJoin();
         closeShare();
+        if (promptKey !== "") cancelPassword(false);
         password.text = "";
         promptKey = "";
         if (leased && shell !== null) {
@@ -149,11 +150,11 @@ FocusScope {
         joinTarget = undefined;
         joinInterface = "";
     }
-    function cancelPassword() {
+    function cancelPassword(takeFocus = true) {
         password.text = "";
         promptKey = "";
         action("cancel", null);
-        list.forceActiveFocus(Qt.ShortcutFocusReason);
+        if (takeFocus) list.forceActiveFocus(Qt.ShortcutFocusReason);
     }
     function submitPassword() {
         if (shell === null || password.text === "" || promptKey === "") return;
@@ -324,8 +325,9 @@ FocusScope {
             }
         }
         Label {
+            objectName: "network-problem"
             width: parent.width
-            visible: text !== ""
+            visible: text !== "" && !root.prompting
             role: "hint"
             color: Theme.color.danger
             text: root.localProblem || root.network.problem || ""
@@ -508,6 +510,7 @@ FocusScope {
         y: root.shownTop + Math.max(0, (root.shownBottom - root.shownTop - height) / 2)
         width: Math.min(implicitWidth, root.width)
         title: "Wi-Fi password"
+        Accessible.description: [root.promptName, root.network.problem || ""].filter(Boolean).join(". ")
         initialFocus: password
         actions: [{ label: "Cancel", role: "cancel" }, { label: "Join", role: "accept", enabled: password.text !== "" }]
         onAccepted: root.submitPassword()
@@ -526,6 +529,16 @@ FocusScope {
             if (root.prompting && !prompt.activeFocus && root.strayed(root.Window.activeFocusItem)) prompt.takeFocus();
         })
 
+        Label {
+            objectName: "network-prompt-reason"
+            width: parent.width
+            visible: text !== ""
+            role: "hint"
+            color: Theme.color.danger
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+            text: root.network.problem || ""
+        }
         // The name comes from the access point. Plain text draws it as
         // sent: Qt's default AutoText would style a name that holds tags,
         // and the Dialog's message would draw a page reference in it as a link.

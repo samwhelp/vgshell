@@ -56,14 +56,19 @@ Item {
     readonly property bool backendAvailable: Networking.backend === NetworkBackendType.NetworkManager
     readonly property bool managed: devices.length === 0 || devices.some(d => d.nmManaged)
     readonly property bool connected: devices.some(d => d.connected && (d.type !== DeviceType.Wifi || Networking.wifiEnabled))
-    // A tunnel can stay connected after Wi-Fi drops. Only a physical link
-    // can offer sign-in; scans do not change that link's identity.
+    // Scans do not change the connected link's identity.
     readonly property string portalConnectionKey: devices.filter(d => d.connected &&
         (d.type === DeviceType.Wired || (d.type === DeviceType.Wifi && Networking.wifiEnabled)))
         .map(d => d.name).sort().join("\n")
     property int connectivityGeneration: 0
     property var connectivityRequest: null
-    property string checkedConnectivity: "Unknown"
+    // Quickshell reports the last NetworkManager result before a new check.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Networking/Networking/
+    readonly property string nativeConnectivity: Logic.enumName(Networking.connectivity, ({
+        Unknown: NetworkConnectivity.Unknown, None: NetworkConnectivity.None,
+        Limited: NetworkConnectivity.Limited, Portal: NetworkConnectivity.Portal, Full: NetworkConnectivity.Full
+    }))
+    property string checkedConnectivity: nativeConnectivity
     property string connectivityProblem: ""
     readonly property string state: Logic.state(serviceState, backendAvailable, managed, access,
         connected, checkedConnectivity, Networking.connectivityCheckEnabled,
@@ -78,8 +83,7 @@ Item {
         writable: Logic.writable(state), portalAvailable: portalAvailable,
         action: action, prompt: prompt, problem: problem || connectivityProblem, detail: detail })
 
-    // The native connectivity property can still describe the previous link.
-    // nmcli's check waits for a fresh result; only its current link may publish.
+    // nmcli waits for a fresh result; only its current link may publish.
     // https://networkmanager.dev/docs/api/latest/nmcli.html#networking
     // NetworkManager answers a check without network-control access with
     // "Not authorized to recheck connectivity" (NetworkManager 1.58).
@@ -119,10 +123,9 @@ Item {
     }
     Connections {
         target: Networking
-        function onConnectivityChanged() { Qt.callLater(root.checkConnectivity); }
         function onConnectivityCheckEnabledChanged() {
             root.connectivityGeneration++;
-            root.checkedConnectivity = "Unknown";
+            root.checkedConnectivity = root.nativeConnectivity;
             root.connectivityProblem = "";
             Qt.callLater(root.checkConnectivity);
         }
@@ -138,7 +141,7 @@ Item {
         // Chromium preloads archlinux.org with include_subdomains HSTS, so
         // its probe URL upgrades to HTTPS before a hotel can redirect HTTP.
         // Apple's success page is cacheable. Each click must reach this network.
-        const reply = shell.run.detached(["xdg-open", "http://captive.apple.com/hotspot-detect.html?vgs=" + Date.now()]);
+        const reply = shell.run.detached(["xdg-open", "http://captive.apple.com/hotspot-detect.html?" + Math.random().toString(16).slice(2)]);
         if (reply === "ok") {
             problem = "";
         } else {
@@ -149,17 +152,26 @@ Item {
     }
     onPortalConnectionKeyChanged: {
         connectivityGeneration++;
-        checkedConnectivity = "Unknown";
+        checkedConnectivity = nativeConnectivity;
         connectivityProblem = "";
         Qt.callLater(root.checkConnectivity);
     }
-    // Omarchy keeps native checks active while the browser has sign-in open.
-    // https://github.com/basecamp/omarchy/blob/quattro/shell/plugins/panels/network/Panel.qml
+    onNativeConnectivityChanged: {
+        connectivityGeneration++;
+        checkedConnectivity = nativeConnectivity;
+        connectivityProblem = "";
+        Qt.callLater(root.checkConnectivity);
+    }
+    // A portal or an open Network view checks every 10 s. Other unresolved
+    // results back off to 300 s, bounding periodic checks on a closed limited
+    // LAN to one per interval. NetworkManager state changes update immediately.
+    readonly property int connectivityInterval: state === "portal" || leaseCount > 0 ? 10000 : 300000
     Timer {
-        interval: 10000
+        objectName: "network-connectivity-poll"
+        interval: root.connectivityInterval
         repeat: true
         running: root.portalConnectionKey !== "" && (root.checkedConnectivity === "Unknown"
-            || root.connectivityProblem !== "" || ["portal", "limited"].includes(root.state))
+            || root.connectivityProblem !== "" || ["portal", "limited"].includes(root.state) || root.leaseCount > 0)
             && Networking.canCheckConnectivity && Networking.connectivityCheckEnabled
             && root.access !== "denied" && root.nmcliPresent
         onTriggered: root.checkConnectivity()
@@ -180,6 +192,7 @@ Item {
     onSnapshotChanged: publish()
     onNmcliPresentChanged: {
         if (!nmcliPresent) access = "unavailable";
+        else Qt.callLater(root.checkConnectivity);
         publish();
     }
     onWifiDeviceChanged: {
@@ -378,7 +391,7 @@ Item {
         finishOperation("");
         if (Logic.shouldReprompt(Logic.enumName(reason, failureVariants), security, pending.known)) {
             prompt = { key: pending.key, name: n.name };
-            problem = pending.known ? "The saved password did not work. Enter the Wi-Fi password again." : "Enter the Wi-Fi password.";
+            problem = pending.known ? "The saved password did not work. Enter the Wi-Fi password again." : "";
         } else {
             prompt = null;
             problem = security.indexOf("Eap") >= 0 ? "This network needs enterprise Wi-Fi settings." : "The network could not connect. Check that it is in range and try again.";
