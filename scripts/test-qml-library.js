@@ -83,8 +83,8 @@ function rows() {
 const MUTATIONS = [
     ["the import is not bound", "library[entry.name] = entry.file !== undefined ? load(entry.file, modules) : modules[entry.module];", "if (entry.file !== undefined) load(entry.file, modules); else library[entry.name] = modules[entry.module];", "an imported library is bound under its qualifier, its path relative to the importer"],
     ["the import resolves from the working directory", "path.resolve(path.dirname(file), m[1])", "path.resolve(m[1])", "an imported library is bound under its qualifier, its path relative to the importer"],
-    ["a module import is carried", "if (!header || (m === null && (moduleImport === null || !Object.prototype.hasOwnProperty.call(modules, moduleImport[1]))))", "if (false)", "a module import is refused with its key"],
-    ["an import after the header is carried", "if (!header || (m === null", "if ((m === null", "an import after the header is refused with its key"],
+    ["a module import is carried", "if (m === null && (moduleImport === null || !Object.prototype.hasOwnProperty.call(modules, moduleImport[1])))", "if (false)", "a module import is refused with its key"],
+    ["an import after the header is carried", "if (late !== -1) refuse(", "if (false) refuse(", "an import after the header is refused with its key"],
     ["a module qualifier is dropped", "imports.push({ name: moduleImport[2], module: moduleImport[1] });", "imports.push({ name: \"Unqualified\", module: moduleImport[1] });", "an explicitly bound module loads under its qualifier"],
     ["nested module bindings are dropped", "load(entry.file, modules)", "load(entry.file)", "module bindings reach imported libraries"],
     ["the closure stops at the first import", "if (entry.file !== undefined) closure(entry.file, modules, seen);", "if (entry.file !== undefined) seen.add(entry.file);", "the closure lists the library and every library its imports reach"],

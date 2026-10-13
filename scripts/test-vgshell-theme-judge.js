@@ -186,7 +186,10 @@ const CATALOG_CONTROLS = [
 
 // Observe actual package reads and module loads in a disposable process.
 // Applying one package must not parse unrelated packages or initialize
-// the downloader. The list command still judges the full package set.
+// the downloader, and an apply of a package with terminal slots must not
+// read the shipped defaults, which are judged afresh by each apply that
+// takes their slots. The list command still judges the full package set,
+// and reads no shell.json, so it must not load PluginLogic.
 function applyRows(root, mutation) {
     const tree = path.join(root, "tree");
     fs.mkdirSync(path.join(tree, "bin"), { recursive: true });
@@ -207,6 +210,7 @@ function applyRows(root, mutation) {
     writePackage(shipped, "vgs", "vgs");
     writePackage(shipped, "probe", "probe", null);
     fs.writeFileSync(path.join(shipped, "probe", "theme.json"), JSON.stringify({schemaVersion: 1, name: "probe", tokens: {text: {body: {family: "JetBrains Mono", lineHeight: 0.8}}, stack: {titleSpace: 1}}}));
+    writePackage(shipped, "slotted", "slotted");
     writePackage(shipped, "unrelated", "wrong-name");
     writePackage(installed, "broken", "wrong-name");
     const trace = path.join(root, "trace.jsonl");
@@ -232,9 +236,25 @@ Module._load = function(file, ...args) { log(['module', file]); return load.call
     assert.ok(observed.some(([kind, file]) => kind === "read" && file === path.join(shipped, "vgs", "terminal.json")), "observer reached fallback package");
     assert.ok(!observed.some(([kind, file]) => kind === "read" && (file.startsWith(path.join(shipped, "unrelated") + path.sep) || file.startsWith(path.join(installed, "broken") + path.sep))), "apply read an unrelated package");
     assert.ok(!observed.some(([kind, file]) => kind === "module" && file.endsWith("theme-download.js")), "apply initialized the downloader");
-    proc = judge("list", "json", config, state);
-    assert.equal(proc.status, 0, proc.stdout + proc.stderr);
+    // The files one run of the judge read, the run having exited 0.
+    const reads = (...args) => {
+        fs.rmSync(trace);
+        proc = judge(...args);
+        assert.equal(proc.status, 0, proc.stdout + proc.stderr);
+        return fs.readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(([kind]) => kind === "read").map(([, file]) => file);
+    };
+    const pluginLogic = path.join(tree, "shell", "Core", "PluginLogic.js");
+    const slotted = reads("apply", "json", config, state, "held", "slotted");
+    assert.ok(slotted.includes(path.join(shipped, "slotted", "terminal.json")), "observer reached the package with slots");
+    assert.ok(slotted.includes(pluginLogic), "observer reached PluginLogic");
+    assert.ok(!slotted.some(file => file.startsWith(path.join(shipped, "vgs") + path.sep)), "apply of a package with slots read the shipped defaults");
+    const listed = reads("list", "json", config, state);
     assert.match(proc.stdout, /name-mismatch/, "list still judges unrelated packages");
+    assert.ok(!listed.includes(pluginLogic), "list loaded PluginLogic");
+    writePackage(shipped, "vgs", "vgs", Object.assign({}, slots, { color1: "#ffffff" }));
+    proc = apply();
+    assert.equal(proc.status, 0, "changed defaults: " + proc.stdout + proc.stderr);
+    assert.match(fs.readFileSync(path.join(state, "theme", "terminal.json"), "utf8"), /"color1":"#ffffff"/, "changed shipped defaults are judged again");
     writePackage(installed, "vgs", "vgs", Object.assign({}, slots, { color0: "#ffffff" }));
     proc = apply();
     assert.equal(proc.status, 0, "reserved installed default: " + proc.stdout + proc.stderr);
@@ -367,6 +387,8 @@ try {
     applyRows(path.join(root, "apply"));
     for (const [label, needle, replacement] of [
         ["whole catalogue", "requested === undefined || requested.includes(name)", "true"],
+        ["eager defaults", "let source = render.terminalSource(row, null);", 'packageRow(SHIPPED, logic.DEFAULT_NAME, "shipped");\n    let source = render.terminalSource(row, null);'],
+        ["eager PluginLogic", "let pluginLogic;", 'let pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));'],
         ["eager downloader", 'const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));', 'const catalog = require(path.join(__dirname, "lib", "theme-catalog.js"));\nrequire(path.join(__dirname, "lib", "theme-download.js"));']
     ]) {
         assert.equal(fs.readFileSync(CHECK, "utf8").split(needle).length, 2, label + " control must match once before its failure check");

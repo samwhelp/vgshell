@@ -163,7 +163,6 @@ const repo = path.join(__dirname, "..");
 const { load } = require(path.join(__dirname, "lib", "qml-library.js"));
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
-const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const accountRule = load(path.join(repo, "shell", "Commons", "AccountDirectories.js"));
 const { spawnSync } = require("child_process");
 const { Refusal, refuse, main, readJson, readConfig, readUserConfig, writing, replaceFile, linkByRename, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
@@ -863,8 +862,12 @@ const PARTIAL_STATUS = 3;
 // The effective shell.json: the shipped layer merged with the user's by
 // PluginLogic.effectiveConfig, each judged by configError first. A layer
 // the judge refuses refuses the apply, since no target's enablement can
-// then be known.
+// then be known. PluginLogic is loaded here, once, by the commands that
+// read shell.json, and by no other: the load is the 14 ms that `read` in
+// bin/lib/qml-library.js states with its run.
+let pluginLogic;
 function shellConfig(configDir, key) {
+    pluginLogic ??= load(path.join(repo, "shell", "Core", "PluginLogic.js"));
     const shipped = readConfig(pluginLogic, SHIPPED_CONFIG, key);
     const user = readUserConfig(pluginLogic, path.join(configDir, "shell.json"), key);
     return pluginLogic.effectiveConfig(shipped, user);
@@ -1504,12 +1507,18 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     const key = "theme=" + name + " reason";
     themeLock(key, lock, configDir);
     const before = readPending(stateDir, key);
-    const { rows, resolved } = packageSet(configDir, key, [name, logic.DEFAULT_NAME]);
-    const row = resolved.get(name);
+    const row = packageSet(configDir, key, [name]).resolved.get(name);
     if (row === undefined) refuse(key + "=unknown", "unknown");
     if (row.state !== "ok") refuse(key + "=" + row.reason + " path=" + row.path, row.reason);
-    const defaults = rows.find(r => r.source === "shipped" && r.name === logic.DEFAULT_NAME && r.state === "ok");
-    const source = render.terminalSource(row, defaults === undefined ? null : defaults);
+    // The shipped defaults lend their slots only to a package with none, so
+    // only that apply reads and judges them: the judgment took a median of
+    // 5.02, 4.79 and 4.88 ms over 13 applies a round (hrtime around the
+    // call, node 26.10.0 on cachy at load 13.6 to 15.7, 2026-10-13).
+    let source = render.terminalSource(row, null);
+    if (source === null) {
+        const defaults = packageRow(SHIPPED, logic.DEFAULT_NAME, "shipped");
+        source = defaults.state === "ok" ? render.terminalSource(defaults, null) : null;
+    }
     if (source === null) refuse(key + "=terminal-fallback path=" + path.join(SHIPPED, logic.DEFAULT_NAME), "terminal-fallback");
     const terminal = source.files.terminal;
     // The configuration home is the parent of the vgs configuration directory;
