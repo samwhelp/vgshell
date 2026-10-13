@@ -236,12 +236,43 @@ Item {
             y: item ? Math.round((root.titleRowHeight - item.height) / 2) : 0
             active: root.hasTitle && root.switchShown
             sourceComponent: Switch {
+                id: switchItem
                 size: "sm"
                 Accessible.name: root.switchName
                 checked: root.switchChecked
                 enabled: root.switchEnabled
                 disabledReason: root.switchDisabledReason
                 unlock: root.switchUnlock
+
+                // A locked switch's reason keeps clear of its name label as
+                // of the switch, so it opens past the label, and its text
+                // wraps in the room between the title and the label, so
+                // that place covers no title. A room no wider than the
+                // tooltip's padding holds no text, and the reason keeps its
+                // own width there.
+                Binding {
+                    target: switchItem.lock
+                    property: "reasonBox"
+                    when: root.switchLabelShown
+                    value: {
+                        const x = switchLabel.x - switchLoader.x, y = Math.min(switchLabel.y - switchLoader.y, 0);
+                        return Qt.rect(x, y, switchItem.width - x, Math.max(switchLabel.y - switchLoader.y + switchLabel.height, switchItem.height) - y);
+                    }
+                }
+                Binding {
+                    target: switchItem.lock
+                    property: "reasonWidth"
+                    when: root.switchLabelShown
+                    value: {
+                        // Whole pixels, as Tooltip.clearPlace floors the
+                        // place's start: a tooltip this wide starts on or
+                        // after the title's end.
+                        const titleEnd = Math.ceil(Math.max(titleLabel.visible ? titleLabel.x + titleLabel.contentWidth : 0, titleSlot.x + titleSlot.implicitWidth));
+                        const text = Math.floor(switchLabel.x - Theme.tooltip.gap - titleEnd) - 2 * Theme.tooltip.paddingX;
+                        return text > 0 ? Math.min(text, Theme.tooltip.maxWidth) : Theme.tooltip.maxWidth;
+                    }
+                }
+
                 onToggled: {
                     const wanted = checked;
                     checked = Qt.binding(() => root.switchChecked);

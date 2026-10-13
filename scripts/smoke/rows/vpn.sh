@@ -12,8 +12,9 @@
 #
 # Rows: the service publishes the fixture's state to the widget, the
 # flyout and the pane; an unset operator offers Allow and locks the
-# connection switch, whose reason opens on hover in the flyout and on
-# keyboard focus in the pane; Space on the locked switch starts no change;
+# connection switch, whose reason opens on hover in the flyout, where it
+# covers no text, image or Tab stop of the flyout, and on keyboard focus
+# in the pane; Space on the locked switch starts no change;
 # the keyboard reaches Allow and then the switch's unlock mark, which runs
 # the same step and hands the terminal `vgshell system apply
 # tailscale-operator`, after which no reason is left; keys alone then
@@ -30,8 +31,8 @@
 # refresh restarts the watchdog and which does not know the access-denied
 # text: the stand-in records a call the service did not start, the held
 # poll outlives 20 s of refreshes, and the denied change leaves the plain
-# one's problem. The pointer off the locked switch reads its reason
-# closed, and the lock's Space reads no change, so neither reader always
+# one's problem. The reason's place moved onto a text reads covered. The
+# pointer off the locked switch reads its reason closed, and the lock's Space reads no change, so neither reader always
 # passes.
 #
 # The held poll's wait is the service's own 10 s watchdog, read on the
@@ -106,6 +107,28 @@ vpn_switch_tip() {
   hover "$x" "$y" || return 1
   vpn_tip panel
 }
+# The open reason's place against what its window draws (Tooltip's
+# `placed` and `scene`): "free", or the text, image and Tab stop pixels it
+# covers, "outside" past the window's content box, "closed" with none open.
+# PLANT "obstacle" moves the place onto the first drawn text first, the
+# judge's control.
+vpn_tip_cover() { # HOST [PLANT]
+  ipc smoke itemValues "$1" vgs.vpn Tooltip opened,placed,scene | py_reply '
+import json, sys
+tips = [t for t in json.load(sys.stdin) if t["opened"] and isinstance(t.get("scene"), dict)]
+if not tips: print("closed"); sys.exit()
+s, p = tips[0]["scene"], tips[0]["placed"]
+x, y, w, h = p["x"] + s["origin"]["x"], p["y"] + s["origin"]["y"], p["width"], p["height"]
+if sys.argv[1] == "obstacle":
+    first = next(o for o in s["obstacles"] if not o["control"])
+    x, y = first["x"], first["y"]
+c = s["content"]
+if x < c["x"] or y < c["y"] or x + w > c["x"] + c["width"] or y + h > c["y"] + c["height"]: print("outside"); sys.exit()
+def cover(o): return max(0, min(x + w, o["x"] + o["width"]) - max(x, o["x"])) * max(0, min(y + h, o["y"] + o["height"]) - max(y, o["y"]))
+area = sum(cover(o) for o in s["obstacles"])
+print("free" if area == 0 else "covers %d px" % area)' "${2:-}"
+}
+vpn_tip_cover_word() { local reading; reading="$(vpn_tip_cover "$@")" || return 1; echo "${reading%% *}"; }
 vpn_setup_label() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x["label"] for x in (json.loads(t) if t.startswith("[") else []) if x["key"]=="setup"]; print(json.dumps(r))'; }
 vpn_body_state() { vpn_body "$1" vpn | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 vpn_exit_rows() { vpn_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
@@ -351,6 +374,8 @@ expect_poll "the locked switch draws its unlock mark named for Allow" drawn vpn_
 expect "the locked switch's reason names Allow's step" True vpn_reason_names panel "Let my login control Tailscale"
 vpn_reason="$(vpn_body panel lockReason)" || vpn_reason=unread
 expect_poll "the pointer on the locked switch opens its reason" "$vpn_reason" vpn_switch_tip
+expect "the locked switch's reason covers no text, image or Tab stop of the flyout" free vpn_tip_cover panel
+expect "control: the reason's place moved onto a text covers it" covers vpn_tip_cover_word panel obstacle
 rest_pointer || fail "vpn: moving the pointer off the switch failed"
 expect_poll "the pointer off the locked switch closes its reason" closed vpn_tip panel
 expect "the flyout closes before System" ok ipc shell hide panel vgs.vpn

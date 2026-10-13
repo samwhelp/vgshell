@@ -212,6 +212,10 @@ function suite(logic, service = serviceSource) {
         assert.ok(!/\btailscale |sudo|vgshell|systemctl/.test(reason), "no command: " + JSON.stringify(reason));
         assert.ok(step === "" || reason.includes(step), "names the step: " + JSON.stringify(reason));
     }
+    // The flyout header's reason wraps in the room between the title and
+    // the switch's name label, which holds two lines of this sentence
+    // (VGS-1660, a nested vpn row run in vgs and flexoki-light).
+    assert.equal(logic.lockReason(locked[2][0], steps.allow.label), "The administrator holds Tailscale until you choose Let my login control Tailscale.");
     const causes = locked.map(([vpn]) => logic.lockReason(vpn, ""));
     assert.equal(new Set(causes).size, causes.length, "each cause says its own why");
     assert.equal(plain(logic.unread()).state, "checking");
@@ -446,7 +450,8 @@ try {
         ["one Mullvad node a city", "(row.active || rank > held.rank)", "false"],
         ["the node in use keeps its city", "!held.row.active && ", ""],
         ["only an https sign-in page opens", "/https:\\/\\/[^\\s\"'<>]+/", "/[a-z]+:\\/\\/[^\\s\"'<>]+/"],
-        ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"]
+        ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
+        ["the header's reason fits its room", '"The administrator holds Tailscale"', '"Only the administrator can change Tailscale"']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "VpnLogic.js");

@@ -28,6 +28,13 @@ Item {
     required property Item control
     readonly property bool locked: control.enabled && control.disabledReason !== ""
     readonly property real fade: locked ? Theme.opacity.disabled : 1
+    // The box the reason's places keep clear of, in the control's
+    // coordinates, and the width its text wraps past. A holder that draws
+    // the control's name outside it, as Pane draws a header switch's,
+    // widens the box over that name and narrows the text to the room the
+    // name leaves.
+    property rect reasonBox: Qt.rect(0, 0, control.width, control.height)
+    property real reasonWidth: Theme.tooltip.maxWidth
 
     // `color` as a locked part draws it (Theme.faded).
     function faded(color) {
@@ -70,6 +77,8 @@ Item {
             anchorItem: root.control
             text: root.control.disabledReason
             side: "clear"
+            box: root.reasonBox
+            maxWidth: root.reasonWidth
         }
     }
 }

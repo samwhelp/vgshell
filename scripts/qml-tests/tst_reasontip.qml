@@ -196,6 +196,39 @@ Item {
         }
     }
 
+    // A flyout's Pane header: the title, a locked switch whose name label
+    // sits before it and its unlock mark after it, over a line of text and
+    // a hint that span the body, so every place under the switch covers
+    // text and the one free place lies between the title and the label.
+    // `named` false gives the switch the title's name, so no label shows.
+    // It is a flyout less the room a summoned flyout's gear takes, so the
+    // title leaves the reason less than its own width.
+    Item {
+        id: header
+        visible: false
+        width: Theme.size.panel.lg - 40
+        height: 216
+
+        property bool named: true
+
+        Pane {
+            id: headerPane
+            anchors.fill: parent
+            title: "VPN"
+            switchShown: true
+            switchChecked: true
+            switchName: header.named ? "Tailscale" : "VPN"
+            switchDisabledReason: "Sign in as the administrator to change this switch."
+            switchUnlock: ({ label: "Let my login control Tailscale", run: () => {} })
+
+            Column {
+                width: headerPane.contentWidth
+                Label { id: headerState; width: parent.width; text: "Connected through Zurich, Switzerland and its exit node" }
+                Label { id: headerHint; width: parent.width; role: "hint"; text: "Routes your traffic through the exit node you choose here" }
+            }
+        }
+    }
+
     TestCase {
         name: "reasontip"
         when: windowShown
@@ -218,6 +251,15 @@ Item {
                 tip.shown = false;
                 tryCompare(tip, "opened", false);
             }
+            if (headerPane.headerSwitch !== null) {
+                const tip = reasonTip(headerPane.headerSwitch);
+                if (tip !== null) {
+                    tip.shown = false;
+                    tryCompare(tip, "opened", false);
+                }
+            }
+            header.visible = false;
+            header.named = true;
             narrow.visible = false;
             marked.visible = false;
             iconed.visible = false;
@@ -354,6 +396,56 @@ Item {
             if (overlap(place, box(mark)) > 0) faults.push("covers its mark");
             if (!inside(place, surfaceBox(marked))) faults.push("leaves the content box");
             compare(faults, [], "the mark's reason's place " + JSON.stringify(place));
+        }
+
+        // What a place does wrong in the Pane header: the texts, the Tab
+        // stops and the switch it covers, and whether it leaves the
+        // content box.
+        function headerFaults(place) {
+            const control = headerPane.headerSwitch;
+            const labels = descendants(headerPane).filter(item => item.text === "VPN" || item.text === "Tailscale").filter(item => item.contentWidth !== undefined && item.visible);
+            const out = [];
+            for (const label of labels.concat([headerState, headerHint]))
+                if (overlap(place, words(label)) > 0) out.push("covers " + label.text);
+            if (overlap(place, box(control)) > 0) out.push("covers its switch");
+            const mark = markOf(control);
+            if (mark !== null && overlap(place, box(mark)) > 0) out.push("covers its mark");
+            if (!inside(place, Qt.rect(0, 0, header.width, header.height))) out.push("leaves the pane");
+            return out;
+        }
+
+        // A header switch with a name label keeps its reason clear of the
+        // label and the title: the label lies in the box the places keep
+        // clear of, and the text wraps in the room the title leaves.
+        function test_a_pane_switch_reason_covers_no_name_label_or_title() {
+            header.visible = true;
+            const control = headerPane.headerSwitch;
+            verify(headerPane.switchLabelShown, "the switch draws its name label");
+            const tip = openReason(control);
+            const place = placedBox(tip);
+            compare(headerFaults(place), [], "the reason's place " + JSON.stringify(place));
+
+            // Planted: the switch's own box as the anchor, as before the
+            // label joined it. The left place then ends on the label.
+            root.forceActiveFocus();
+            tryCompare(tip, "opened", false);
+            tip.box = Qt.rect(0, 0, control.width, control.height);
+            openReason(control);
+            compare(headerFaults(placedBox(tip)), ["covers Tailscale"], "a switch-only anchor's place " + JSON.stringify(placedBox(tip)));
+        }
+
+        // A header switch named as its title draws no label, and its reason
+        // keeps the switch's own box and the tooltip's own width.
+        function test_a_pane_switch_with_no_label_keeps_its_own_box() {
+            header.named = false;
+            header.visible = true;
+            const control = headerPane.headerSwitch;
+            verify(!headerPane.switchLabelShown, "the switch draws no name label");
+            compare(control.lock.reasonBox, Qt.rect(0, 0, control.width, control.height));
+            compare(control.lock.reasonWidth, Theme.tooltip.maxWidth);
+            const tip = openReason(control);
+            compare(tip.box, Qt.rect(0, 0, control.width, control.height));
+            compare(tip.maxWidth, Theme.tooltip.maxWidth);
         }
 
         // An icon is an image the reason never covers.
