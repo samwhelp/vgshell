@@ -8,6 +8,7 @@
 #                                 [--dotfiles DIR]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #                                 [--title-inventory]
+#       scripts/sandbox-shots.sh --check-desktop-pair BEFORE_DIR AFTER_DIR
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh): its own HOME,
 # runtime dir, buses and nested compositor, with the shell started inside
@@ -253,8 +254,12 @@
 # tmp/sandbox-shots/<UTC time>[-REV][-x2]. shots.tsv beside them lists each shot
 # with the sha256 of its file, how it was proved current, whether the host
 # showed the nested window while it was taken, and whether the shot had
-# chrome such as a tooltip or focus ring (shot.sh). items.tsv beside them
-# lists the box of the surface's items a scene read over IPC for a shot,
+# chrome such as a tooltip or focus ring (shot.sh). desktop.tsv records
+# each scene's sampled desktop
+# before its surfaces open: scene, mode, source commit, x, y and RGB hex.
+# --check-desktop-pair compares those records and exits 1 if a sample
+# differs or a record is missing or unreadable. It starts no sandbox.
+# items.tsv lists the box of the surface's items a scene read over IPC for a shot,
 # as name, x, y, width and height in device pixels, which
 # scripts/readme-shots.sh's item crop cuts: the theme browser's tabs,
 # selected card and name in its installed shot. Each shot is of the
@@ -273,6 +278,45 @@
 # render_unfocused, docs/architecture/validation.md § Faults). Exit 1
 # when any other step or shot failed.
 set -euo pipefail
+
+desktop_pair_check() { # BEFORE_DIR AFTER_DIR
+  python3 - "$@" <<'PYDESKTOP'
+import csv, pathlib, re, sys
+def read(directory):
+    rows = {}
+    with (pathlib.Path(directory) / "desktop.tsv").open() as source:
+        for scene, mode, commit, x, y, rgb in csv.reader(source, delimiter="\t"):
+            key = (scene, mode)
+            if key in rows or not re.fullmatch(r"[0-9a-f]{6}", rgb):
+                raise ValueError("invalid desktop record")
+            if not scene or not mode or not commit or int(x) < 0 or int(y) < 0:
+                raise ValueError("invalid desktop record")
+            rows[key] = (x, y, rgb)
+    if not rows:
+        raise ValueError("empty desktop record")
+    return rows
+try:
+    before, after = map(read, sys.argv[1:])
+    if before.keys() != after.keys():
+        raise ValueError("desktop scene sets differ")
+    for scene, mode in before:
+        a, b = before[(scene, mode)], after[(scene, mode)]
+        if a != b:
+            print("sandbox-shots: desktop-pair=differ scene=%s mode=%s before=%s after=%s" %
+                  (scene, mode, ",".join(a), ",".join(b)))
+            sys.exit(1)
+        print("sandbox-shots: desktop-pair=same scene=%s mode=%s rgb=%s" % (scene, mode, a[2]))
+except (OSError, ValueError) as error:
+    print("sandbox-shots: desktop-pair=unreadable cause=%s" % error, file=sys.stderr)
+    sys.exit(1)
+PYDESKTOP
+}
+
+if [[ ${1:-} == --check-desktop-pair ]]; then
+  [[ $# -eq 3 ]] || { printf 'sandbox-shots: refused: desktop-pair-arguments\n' >&2; exit 2; }
+  desktop_pair_check "$2" "$3"
+  exit
+fi
 
 argv=("$@")
 timeout_s=60
@@ -865,6 +909,19 @@ set_mode() { # dark|light|rounded|catalog-NAME
   esac
   mv -T -- "$theme_file.tmp" "$theme_file"
   expect_poll "the $1 theme ($name) is published" "$name" ipc smoke themeName
+}
+
+# Sample before opening the scene: a modal scrim changes the displayed
+# pixel, so its colour cannot identify the desktop behind it.
+scene_desktop() { # SCENE MODE
+  local sample
+  bg_state_names "$repo/themes/vgs/backgrounds/black.png" || return 1
+  expect_poll "the $1 $2 desktop image is ready" "$repo/themes/vgs/backgrounds/black.png ready" background_image_on "$main_name"
+  expect_poll "the $1 $2 desktop draws black" 000000 pixel 100 100
+  sample="$(pixel 100 100)" || return 1
+  [[ $sample == 000000 ]] || { fail "the $1 $2 desktop sample is $sample"; return 1; }
+  printf '%s\t%s\t%s\t100\t100\t%s\n' "$1" "$2" "$capture_source" "$sample" >>"$SHOT_DIR/desktop.tsv"
+  printf 'sandbox-shots: desktop scene=%s mode=%s source=%s sample=100,100 rgb=%s\n' "$1" "$2" "$capture_source" "$sample"
 }
 
 # The gallery's field in error, scrolled to a third of the way down the
@@ -7147,7 +7204,10 @@ park_pointer
 take "00-desktop"
 for mode in "${mode_list[@]}"; do
   set_mode "$mode"
-  for scene in "${scenes[@]}"; do "scene_$scene" "$mode"; done
+  for scene in "${scenes[@]}"; do
+    scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
+    "scene_$scene" "$mode"
+  done
 done
 
 # No scene may authenticate against the host user: harness.sh's sentinels

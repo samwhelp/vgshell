@@ -30,6 +30,38 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# These records come from the scene desktop before a modal scrim opens.
+# Run the shot script's pair check itself without starting its sandbox.
+mkdir -p "$tmp/desktop-before" "$tmp/desktop-after"
+printf 'polkit\tlight\tbefore\t100\t100\t000000\n' >"$tmp/desktop-before/desktop.tsv"
+desktop_pair_case() { # SCRIPT RGB EXPECTED_EXIT
+  local status=0
+  printf 'polkit\tlight\tafter\t100\t100\t%s\n' "$2" >"$tmp/desktop-after/desktop.tsv"
+  "$BASH" "$1" --check-desktop-pair "$tmp/desktop-before" "$tmp/desktop-after" >"$tmp/desktop-pair.log" 2>&1 || status=$?
+  [[ $status -eq $3 ]]
+}
+for spec in '000000 0' '111111 1' 'unreadable 1'; do
+  read -r rgb expected <<<"$spec"
+  if desktop_pair_case "$repo/scripts/sandbox-shots.sh" "$rgb" "$expected"; then
+    ok "desktop pair: $rgb exits $expected"
+  else
+    fail "desktop pair: $rgb does not exit $expected"
+  fi
+done
+desktop_mutant="$tmp/desktop-mutant.sh"
+python3 - "$repo/scripts/sandbox-shots.sh" "$desktop_mutant" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+needle = '        if a != b:\n'
+assert text.count(needle) == 1
+pathlib.Path(sys.argv[2]).write_text(text.replace(needle, '        if False:\n'))
+PY
+if desktop_pair_case "$desktop_mutant" 111111 1; then
+  fail "control: removing the desktop comparison leaves its differing-pair case green"
+else
+  ok "control: removing the desktop comparison fails its differing-pair case"
+fi
+
 # A newly mapped Settings window takes pointer presses only after a move.
 # Exercise the harness's real coordinate and click helpers without a shell.
 click_helper="$tmp/click-helper.sh"
