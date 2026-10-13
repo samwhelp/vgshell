@@ -36,8 +36,8 @@ function requirementStep(requirements) {
     var lacking = requirements.filter(requirementApplies);
     if (lacking.length === 0) return null;
     if (lacking.some(function (requirement) { return requirement.state === "missing"; }))
-        return { label: "Missing", hint: "Review the missing tools before you install them.", button: "Install all missing", icon: "download" };
-    return { label: "Outdated", hint: "Review the outdated tools before you update them.", button: "Update all outdated", icon: "refresh-cw" };
+        return { label: "Missing", hint: "Review the missing tools before you install them", button: "Install all missing", icon: "download" };
+    return { label: "Outdated", hint: "Review the outdated tools before you update them", button: "Update all outdated", icon: "refresh-cw" };
 }
 
 // The words a `presence` value reads as on the page.

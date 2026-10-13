@@ -126,7 +126,7 @@
       "type": "state",
       "label": "Setup",
       "group": "Setup",
-      "hint": "Setup copies defaults and downloads the speech model.",
+      "hint": "Setup copies defaults and downloads the speech model",
       "actions": {
         "setup": {
           "label": "Set up",

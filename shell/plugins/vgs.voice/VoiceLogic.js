@@ -102,7 +102,7 @@ function setupState(reads, daemon) {
     var model = configValue(reads.model || "", DEFAULT_MODEL);
     var lines = [];
     if (!engineAvailable(reads.engines || "", engine)) lines.push("The active build cannot use " + engine + ".");
-    if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing.");
+    if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing");
     if (DAEMON_LINES[daemon] !== "") lines.push(DAEMON_LINES[daemon]);
     if (lines.length > 0) return { tone: "warning", text: "Setup needed", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
     var version = versionOf(reads.version || "");

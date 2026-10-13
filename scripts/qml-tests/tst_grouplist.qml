@@ -73,7 +73,7 @@ Item {
                 width: inkList.width
                 label: "Missing"
                 inline: true
-                hint: "Review the missing tools before you install them."
+                hint: "Review the missing tools before you install them"
                 Button { text: "Install all missing"; iconName: "download"; variant: "primary" }
             }
             Field { width: inkList.width; label: "Mode"; inline: true; hint: "The voice runs here."; Label { role: "value"; text: "Local" } }
