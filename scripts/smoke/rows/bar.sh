@@ -1689,7 +1689,14 @@ tiplink_notice_released() {
   read -r load _ </proc/loadavg
   printf '  notice_retake_load_avg=%s\n' "$load"
   expect_poll "$1the retaken notice layer returns to on-demand keyboard mode" on-demand ipc smoke noticeKeyboardMode
-  layer="$(surface_box vgs:notice)" && card="$(ipc smoke noticeWindowGeometry card)" && fixture="$(one_window 'Other window')" || { fail "$1the notice or fixture geometry is unreadable"; return; }
+  # Mapping a client can take focus. Return it to the notice before the
+  # click, so mapping cannot satisfy the fixture's keyboard-enter check.
+  open_other "$sandbox/bar-notice-other.log" || { fail "$1the fixture window below the notice maps"; return; }
+  tiplink_notice_click || fail "$1the notice title click before the fixture check failed"
+  expect_poll "$1the notice holds the keyboard before the fixture click" true ipc smoke noticeFocused
+  layer="$(surface_box vgs:notice)" && card="$(ipc smoke noticeWindowGeometry card)" \
+    && fixture="$(hypr -j clients | py_reply 'import json,sys; cs=[c["at"]+c["size"] for c in json.load(sys.stdin) if c["pid"]==int(sys.argv[1]) and c["mapped"]]; print(json.dumps(cs[0]) if len(cs)==1 else "absent")' "$other_pid")" \
+    || { fail "$1the notice or fixture geometry is unreadable"; return; }
   read -r x y < <(py_dumps "$layer" "$card" "$fixture" <<'PY'
 import json,sys
 if any(not a.startswith("[") for a in sys.argv[1:]): print("absent"); sys.exit()
@@ -1707,6 +1714,7 @@ PY
   keys="$(other_events '^key ')" || { fail "$1the fixture key log is unreadable"; return; }
   type_keys -k F8 || fail "$1typing into the fixture failed"
   expect_poll "$1the clicked fixture receives the key" "$((keys + 2))" other_events '^key '
+  close_other "$1the fixture below the notice exits after the click"
   tiplink_notice_click || fail "$1the notice title click failed"
   expect_poll "$1the notice holds the keyboard before the next press" true ipc smoke noticeFocused
 }
@@ -1769,14 +1777,10 @@ then
   rest_pointer || fail "moving the pointer off the link failed"
   expect_poll "the tooltip closes after the pointer leaves it" false tiplink_read acme.tiplink tooltipOpen
   expect "the closed tooltip leaves the keyboard with the welcome" true ipc smoke noticeFocused
-  open_other "$sandbox/bar-notice-other.log" || fail "the fixture window below the notice maps"
-  tiplink_notice_click || fail "the notice takes the keyboard before the retake checks"
-  expect_poll "the notice holds the keyboard before the retake checks" true ipc smoke noticeFocused
   tiplink_press_grab "" welcome
   tiplink_notice_released ""
   tiplink_press_grab "remove question: " welcome far
   tiplink_notice_released "remove question: "
-  close_other "the fixture below the notice exits after the retake checks"
 
   expect "the bar window takes the keyboard" ok tiplink_call acme.tiplink holdKeyboard true
   for tiplink_step in 0 1; do
