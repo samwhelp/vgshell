@@ -1328,6 +1328,9 @@ world(async () => {
         // A signed-out row's badge says it is signed out, so its hint is
         // empty unless the email disagrees with the folder name.
         const signedOut = mismatch => Words.accountHint({ state: "found", source: "cli", value: "signed-out", plan: "", email: "", mismatch });
+        const update = Words.accountHint({ state: "found", source: "cli", value: "present", update: true });
+        assert.equal(update, "Jarvis needs Pi 1.1.0 or later: [update it under Requirements](page:vgs.jarvis/Setup) to use this setup", "the update hint links the Setup tab");
+        assert.ok(update.length <= 200 && !update.endsWith("."));
         assert.equal(signedOut(false), "", "a signed-out row has no hint");
         plain(signedOut(true));
         for (const [state, source, value] of [["found", "cli", "present"], ["locked", "keyring", "locked"]])

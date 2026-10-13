@@ -1,10 +1,12 @@
 # The Jarvis bar widget against private scripted Session ports: its
 # section, every state read back as drawn, and privacy mute by a click on
-# the widget and by the physical Mute key. No audio, account, provider or
+# the widget and by the physical Mute key. Its unconfigured tooltip draws
+# a link that opens Jarvis's Setup tab; plain words fail the link reading.
+# No audio, account, provider or
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.settings/*
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -288,6 +290,59 @@ jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 jarvis_widget_voice_expected="$(jarvis_widget_voice_line)" || fail "WidgetView.js's local voice line is unreadable"
 expect_poll "the widget names the remaining setup step for the unconfigured daemon" "$jarvis_widget_voice_expected" jarvis_widget_setup
+
+# Tooltip links live in the popup, so read their screen box there. Clicking
+# along the first line finds the underlined words without a font estimate.
+jarvis_widget_link_text='Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup).'
+jarvis_widget_link_box() { ipc smoke popupItemGeometry "$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text"; }
+jarvis_widget_link_drawn() {
+  local box
+  box="$(jarvis_widget_link_box)" || return
+  [[ $box == \[* ]] && echo drawn || echo absent
+}
+jarvis_widget_link_assertion() { expect "the unconfigured tooltip draws its page link" drawn jarvis_widget_link_drawn; }
+jarvis_widget_link_hover() {
+  local x y
+  rest_pointer || return
+  read -r x y < <(ipc smoke instanceGeometry "$jarvis_widget_key" vgs.jarvis | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))')
+  hover "$x" "$y" || return
+  expect_poll "the unconfigured widget opens its tooltip" true ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip shown
+}
+jarvis_widget_link_click() {
+  local box x y width step
+  box="$(jarvis_widget_link_box)" || return
+  [[ $box == \[* ]] || return 1
+  read -r x y width < <(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(round(r[0]), round(r[1]+r[3]/2), int(r[2]))' "$box")
+  for step in $(seq 4 8 "$width"); do
+    click "$((x + step))" "$y" || return
+    [[ "$(ipc smoke readInstance window vgs.settings shownPage)" == '"vgs.jarvis/Setup"' ]] && return 0
+  done
+  return 1
+}
+jarvis_notice_close
+settings_page_open vgs.jarvis
+settings_tab_click Settings || fail "the tooltip's target page did not start on Settings"
+expect_poll "the tooltip's target starts on the other tab" '"vgs.jarvis/Settings"' ipc smoke readInstance window vgs.settings shownPage
+expect "the tooltip starts with Settings closed" ok ipc shell hide window vgs.settings
+expect_poll "Settings is hidden before the tooltip link" 0 window_count Plugins
+jarvis_widget_link_hover || fail "hovering the unconfigured Jarvis widget failed"
+jarvis_widget_link_assertion
+jarvis_widget_link_click || fail "the click on the Jarvis tooltip link failed"
+expect_poll "the unconfigured tooltip opens Jarvis on Setup" '"vgs.jarvis/Setup"' ipc smoke readInstance window vgs.settings shownPage
+settings_page_close vgs.jarvis
+jarvis_disable
+jarvis_widget_plant WidgetView.js 'action: "Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup)."' 'action: "Set it up in Settings > Jarvis."'
+jarvis_enable
+expect_poll "the plain-link control reaches the unconfigured daemon" session jarvis_session unconfigured
+jarvis_widget_link_hover || fail "hovering the plain-link control failed"
+jarvis_widget_plain_link_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_widget_link_assertion >"$sandbox/jarvis-widget-page-link-control.log"
+   echo "$failures")
+}
+expect "plain tooltip words fail the rendered-link assertion" 1 jarvis_widget_plain_link_control
+jarvis_widget_restore WidgetView.js
+jarvis_enable
 expect "the restored nested keys have no configuration errors" '[]' hypr_reload_errors
 expect "the widget row leaves no Jarvis state file" False \
   python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"

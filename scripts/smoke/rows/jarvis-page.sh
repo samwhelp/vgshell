@@ -5,7 +5,9 @@
 # setting reads its empty text, closed, beside Add key; without a command
 # only Accounts needs, the search row withholds Accounts and offers no step,
 # and Add key stays offered. With a Copilot account, and only then, Setup shows the
-# Copilot Memory step and its link to GitHub. A click on the Microphone
+# Copilot Memory step and its link to GitHub. The AI model status hint
+# draws a link that opens Settings; plain words fail the link reading.
+# A click on the Microphone
 # field's link opens the Sounds page. With the fixture's key stored,
 # the Setup section of the Setup tab draws the key list, a line per key
 # with its chip, and Details draws none; a manifest copy that groups the
@@ -27,7 +29,7 @@
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -273,6 +275,58 @@ expect_poll "the page shows its Settings tab again" 0 settings_tab
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
+
+# The AI model hint on Setup opens the Settings tab that holds the field.
+# The control keeps its words and drops only their page reference.
+page_gate="$repo/shell/plugins/vgs.jarvis/SetupGate.js"
+cp -- "$page_gate" "$sandbox/page-gate-original"
+expect "the page clears the chosen AI account" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"brain","value":""}'
+page_model_hint() { status_row vgs.jarvis setupModel | py_reply 'import json,sys; print(json.load(sys.stdin).get("hint", "absent"))'; }
+page_model_hint_link() {
+  ipc smoke readMatchingDescendant window vgs.settings LinkText text "$page_hint" reference | py_reply '
+import json,sys
+r=json.load(sys.stdin)
+print(json.dumps([r.get("page"), r.get("tab"), bool(r.get("words"))]))
+'
+}
+page_model_link_assertion() { expect "the AI model hint draws its link to Settings" '["vgs.jarvis", "Settings", true]' page_model_hint_link; }
+settings_setup
+expect_poll "the AI model step links its field" 'Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)' page_model_hint
+page_hint="$(page_model_hint)"
+page_link="Settings > Jarvis > AI model"
+ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the AI model hint is not drawn"
+page_model_link_assertion
+page_link_click || fail "the click on the AI model hint failed"
+expect_poll "the AI model hint opens the Settings tab" '"vgs.jarvis/Settings"' ipc smoke readInstance window vgs.settings shownPage
+jarvis_disable
+python3 - "$page_gate" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text()
+needle='"brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)"'
+assert s.count(needle)==1
+changed=s.replace(needle, '"brain=unselected": "Choose an AI model in Settings > Jarvis > AI model"')
+assert changed != s
+p.write_text(changed)
+PY
+jarvis_rescan
+jarvis_enable
+settings_setup
+expect_poll "the control keeps the AI model hint's plain words" 'Choose an AI model in Settings > Jarvis > AI model' page_model_hint
+page_hint="$(page_model_hint)"
+ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the control's AI model hint is not drawn"
+page_model_link_control() {
+  (failures=0 behaviour_failures=0
+   page_model_link_assertion >"$sandbox/jarvis-page-link-control.log"
+   echo "$failures")
+}
+expect "plain AI model words fail the rendered-link assertion" 1 page_model_link_control
+jarvis_disable
+cp -- "$sandbox/page-gate-original" "$page_gate"
+jarvis_rescan
+jarvis_enable
+settings_tab_click Settings || fail "the page did not return to Settings after the hint control"
 
 # The model and effort of the chosen sign-in. The world's claude stand-in
 # lists Opus 5.5, its own default, Fable 5.1 and Haiku 4.5, which takes no

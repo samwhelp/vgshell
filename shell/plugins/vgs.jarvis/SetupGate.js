@@ -97,22 +97,22 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // such as local voice not set up, keeps the declared hint, which says what
 // the step gives, since its action already says to set it up.
 var TODO = {
-    "brain=unselected": "Choose an AI model in Settings > Jarvis > AI model",
-    "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > Jarvis > AI model.",
-    "brain=model-required": "Choose a model in Settings > Jarvis > AI model",
+    "brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
+    "brain=account-unavailable": "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model",
+    "brain=model-required": "Choose a model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
     "brain=models-reading": "Jarvis is reading the local server model list",
-    "brain=models-unavailable": "The local server model list cannot be read. Check the server, then press Talk to try again. Choose a model in Settings > Jarvis > AI model.",
-    "brain=model-unavailable": "The local server does not offer the chosen model. Choose a model in Settings > Jarvis > AI model.",
-    "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it in Settings > Jarvis > AI model.",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update it under Requirements, or choose another AI model in Settings > Jarvis > AI model.",
+    "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
+    "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
+    "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [update it under Requirements](page:vgs.jarvis/Setup), or choose another app under AI model",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "Add a key for the cloud voice under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs",
-    "speech=live-account-unreadable": "Jarvis could not read your voice key. Use Accounts in Setup to check it.",
-    "speech=live-key-required": "Choose a key for the cloud voice under Voice key, or add one under Setup at the top of this page: an OpenAI key for Realtime, a Gemini key for Gemini Live, an ElevenLabs key for ElevenLabs",
+    "speech=live-account-unselected": "[Add a cloud voice key under Setup](page:vgs.jarvis/Setup): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
+    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts on Setup](page:vgs.jarvis/Setup) to check it",
+    "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key on Setup stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
-    "speech=local-ready-timeout": "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
-    "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Jarvis > Voice provider, or Hold or Toggle in Settings > Jarvis > Talk mode."
+    "speech=local-ready-timeout": "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
+    "speech=always-local-voice": "Always talk mode needs Local: [choose Local as Voice provider](page:vgs.jarvis/Settings), or Hold or Toggle as Talk mode"
 };
 // Local voice that did not get ready in time is set up: its step states
 // that result in place of To do, and the bar shows the step's hint for it
@@ -133,15 +133,15 @@ var CAUTION = {
 var DICTATION = {
     "speech=dictation-absent": { tone: "warning", text: "To do", hint: "The local voice hears your words through dictation. Set up dictation gets it ready.", action: "dictation" },
     "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },
-    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice" },
-    "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone. Choose it with Configure in Settings > Voice." }
+    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)" },
+    "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Setup)" }
 };
 // Causes whose step the voice setup action cannot complete: the user
 // changes a setting, adds a key or fixes the ElevenLabs key instead.
 function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
 }
-var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it in Settings > Jarvis > AI model." };
+var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model" };
 // The home folder step shows only while the daemon refuses the folder the
 // user chose, with what to change, by its cause; any other cause of the
 // folder or its text takes HOME_STEP_TODO. Its entry declares no action:
@@ -150,13 +150,13 @@ var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign 
 // (jarvisd.js judgeSetup), which HOME_AGAIN says.
 var HOME_AGAIN = " Jarvis checks the folder again when you press Talk.";
 var HOME_TODO = {
-    "home=link": "The home folder has a link where Jarvis keeps a file or a folder. Remove the link, or choose another folder in Settings > Jarvis > Home folder." + HOME_AGAIN,
-    "home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Jarvis > Home folder.",
+    "home=link": "Remove the link from the home folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk",
+    "home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory",
     "guidance=home-too-large": "AGENTS.md in the home folder is too long. Make it shorter than 8 KB." + HOME_AGAIN,
     "guidance=home-skills-too-large": "The home folder has more skills than Jarvis can list. Remove the skills you do not use." + HOME_AGAIN,
     "guidance=home-memory-too-large": "memory/MEMORY.md in the home folder is too long. Make it shorter than 4 KB." + HOME_AGAIN
 };
-var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Jarvis > Home folder." + HOME_AGAIN;
+var HOME_STEP_TODO = "Check that you can open and change the folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk";
 var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
 // Voice setup uses Session's check result, which only the local wake detector
@@ -172,7 +172,7 @@ function voiceCheck(value, check) {
     if (check.kind === "done") {
         if (check.result === "ready") return { tone: "ok", text: "Ready", action: "check" };
         // Only the local voice checks, and it hears the system default.
-        if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The default microphone is muted or sends silence. Check it in System > Sound.", action: "check" };
+        if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The default microphone is muted or sends silence: [check it in System > Sound](page:vgs.sound)", action: "check" };
         return { tone: "warning", text: "Not heard", hint: "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", action: "check" };
     }
     return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis", action: "check" };
@@ -195,11 +195,11 @@ function sentence(text) {
 function joinedHint(hints) {
     return hints.length === 1 ? hints[0] : hints.map(sentence).join(" ");
 }
-var START_RESTART = "Turn Jarvis off and on again in Settings > Jarvis";
+var START_RESTART = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)";
 var START_CAUSES = [
     [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],
-    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis" }],
-    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis" }],
+    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
+    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
     [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
     [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", action: START_RESTART }]
 ];
@@ -258,7 +258,7 @@ function noAction(value) {
     delete out.action;
     return out;
 }
-var SIGNED_OUT_HINT = "Your Claude Code or Codex account is not signed in. Sign in, then choose it in Settings > Jarvis > AI model.";
+var SIGNED_OUT_HINT = "Sign in to your Claude Code or Codex account, then [choose it under AI model](page:vgs.jarvis/Settings)";
 
 // Account discovery supplies typed states even before it offers a model:
 // present while an app is signed in, signed-out while an app Sign in serves
@@ -424,7 +424,7 @@ var CLONE_WITHHELD = {
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
-var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on";
+var CLONE_READY_HINT = "Jarvis speaks in this voice while [Settings > Jarvis > Cloned voice](page:vgs.jarvis/Settings) is on";
 function clonedVoiceStep(value, provider) {
     var action = value.action === true ? "setup" : value.action;
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
@@ -483,9 +483,9 @@ function voiceKey(offered, settings) {
 // or waiting while another cause holds the Voice step. Only the hints
 // that send the user to ElevenLabs API keys name it, the declared one and
 // the failed read's, so the row's link draws in those two states alone.
-var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice";
+var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";
 var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key";
-var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the Voice step on Setup is done";
+var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the [Voice step on Setup](page:vgs.jarvis/Setup) is done";
 function elevenLabsStep(facts) {
     if (facts.provider !== "elevenlabs") return { hidden: true };
     var named = facts.account;
@@ -544,9 +544,9 @@ function fleetStep(home, tool) {
 // Settings path, VGS-1511).
 var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder";
 var SESSION_BLOCKS = {
-    "no-account": "No session can start without an account: under AI model, choose an app as the Account",
-    "not-app": "No session can start with an API key or a local model: under AI model, choose an app as the Account",
-    "no-home": "No session can start without a home folder: choose one in Settings > Jarvis > Home folder",
+    "no-account": "No session can start without an account: [choose an app as the Account under AI model](page:vgs.jarvis/Settings)",
+    "not-app": "No session can start with an API key or a local model: [choose an app as the Account under AI model](page:vgs.jarvis/Settings)",
+    "no-home": "No session can start without a home folder: choose one in [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)",
     "package": "Install or update the Jarvis package in this home folder"
 };
 // The blocks that wait only on a choice the user has not made yet. The
@@ -629,8 +629,8 @@ function sessionStart(wanted, result) {
 // ready, but a Ready summary names a session the user must fix: the page
 // gives one judgement.
 var SESSION_FAULTS = {
-    warning: "The Jarvis session cannot start: see Jarvis session under Home",
-    danger: "The Jarvis session did not start: see Jarvis session under Home"
+    warning: "The Jarvis session cannot start: see [Jarvis session under Home](page:vgs.jarvis/Setup)",
+    danger: "The Jarvis session did not start: see [Jarvis session under Home](page:vgs.jarvis/Setup)"
 };
 function sessionSummary(setup, session) {
     if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;

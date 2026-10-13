@@ -48,6 +48,7 @@ BarWidget {
         tone: root.toneColor(root.view.tone)
         tooltip: root.view.tooltip
         tooltipDetails: root.view.tooltipDetails
+        onTooltipPageActivated: (page, tab) => root.frame.openPage(page, tab)
         onClicked: root.toggleMute()
     }
 }

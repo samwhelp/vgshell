@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 import "SetupGate.js" as Gate
 
 // The user's Jarvis session as the Jarvis package's session command owns it
@@ -66,7 +67,10 @@ Item {
     function publish() {
         if (shell === null) return true;
         const modes = shell.status.set("sessionModes", Gate.sessionModes(shell.settings.startAtBoot));
-        const row = shell.status.set("sessionStart", Gate.sessionStart(shell.settings.startAtBoot, result));
+        const value = Gate.sessionStart(shell.settings.startAtBoot, result);
+        // The extra status lines draw as badges, which do not draw links.
+        if (value.lines !== undefined) value.lines = value.lines.map(PageReference.plain);
+        const row = shell.status.set("sessionStart", value);
         if (modes === "ok" && row === "ok") return true;
         console.warn("jarvis-session: status=refused modes=" + modes + " row=" + row);
         return false;

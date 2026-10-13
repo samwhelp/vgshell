@@ -22,6 +22,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
 const Session = load(path.join(dir, "Session.js"));
 const SetupGate = load(path.join(dir, "SetupGate.js"));
+const pageReference = load(path.join(dir, "..", "..", "Commons", "PageReference.js"));
 const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
 const KeyNavLogic = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"))
@@ -51,17 +52,17 @@ const MUTED = { mute: { kind: "on" } };
 const READY = { tone: "info", text: "Ready; no capture" };
 const DEVICES = { tone: "ok", text: "Device list ready" };
 const FLOOR = { tone: "danger", text: "Stopped after a problem. Turn Jarvis off and on again." };
-const HELLO_EXPECTED = { title: "Jarvis did not answer in time", action: "Turn Jarvis off and on again in Settings > Jarvis." };
+const HELLO_EXPECTED = { title: "Jarvis did not answer in time", action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." };
 const DAEMON_HELLO = SetupGate.startStatus("jarvis: hello=timeout", true);
 const FLOOR_HELLO = SetupGate.startStatus("jarvis: hello=timeout", false);
 const START_CAUSES = [
-    ["jarvis: hello=timeout", "Jarvis did not answer in time", "Turn Jarvis off and on again in Settings > Jarvis."],
-    ["jarvis: node=20.19.5 need=22", "Jarvis needs Node 22 or later", "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis."],
-    ["jarvis: daemon=exit code=1 status=0", "Jarvis daemon stopped", "Turn Jarvis off and on again in Settings > Jarvis."],
-    ["jarvis: protocol=identity", "Jarvis message error", "Turn Jarvis off and on again in Settings > Jarvis."]
+    ["jarvis: hello=timeout", "Jarvis did not answer in time", "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."],
+    ["jarvis: node=20.19.5 need=22", "Jarvis needs Node 22 or later", "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."],
+    ["jarvis: daemon=exit code=1 status=0", "Jarvis daemon stopped", "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."],
+    ["jarvis: protocol=identity", "Jarvis message error", "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."]
 ];
 const SETTING_CAUSES = [
-    ["speech=local-ready-timeout", "off", "Jarvis needs local voice", ["Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.", "Click or press Super+Shift+Right Alt to mute."]],
+    ["speech=local-ready-timeout", "off", "Jarvis needs local voice", ["Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup).", "Click or press Super+Shift+Right Alt to mute."]],
     ["setup=probe-timeout", "ready", "Jarvis is ready", ["Hold Super+Right Alt and speak.", "Jarvis answers, but its check of the local voice did not finish.", "Click or press Super+Shift+Right Alt to mute."]]
 ];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
@@ -260,8 +261,8 @@ function verify(view) {
         callView(view, up(THINKING), UNBOUND).tooltipDetails[0],
         callView(view, up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null, physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), UNBOUND).tooltipDetails[0],
         callView(view, up(MUTED), UNBOUND).tooltipDetails[0]
-    ], ["Set Talk key in Settings > Jarvis.", "Set Stop key in Settings > Jarvis.",
-        "Confirm on screen, or set Confirm key in Settings > Jarvis.", "Click, or set Mute key in Settings > Jarvis, to unmute."],
+    ], ["Set Talk key in [Settings > Jarvis > Keys](page:vgs.jarvis/Keys).", "Set Stop key in [Settings > Jarvis > Keys](page:vgs.jarvis/Keys).",
+        "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Keys).", "Click, or set [Mute key in Settings > Jarvis](page:vgs.jarvis/Keys), to unmute."],
         "unbound keys tell the user to set that key");
 
     // The keys as the widget and the console hand them in: the manifest's
@@ -302,11 +303,16 @@ function verify(view) {
         }
         assert.deepEqual(copy(got), expected(want, view), label);
         if (typeof got !== "string") assert.equal(/[a-z-]+=[a-z0-9-]/.test(got[3]), false, label + ": no keyed cause on screen");
+        if (typeof got !== "string")
+            for (const text of [got[3], ...got[4]])
+                assert.ok((text.match(/\]\(page:/g) ?? []).length <= 1, label + ": one reference per drawn tooltip line");
     }
     for (const kind of ["slow", "device", "defaultDevice", "home", "brain", "localVoice", "dictationBusy", "dictation", "voice", "audio", "other"])
         assert.equal(typeof view.FAULT_TEXT[kind].title === "string" && typeof view.FAULT_TEXT[kind].action === "string", true, kind);
     const words = [view.GATE_TEXT.unconfigured.action, ...view.SETUP_TEXT.map(([, line]) => line.action)];
     assert.equal(new Set(words).size, words.length, "each remaining step says its own sentence");
+    assert.deepEqual(words.map(text => [pageReference.parse(text).page, pageReference.parse(text).tab]),
+        [["vgs.jarvis", "Setup"], ["vgs.jarvis", "Setup"], ["vgs.jarvis", "Settings"]], "unconfigured tooltip links open the page's named tab");
     for (const [label, values, pattern, keys = KEYS, mode = "hold"] of REFUSALS)
         assert.throws(() => callView(view, values, keys, mode), error => pattern.test(error.message), label);
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
@@ -346,7 +352,7 @@ verify(load(path.join(dir, "WidgetView.js")));
 // around it: [label, needle, replacement].
 const CONTROLS = [
     ["an ElevenLabs refusal reads as a broken speaker", '    [/^playback-source: jarvis: speech=elevenlabs-/, "elevenlabs"],\n', ''],
-    ["memory explanation discarded", 'return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };', 'return GATE_TEXT.unconfigured;'],
+    ["memory explanation discarded", 'return { title: step.text, action: step.hint };', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
     ["checking hides an offered setup action", '!step || offered(step) ||', '!step ||'],
     ["a refused home folder reads as another step", 'if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return withBrain(textLook("off", homeText(values), muteOn, effectiveKeys));', ''],
@@ -411,9 +417,9 @@ const CONTROLS = [
     ["toggle mode reads like hold", 'if (mode === "toggle") return keys.talk === null ? keySetting("Talk") : "Press " + keys.talk + " to start talking.";', 'if (mode === "toggle") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";'],
     ["unbound talk key names no setting", 'if (mode === "hold") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";', 'if (mode === "hold") return keys.talk === null ? "Hold Talk and speak." : "Hold " + keys.talk + " and speak.";'],
     ["unbound stop key names no setting", 'return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";', 'return keys.stop === null ? "Press Stop to stop." : "Press " + keys.stop + " to stop.";'],
-    ["unbound confirm key names no setting", 'return keys.confirm === null ? "Confirm on screen, or set Confirm key in Settings > Jarvis."', 'return keys.confirm === null ? "Confirm on screen, or press Confirm."'],
+    ["unbound confirm key names no setting", 'return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Keys)."', 'return keys.confirm === null ? "Confirm on screen, or press Confirm."'],
     ["a hint becomes a tooltip line with no full stop", "var lines = details.map(line);", "var lines = details.slice();"],
-    ["unbound mute key names no setting", 'return keys.mute === null ? "Click, or set Mute key in Settings > Jarvis, to " + verb + "."', 'return keys.mute === null ? "Click or press Mute to " + verb + "."']
+    ["unbound mute key names no setting", 'return keys.mute === null ? "Click, or set [Mute key in Settings > Jarvis](page:vgs.jarvis/Keys), to " + verb + "."', 'return keys.mute === null ? "Click or press Mute to " + verb + "."']
 ];
 
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");

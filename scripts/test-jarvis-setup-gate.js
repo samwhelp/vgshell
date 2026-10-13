@@ -24,6 +24,7 @@ const settingsRows = sections => sections.reduce((all, section) => all.concat(se
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
+const pageReference = load(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
 
 // This terminal only sends the request. It never owns capture or opens audio.
 function verifyMicrophoneAction(script, root) {
@@ -799,7 +800,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 const unselected = gate.readiness(UNSELECTED).setupModel.hint;
                 const hint = settings.statusView(setupRow.entry, String).hint;
                 if (row.want[1] !== "signIn")
-                    assert.equal(hint, "Choose an AI model in Settings > Jarvis > AI model", row.name + ": Setup AI model hint");
+                    assert.equal(hint, "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)", row.name + ": Setup AI model hint");
                 else assert.deepEqual([typeof hint, hint === unselected], ["string", false],
                     row.name + ": Setup signed-out hint replaces the unselected one");
             }
@@ -1033,7 +1034,7 @@ function verifyReadiness(gate) {
     assert.equal(localNotReady.hint, "Local voice did not start. Set it up again.", "local voice setup-broken words");
     const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
     assert.deepEqual([localReadyTimeout.text, localReadyTimeout.hint], ["Timed out",
-        "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis."], "local voice timeout words");
+        "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)"], "local voice timeout words");
     const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }));
     assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
         "probe timeout: the ready summary carries its caution");
@@ -1467,7 +1468,7 @@ function verify(gate) {
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
         const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
         assert.deepEqual(plain(value), { tone: "warning", text: "Timed out",
-            hint: "Local voice did not get ready in time. Turn Jarvis off and on again, or set it up again in Settings > Jarvis.",
+            hint: "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
             action: "setup" }, "voice setup cause survives microphone check");
     }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
@@ -1582,7 +1583,7 @@ function verify(gate) {
 
 verify(load(file));
 verifyVoiceConsumers(load(file));
-console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in Settings > Jarvis > AI model");
+console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)");
 
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
@@ -1594,7 +1595,7 @@ const CONTROLS = [
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
     ["silent check is ready", 'if (check.result === "silent") return { tone: "warning"', 'if (check.result === "silent") return { tone: "ok"'],
-    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > Jarvis > AI model"', '"brain=unselected": "Choose an AI model in Settings"', "Setup AI model hint"],
+    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)"', '"brain=unselected": "Choose an AI model in Settings"', "Setup AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
     ["a signed-out cause offers Add key", 'cause === "brain=signed-out" ? "signIn" : ', "", "a signed-out AI model: setupModel"],
@@ -1620,9 +1621,9 @@ const CONTROLS = [
         "timeout: the row draws no keyed cause"],
     ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "the Local voice row names no Voice step setup"],
-    ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Jarvis > Home folder."',
+    ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory"',
         '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
-    ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice";',
+    ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice";',
         "the voices hint names Jarvis's own field"],
     ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
@@ -1632,15 +1633,15 @@ const CONTROLS = [
     ["a voice list being read reads as a failed one", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', "ElevenLabs voices being read"],
     ["missing voxtype is not named", 'var ACTION_REQUIRES = { dictation: ["voxtype"] };', "var ACTION_REQUIRES = {};", "voxtype missing"],
     ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
-    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice" },',
-        '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under Setup in Settings > Voice", action: "dictation" },', "another voxtype"],
+    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)" },',
+        '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)", action: "dictation" },', "another voxtype"],
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
     ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
-    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice";', 'var ELEVENLABS_READY = "Choose one in Settings > Jarvis > Voice, or open ElevenLabs API keys";',
+    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";', 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings), or open ElevenLabs API keys";',
         "draws its link only where the user needs the key page"],
     ["a failed voice read names no key page", "check under ElevenLabs API keys that it may read voices", "check that it may read voices",
         "draws its link only where the user needs the key page"],
@@ -1687,8 +1688,8 @@ const CONTROLS = [
         "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
         "a timed-out read words its state: the row draws no keyed cause"],
     ["a ready clone row keeps the setup instruction", '    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;\n', "", "a ready cloned voice offers Remove and says what the recording gives"],
-    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on";',
-        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Settings > Jarvis > Cloned voice is on.";'],
+    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while [Settings > Jarvis > Cloned voice](page:vgs.jarvis/Settings) is on";',
+        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while [Settings > Jarvis > Cloned voice](page:vgs.jarvis/Settings) is on.";'],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
@@ -1711,7 +1712,7 @@ const CONTROLS = [
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };',
         "hint: START_RESTART, action: false };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
-        '"setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in Settings > Jarvis."', "probe timeout: the caution asks for no restart beside Ready"],
+        '"setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
@@ -1763,7 +1764,7 @@ const CONTROLS = [
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
-    ["the no-home hint names no Settings path", "choose one in Settings > Jarvis > Home folder", "choose a Home folder", "no-home: the hint is one sentence that names its Settings path"],
+    ["the no-home hint names no Settings path", "choose one in [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)", "choose a Home folder", "no-home: the hint is one sentence that names its Settings path"],
     ["the no-home hint has more than one sentence", "without a home folder: choose one in", "without a home folder. Choose one in", "no-home: the hint is one sentence that names its Settings path"],
     ["a choice not made reads as a fault", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', "var SESSION_CHOICES = [];", "a block's tone"],
     ["a missing package reads optional", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', 'var SESSION_CHOICES = ["no-account", "not-app", "no-home", "package"];', "package: a block's tone"],
@@ -1775,7 +1776,7 @@ const CONTROLS = [
     ["a summary that is not ready names the session", 'if (setup.tone !== "ok" || !', "if (!", "the summary is readiness's own"],
     ["a one-sentence hint ends with a full stop", 'hint: "A preview of the Realtime voice may cost money", action: true }', 'hint: "A preview of the Realtime voice may cost money.", action: true }',
         "ends as the copy rule says"],
-    ["a longer hint leaves its last full stop off", 'Sign in, then choose it in Settings > Jarvis > AI model.";', 'Sign in, then choose it in Settings > Jarvis > AI model";',
+    ["a longer hint leaves its last full stop off", 'Open Accounts to check them."', 'Open Accounts to check them"',
         "ends as the copy rule says"],
     ["the stopped notice takes the hint's one sentence as it is", "message: sentence(problem.action),", "message: problem.action,", "notice's message ends as a sentence"],
     ["joined hints run on with no full stop between them", "hints.map(sentence).join", "hints.join", "keeps the summary and its caution, a sentence of its own"]
@@ -2415,11 +2416,45 @@ function verifyPathForm(gate) {
         if (typeof value === "string") texts.push(value);
         else if (value !== null && typeof value === "object") Object.values(value).forEach(walk);
     })(plain(Object.fromEntries(Object.entries(gate).filter(([, value]) => typeof value !== "function"))));
-    const paths = texts.flatMap(text => text.match(/Settings > [^.,:]*/g) ?? []);
+    const paths = texts.flatMap(text => pageReference.plain(text).match(/Settings > [^.,:]*/g) ?? []);
     assert.equal(paths.length >= 10, true, "the gate's Settings paths are read");
     for (const found of paths)
         assert.match(found, /^Settings > (Voice$|Jarvis( > [A-Z][A-Za-z ]*)?)/, JSON.stringify(found) + ": the Settings path has the one form");
     assert.equal(gate.ELEVENLABS_READY.includes("Settings > Jarvis > "), true, "the voices hint names Jarvis's own field");
+    for (const text of texts)
+        assert.ok((text.match(/\]\(page:/g) ?? []).length <= 1, JSON.stringify(text) + ": at most one reference per drawn text");
+    for (const [cause, page, tab] of [
+        ...["unselected", "account-unavailable", "model-required", "models-unavailable", "model-unavailable", "signed-out"]
+            .map(name => ["brain=" + name, "vgs.jarvis", "Settings"]),
+        ["brain=pi-update", "vgs.jarvis", "Setup"],
+        ["speech=live-account-unselected", "vgs.jarvis", "Setup"],
+        ["speech=live-account-unreadable", "vgs.jarvis", "Setup"],
+        ["speech=live-key-required", "vgs.jarvis", "Settings"],
+        ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
+        ["speech=always-local-voice", "vgs.jarvis", "Settings"],
+        ["speech=dictation-elsewhere", "vgs.voice", "Setup"],
+        ["speech=dictation-device", "vgs.voice", "Setup"],
+        ["home=link", "vgs.jarvis", "Settings"],
+        ["home=path", "vgs.jarvis", "Settings"]]) {
+        const values = gate.readiness({ kind: "answered", causes: [cause] });
+        const hint = Object.values(values).find(value => value.hint !== undefined).hint;
+        const reference = pageReference.parse(hint);
+        assert.deepEqual([reference.page, reference.tab], [page, tab], cause + ": the converted hint links its tab");
+        assert.ok(hint.length <= judge.STATUS_HINT_MAX && oneSentence(hint), cause + ": a converted hint fits as one sentence");
+    }
+    const hint = gate.readiness({ kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
+    assert.equal(hint, "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)", "Setup AI model hint links the field's tab");
+    const source = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
+    const publish = source.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(publish);
+    for (const block of ["no-home", "no-account", "not-app"]) {
+        const values = {};
+        const result = { kind: "answer", state: "running", reason: "resumed", detail: "", names: null, unapplied: block };
+        const shell = { settings: { startAtBoot: true }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
+        vm.runInNewContext("(" + publish[0] + ")", { shell, result, Gate: gate, PageReference: pageReference })();
+        assert.deepEqual(values.sessionStart.lines, [pageReference.plain(gate.SESSION_BLOCKS[block])], block + ": unapplied badges draw the reference's words");
+        assert.equal(pageReference.parse(gate.sessionStart(true, { kind: "blocked", block }).hint).page, "vgs.jarvis", block + ": the blocked hint keeps its link");
+    }
 }
 
 function verifyChipTitles(gate) {

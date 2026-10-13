@@ -36,7 +36,7 @@ var LOOKS = {
 // Session's gate-down reasons (Session.js validate).
 var GATE_TEXT = {
     "starting": { title: "Jarvis is starting", action: "Wait for Jarvis to start." },
-    "unconfigured": { title: "Jarvis is not set up", action: "Open Settings > Jarvis." },
+    "unconfigured": { title: "Jarvis is not set up", action: "Open [Settings > Jarvis](page:vgs.jarvis/Setup)." },
     "node": { title: "Jarvis needs Node 22 or later", action: "Use the requirement notice to install Node." },
     "lock-unknown": { title: "Jarvis is checking the screen lock", action: "Wait for the screen lock check." },
     "locked": { title: "Jarvis is off while the screen is locked", action: "Unlock the screen to use Jarvis." }
@@ -51,8 +51,8 @@ var WORK_TEXT = {
 // The required Setup steps the service publishes (SetupGate.readiness), in
 // the engine's order, and what the bar says while one is still to do.
 var SETUP_TEXT = [
-    ["setupVoice", { title: "Jarvis needs local voice", action: "Set it up in Settings > Jarvis." }],
-    ["setupModel", { title: "Jarvis needs an AI model", action: "Choose one in Settings > Jarvis." }]
+    ["setupVoice", { title: "Jarvis needs local voice", action: "Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup)." }],
+    ["setupModel", { title: "Jarvis needs an AI model", action: "Choose one under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." }]
 ];
 // A Session fault's kind of failure, by its keyed reason: the first
 // pattern that matches wins. Examples are the producers' own reasons:
@@ -86,20 +86,20 @@ var FAULT_KINDS = [
 // request. A refused model asks for another: a changed model clears the
 // fault, and its title ends with the model's name. A dictation fault, the
 // core's recording refused or failed, clears at the next Talk.
-var RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
+var RESTART = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings).";
 var FAULT_TEXT = {
     "slow": { title: "The AI model took too long to answer", action: RESTART },
-    "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another in Settings > Jarvis." },
+    "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another under [Audio in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     // The local voice hears the system default microphone, as dictation does.
-    "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in System > Sound." },
-    "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
+    "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in [System > Sound](page:vgs.sound)." },
+    "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or [choose another Home folder](page:vgs.jarvis/Settings)." },
     "brain": { title: "The AI model did not answer", action: RESTART },
-    "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
-    "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in Settings > Jarvis." },
+    "model": { title: "The AI app cannot use the model", action: "Choose another model under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." },
+    "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in [Settings > Jarvis](page:vgs.jarvis/Setup)." },
     "voice": { title: "Local voice stopped working", action: RESTART },
-    "elevenlabs": { title: "ElevenLabs did not speak the reply", action: "Check your ElevenLabs key and its credits, then turn Jarvis off and on again in Settings > Jarvis." },
+    "elevenlabs": { title: "ElevenLabs did not speak the reply", action: "Check your ElevenLabs key and its credits, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." },
     "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
-    "dictation": { title: "Dictation did not record", action: "Check dictation in Settings > Voice, then talk again." },
+    "dictation": { title: "Dictation did not record", action: "Check dictation in [Settings > Voice](page:vgs.voice/Setup), then talk again." },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
@@ -244,7 +244,7 @@ function homeRefused(values) {
 
 // What the bar says of a refused home folder: its step's own words.
 function homeText(values) {
-    return { title: values.setupHome.text, action: "Open Settings > Jarvis. " + values.setupHome.hint };
+    return { title: values.setupHome.text, action: values.setupHome.hint };
 }
 
 // What the bar says while the gate is down unconfigured: the first
@@ -255,7 +255,7 @@ function unconfiguredText(values) {
         if (step && step.tone === "warning" && offered(step) && step.hint && timedOut(step))
             return { title: SETUP_TEXT[i][1].title, action: step.hint };
         if (step && step.tone === "warning" && !offered(step) && step.hint)
-            return { title: step.text, action: "Open Settings > Jarvis. " + step.hint };
+            return { title: step.text, action: step.hint };
         if (step !== undefined && step !== null && offered(step)) return SETUP_TEXT[i][1];
     }
     return GATE_TEXT.unconfigured;
@@ -298,13 +298,13 @@ function voicePending(values) {
 }
 
 function keySetting(name) {
-    return "Set " + name + " key in Settings > Jarvis.";
+    return "Set " + name + " key in [Settings > Jarvis > Keys](page:vgs.jarvis/Keys).";
 }
 
 function readyAction(mode, keys) {
     if (mode === "hold") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";
     if (mode === "toggle") return keys.talk === null ? keySetting("Talk") : "Press " + keys.talk + " to start talking.";
-    return keys.talk === null ? "Say Hey Jarvis, or set Talk key in Settings > Jarvis."
+    return keys.talk === null ? "Say Hey Jarvis, or set [Talk key in Settings > Jarvis](page:vgs.jarvis/Keys)."
         : "Say Hey Jarvis, or press " + keys.talk + ".";
 }
 
@@ -313,7 +313,7 @@ function stopAction(keys) {
 }
 
 function confirmAction(keys) {
-    return keys.confirm === null ? "Confirm on screen, or set Confirm key in Settings > Jarvis."
+    return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Keys)."
         : "Confirm on screen, or press " + keys.confirm + ".";
 }
 
@@ -321,7 +321,7 @@ function confirmAction(keys) {
 // the click toggles, whatever state the icon shows.
 function clickLine(muteOn, keys) {
     var verb = muteOn ? "unmute" : "mute";
-    return keys.mute === null ? "Click, or set Mute key in Settings > Jarvis, to " + verb + "."
+    return keys.mute === null ? "Click, or set [Mute key in Settings > Jarvis](page:vgs.jarvis/Keys), to " + verb + "."
         : "Click or press " + keys.mute + " to " + verb + ".";
 }
 
