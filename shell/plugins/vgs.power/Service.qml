@@ -139,12 +139,7 @@ Item {
     }
 
     function sendNotice(notice) {
-        const reply = shell.notify.send({
-            title: "Time to recharge!",
-            message: "Battery is down to " + notice.level + "%",
-            icon: notice.threshold === "critical" ? "battery-warning" : "battery-low",
-            urgency: notice.urgency
-        });
+        const reply = shell.notify.send(Logic.noticePayload(notice));
         if (reply !== "ok") console.warn("power: notify " + reply);
     }
 

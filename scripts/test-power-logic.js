@@ -2,7 +2,7 @@
 // Table-driven checks for vgs.power's pure decisions, PowerLogic.js:
 // battery presence, battery and profile views, icon bands, time text,
 // the profile view read from the daemon's reply, source-change profile
-// choice and low-battery latches.
+// choice, low-battery latches and the notice each latch sends.
 // Controls edit one rule at a time in a copy of the logic under repo tmp
 // and require this suite to fail on each copy.
 "use strict";
@@ -150,6 +150,12 @@ function verify(logic) {
     result = logic.notices(logic.latchInitial(), 8, true, 20, 10);
     same(result.notices, [{ threshold: "critical", urgency: "critical", level: 8 }], "starting below both thresholds sends only critical");
     same(result.latch, { low: true, critical: true }, "starting below both latches both thresholds");
+    const low = logic.noticePayload({ threshold: "low", urgency: "normal", level: 19 });
+    const critical = logic.noticePayload({ threshold: "critical", urgency: "critical", level: 9 });
+    same([low.tone, low.icon, low.urgency], ["warning", "battery-low", "normal"], "noticePayload: the low notice is a warning");
+    same([critical.tone, critical.icon, critical.urgency], ["danger", "battery-warning", "critical"], "noticePayload: the critical notice is danger");
+    assert.ok(typeof low.title === "string" && low.title !== "", "noticePayload: the low notice has a title");
+    assert.notEqual(low.title, critical.title, "noticePayload: each state has its own title");
     same(logic.sourceObserved({ ready: false, onBattery: false }, false, false), { state: { ready: false, onBattery: false }, apply: false }, "sourceObserved: waits for a ready reading");
     same(logic.sourceObserved({ ready: false, onBattery: false }, true, true), { state: { ready: true, onBattery: true }, apply: false }, "sourceObserved: seeds the first ready reading without applying");
     same(logic.sourceObserved({ ready: true, onBattery: true }, true, false), { state: { ready: true, onBattery: false }, apply: true }, "sourceObserved: later source changes apply");
@@ -167,6 +173,8 @@ const CONTROLS = [
     ["an active profile outside the choices is unavailable", "if (active === null || choices.indexOf(active[1]) === -1)", "if (active === null)"],
     ["critical at start latches low", "        next.critical = true;\n        next.low = true;\n    } else if (n <= low) {", "        next.critical = true;\n        next.low = false;\n    } else if (n <= low) {"],
     ["a level bounce does not rearm low", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n <= critical) {", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n > low) next.low = false;\n    if (n <= critical) {"],
+    ["the critical notice is danger", "tone: critical ? \"danger\" : \"warning\",", "tone: \"warning\","],
+    ["each notice state has its own title", "title: critical ? \"Battery critical\" : \"Battery low\",", "title: \"Battery low\","],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]
 ];
 

@@ -4,8 +4,8 @@ import qs.Ui
 import "PowerLogic.js" as Logic
 
 // The Power flyout under the bar widget. It shows the service's published
-// battery view and one SegmentedControl that lists the profiles the daemon
-// offers, with the active one marked.
+// battery view and one SegmentedControl in the value column that lists the
+// profiles the daemon offers, with the active one marked.
 // A user choice goes to the service through IPC, which owns the profile
 // write and the remembered profile for this power source.
 FocusScope {
@@ -46,7 +46,10 @@ FocusScope {
         return reply;
     }
 
-    implicitWidth: Theme.size.panel.md
+    // `panel.md`, or wider where the profile control would pass the end of
+    // the value column. The pane's padding stands for its content inset,
+    // which settles from the width and would loop through this binding.
+    implicitWidth: Math.max(Theme.size.panel.md, Math.ceil(2 * layout.padding + profileField.valueX + profileControl.implicitWidth))
     implicitHeight: layout.implicitHeight
 
     Surface { anchors.fill: parent }
@@ -86,8 +89,10 @@ FocusScope {
             }
 
             Field {
+                id: profileField
                 width: parent.width
                 visible: root.profile.available
+                inline: true
                 label: "Power profile"
                 error: root.problem
                 SegmentedControl {

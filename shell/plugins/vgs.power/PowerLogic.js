@@ -185,6 +185,20 @@ function notices(previous, level, discharging, lowThreshold, criticalThreshold) 
     return { notices: out, latch: next };
 }
 
+// What the notify capability sends for one of notices(): the low notice
+// is a warning and the critical one danger, each titled by its state, so
+// the two cards differ by the tone their icon draws in and by the title.
+function noticePayload(notice) {
+    var critical = notice.threshold === "critical";
+    return {
+        title: critical ? "Battery critical" : "Battery low",
+        message: "Battery is down to " + notice.level + "%",
+        tone: critical ? "danger" : "warning",
+        icon: critical ? "battery-warning" : "battery-low",
+        urgency: notice.urgency
+    };
+}
+
 function profileForSource(onBattery, settings, choices) {
     var key = onBattery === true ? "batteryProfile" : "chargerProfile";
     var wanted = settings && hasOwn(settings, key) ? settings[key] : PROFILE.balanced;

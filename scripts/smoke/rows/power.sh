@@ -36,7 +36,7 @@
 # applying the remembered battery profile; the widget draws the 51 % text
 # and a non-charging icon; with a charging display battery,
 # it draws the charging icon; one discharge sends one low and one critical
-# alert through `notify`, each with its icon, no repeats below the same
+# alert through `notify`, each with its icon and tone, no repeats below the same
 # thresholds; the panel draws the battery level, state and time left in
 # one Field, lists the profiles the daemon offers with the active one
 # marked, and follows the daemon to a shorter list; keyboard selection in
@@ -48,7 +48,7 @@
 # written next, and after a write the daemon refuses the mark returns to
 # the daemon's profile. Controls build fixture
 # copies at run time: acme.power-relatch sends low twice in one discharge
-# and sends its notices without an icon, acme.power-nocharge draws no
+# and sends its notices without an icon or tone, acme.power-nocharge draws no
 # charging icon while the service publishes charging, acme.power-order
 # drops a profile asked for while a write runs and starts no read after a
 # refused write, acme.power-busenv is the address control above, and
@@ -135,6 +135,7 @@ power_notify_delta() { local n; n="$(power_notify_count)" || return; echo $((n -
 power_notify_delta_over_one() { local n; n="$(power_notify_delta)" || return; [[ $n -gt 1 ]] && echo yes || echo "no $n"; }
 power_notify_urgencies() { [[ -f $power_notify_calls ]] && py_reply 'import json,sys; print(json.dumps([a for line in sys.stdin for a in json.loads(line) if a.startswith("--urgency=")]))' <"$power_notify_calls" || echo '[]'; }
 power_notify_icons() { [[ -s $power_notify_calls ]] && py_reply 'import json,sys; print(json.dumps([a.rsplit(":", 1)[1] for line in sys.stdin for a in json.loads(line) if a.startswith("--hint=string:x-vgs-icon:")]))' <"$power_notify_calls" || echo '[]'; }
+power_notify_tones() { [[ -s $power_notify_calls ]] && py_reply 'import json,sys; print(json.dumps([a.rsplit(":", 1)[1] for line in sys.stdin for a in json.loads(line) if a.startswith("--hint=string:x-vgs-tone:")]))' <"$power_notify_calls" || echo '[]'; }
 # A record file with no line holds no run; py_reply answers an empty input
 # as a failed read, so each reader of one answers that state itself.
 # power_service_buses: the bus words of the service's own gdbus runs, its
@@ -268,6 +269,7 @@ EOF_STAND
   expect "staying below critical sends no second critical alert" 2 power_notify_count
   expect "the low and critical alerts use their urgencies" '["--urgency=normal", "--urgency=critical"]' power_notify_urgencies
   expect "the low and critical alerts carry their icons" '["battery-low", "battery-warning"]' power_notify_icons
+  expect "the low alert is a warning and the critical one danger" '["warning", "danger"]' power_notify_tones
 
   expect "the Power panel opens" ok ipc shell summon panel vgs.power '{}'
   expect_poll "the Power panel focuses the profile control" true ipc smoke activeFocusIn panel vgs.power
@@ -313,8 +315,9 @@ EOF_STAND
         next.low = true;' \
     'if (!next.low) out.push({ threshold: "low", urgency: "normal", level: n });
         next.low = false;' \
-    Service.qml \
-    '            icon: notice.threshold === "critical" ? "battery-warning" : "battery-low",
+    PowerLogic.js \
+    '        tone: critical ? "danger" : "warning",
+        icon: critical ? "battery-warning" : "battery-low",
 ' \
     ''
   rescan "rescan after adding the relatch fixture answers ok"
@@ -329,6 +332,7 @@ EOF_STAND
   power_discharging 18.0 2900
   expect_poll "control: relatch keeps sending low in one discharge" yes power_notify_delta_over_one
   expect "control: a notice sent without the icon carries none" '[]' power_notify_icons
+  expect "control: a notice sent without the tone carries none" '[]' power_notify_tones
   unset power_id
   expect "disabling the relatch fixture is allowed" ok ipc shell setPluginEnabled acme.power-relatch false
   power_move_away "$power_relatch_dir"
