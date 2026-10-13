@@ -195,6 +195,12 @@ Item {
     SignalSpy { id: warningPages; target: paged; signalName: "warningPageActivated" }
     SignalSpy { id: infoPages; target: paged; signalName: "infoPageActivated" }
 
+    Component {
+        id: ledLabelRow
+        FormRow { width: 420; info: "Details"; Switch { size: "sm" } }
+    }
+    FontMetrics { id: leadingMetrics }
+
     TestCase {
         name: "formrow"
         when: windowShown
@@ -212,6 +218,26 @@ Item {
         }
 
         function init() { UnitTheme.reset(); }
+
+        function test_info_mark_placement_data() {
+            return [
+                { tag: "one line", text: "Name", lines: 1 },
+                { tag: "two lines", text: "Name\nDetails", lines: 2 },
+                { tag: "three lines", text: "Name\nDetails\nMore", lines: 3 },
+                { tag: "four lines", text: "Name\nDetails\nMore\nLast", lines: 4 }
+            ];
+        }
+
+        function test_info_mark_placement(data) {
+            const row = createTemporaryObject(ledLabelRow, root, { label: data.text });
+            verify(row !== null);
+            const label = labelOf(row);
+            const mark = infoOf(row);
+            tryCompare(label, "lineCount", data.lines);
+            leadingMetrics.font = label.font;
+            const target = data.lines > 2 ? label.y + label.baselineOffset - leadingMetrics.capitalHeight / 2 : row.labelBox / 2;
+            fuzzyCompare(mark.y + mark.height / 2, target, 1);
+        }
 
         // The room a row with a message takes under it in the first
         // column, whose spacing is 0.

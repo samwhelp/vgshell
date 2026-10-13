@@ -218,7 +218,7 @@ Item {
         id: infoButton
         active: root.dialogText !== "" && root.labelColumn
         x: Theme.field.labelWidth - width
-        y: Math.round((root.labelBox - implicitHeight) / 2)
+        y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)
         sourceComponent: InfoButton {
             title: root.label
             info: root.dialogText

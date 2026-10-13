@@ -1541,24 +1541,45 @@ for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
 }
 
 // An icon that leads a line of text takes its top from that line's label.
-// This reads each site's source: the icon the row names holds the call
-// and no centre anchor. The control is the same source with the icon on
-// the row centre.
+// These source checks cover each placement binding and its consumer.
+// The FormRow QML test verifies its rendered geometry.
 const LED_LINES = [
     { file: "shell/Ui/feedback/SaveBar.qml", label: "savedText", icon: 'name: "check"' },
     { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },
-    { file: "shell/plugins/vgs.themes/WallpaperView.qml", label: "sourceText", icon: "color: sourceText.color" }
+    { file: "shell/plugins/vgs.themes/WallpaperView.qml", label: "sourceText", icon: "color: sourceText.color" },
+    {
+        file: "shell/Ui/controls/FormRow.qml", item: "Loader", icon: "id: infoButton",
+        binding: "y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)",
+        centred: "y: Math.round((root.labelBox - implicitHeight) / 2)"
+    },
+    {
+        file: "shell/plugins/vgs.notifications/NotificationCard.qml", item: "MediaSlot", icon: "id: mediaSlot",
+        binding: "leadingIconCenter: textBlock.y + textBlock.topForLeadingIcon(0) - mediaSlot.y",
+        centred: "leadingIconCenter: height / 2"
+    },
+    ...["icon", "glyphIcon"].map(icon => ({
+        file: "shell/plugins/vgs.notifications/MediaSlot.qml", item: icon === "icon" ? "Image" : "Icon", icon: `id: ${icon}\n`,
+        binding: "y: Math.round(slot.leadingIconCenter - height / 2)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    }))
 ];
 for (const site of LED_LINES) {
-    const call = `${site.label}.topForLeadingIcon(height)`;
-    const ledIcon = source => (source.match(/Icon \{[^{}]*\}/g) || []).filter(block => block.includes(site.icon));
-    const levelled = source => ledIcon(source).length === 1 && ledIcon(source)[0].includes(call) && !ledIcon(source)[0].includes("verticalCenter");
+    const binding = site.binding || `${site.label}.topForLeadingIcon(height)`;
+    const ledIcon = source => (source.match(new RegExp(`\\b${site.item || "Icon"} \\{[^{}]*`, "g")) || []).filter(block => block.includes(site.icon));
+    const levelled = source => ledIcon(source).length === 1 && ledIcon(source)[0].includes(binding) && !/anchors\.(?:centerIn|verticalCenter):/.test(ledIcon(source)[0]);
     const siteSource = fs.readFileSync(path.join(repo, site.file), "utf8");
     assert.equal(levelled(siteSource), true, `${site.file} centres its leading icon on its line's capitals`);
-    const centred = siteSource.replace(new RegExp(`y: [^\\n;{}]*${call.replace(/[.()]/g, "\\$&")}`), "anchors.verticalCenter: parent.verticalCenter");
+    const centred = site.binding ? siteSource.replace(binding, site.centred)
+        : siteSource.replace(new RegExp(`y: [^\\n;{}]*${binding.replace(/[.()]/g, "\\$&")}`), "anchors.verticalCenter: parent.verticalCenter");
     assert.notEqual(centred, siteSource, `control: ${site.file} holds the call to replace`);
     assert.equal(levelled(centred), false, `control: ${site.file} with the icon on the row centre must fail the check`);
 }
+
+const rowMeasureSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.notifications/RowMeasure.qml"), "utf8");
+const SUMMARY_ICON_TOP = /function topForLeadingIcon\(iconHeight\) \{\s*return \(summaryRow\.visible \? summaryRow\.y \+ titleText\.y : bodyText\.y\) \+ titleText\.topForLeadingIcon\(iconHeight\);/;
+assert.match(rowMeasureSource, SUMMARY_ICON_TOP, "notification icons use the shared label placement for summary and body-only cards");
+assert.doesNotMatch(rowMeasureSource.replace("titleText.topForLeadingIcon(iconHeight)", "Math.round((titleMetrics.height - iconHeight) / 2)"), SUMMARY_ICON_TOP,
+    "control: notification icons placed on a line box must fail the check");
 
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.

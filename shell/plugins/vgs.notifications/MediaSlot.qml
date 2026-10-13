@@ -27,6 +27,9 @@ Item {
     property string carried: ""
     property string glyph: ""
     property color glyphColor: look.text.foreground
+    // Only the application and status icons follow the first text line.
+    // Images and faces retain the slot's media placement.
+    property real leadingIconCenter: height / 2
     readonly property var spec: look.media
     // False while the image or icon the slot draws failed to load, so the
     // card leaves the slot out.
@@ -76,7 +79,8 @@ Item {
 
     Image {
         id: icon
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.round(slot.leadingIconCenter - height / 2)
         width: slot.spec.icon
         height: slot.spec.icon
         visible: slot.kind === "icon"
@@ -90,7 +94,8 @@ Item {
 
     Icon {
         id: glyphIcon
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.round(slot.leadingIconCenter - height / 2)
         visible: slot.kind === "glyph"
         name: slot.kind === "glyph" ? slot.glyph : ""
         size: slot.spec.glyph
