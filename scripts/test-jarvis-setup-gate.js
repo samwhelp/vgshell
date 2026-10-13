@@ -723,7 +723,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
@@ -1159,9 +1159,11 @@ function verifySession(gate) {
     assert.deepEqual(Object.keys(SESSION_CONTRACT).filter(state => gate.sessionLive(state)), ["running", "starting", "handing-over"], "the states of a session that lives");
     const stopped = wanted => plain(gate.sessionStart(wanted, { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null }));
     assert.notEqual(stopped(true).text, stopped(false).text, "a stopped session reads by the boot setting");
-    for (const block of ["no-account", "not-app", "no-home", "package"]) {
+    // A choice the user has not made yet reads as an optional step and keeps
+    // its hint; a missing package is a fault to fix.
+    for (const [block, tone] of [["no-account", "info"], ["not-app", "info"], ["no-home", "info"], ["package", "warning"]]) {
         const value = plain(gate.sessionStart(true, { kind: "blocked", block }));
-        assert.deepEqual([value.tone, offered(value)], ["warning", "none"], block + ": a block offers no start");
+        assert.deepEqual([value.tone, value.hint, offered(value)], [tone, gate.SESSION_BLOCKS[block], "none"], block + ": a block's tone, and it offers no start");
     }
     assert.throws(() => gate.sessionStart(true, { kind: "blocked", block: "unknown" }), { message: "jarvis-setup: session=unknown" });
     for (const result of [{ kind: "failed" }, { kind: "answer", state: "running", reason: "launching", detail: "", names: null }, { kind: "other" }]) {
@@ -1255,8 +1257,39 @@ function verifyVoiceRoute(gate, serviceSource) {
     assert.equal(settings.settingHint(manifest.schema.voiceProvider, []), "", "the Voice provider hint: a page with no report draws none");
 }
 
+// Every Jarvis session row beside every Setup summary, its states taken
+// from SetupGate.js's own tables and required to hold the contract's: a
+// warning or danger row stands beside a Ready summary only when that
+// summary names the session, and a summary beside any other row is
+// readiness's own. ONLY, when given, narrows the session answers to its own.
+function verifyOneSessionJudgement(gate, only) {
+    const label = manifest.status.sessionStart.label;
+    const every = [{ kind: "failed" }, ...Object.keys(gate.SESSION_BLOCKS).map(block => ({ kind: "blocked", block })),
+        ...Object.keys(gate.SESSION_ROWS).map(key => ({ kind: "answer", state: key.split(" ")[0], reason: key.split(" ")[1], detail: "The package's line.", names: null }))];
+    const results = only === undefined ? every : only;
+    for (const [state, reasons] of Object.entries(SESSION_CONTRACT))
+        for (const reason of reasons) assert.ok(Object.hasOwn(gate.SESSION_ROWS, state + " " + reason), state + " " + reason + ": a row of the contract is judged");
+    for (const block of ["no-home", "no-account", "not-app", "package"]) assert.ok(Object.hasOwn(gate.SESSION_BLOCKS, block), block + ": a block is judged");
+    for (const causes of [[], ["setup=probe-timeout"], ["brain=unselected"], ["speech=local-loading"]]) {
+        const setup = plain(gate.readiness({ kind: "answered", causes })).setup;
+        for (const result of results)
+            for (const wanted of [true, false]) {
+                const session = plain(gate.sessionStart(wanted, result));
+                const summary = plain(gate.sessionSummary(setup, session));
+                const name = JSON.stringify(result) + " beside " + (causes.join(",") || "no cause");
+                assert.equal(judge.statusWrite(manifest, {}, "setup", summary).ok, true, name + ": the judge accepts the summary");
+                const fault = session.tone === "warning" || session.tone === "danger";
+                assert.equal(summary.tone !== "ok" || !fault || String(summary.hint).includes(label), true, name + ": one judgement of the session");
+                if (!fault || setup.tone !== "ok") assert.deepEqual(summary, setup, name + ": the summary is readiness's own");
+                else assert.equal([summary.tone, summary.text].join(" ") === [setup.tone, setup.text].join(" ")
+                    && (setup.hint === undefined || String(summary.hint).startsWith(setup.hint + " ")), true, name + ": the session keeps the summary and its caution");
+            }
+    }
+}
+
 function verify(gate) {
     verifySession(gate);
+    verifyOneSessionJudgement(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
         const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
         assert.deepEqual(plain(value), { tone: "warning", text: "Timed out",
@@ -1522,7 +1555,13 @@ const CONTROLS = [
     ["the unapplied selection is not shown", "    if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];", "", "a selection that failed its check"],
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
-    ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"]
+    ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
+    ["a choice not made reads as a fault", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', "var SESSION_CHOICES = [];", "a block's tone"],
+    ["a missing package reads optional", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', 'var SESSION_CHOICES = ["no-account", "not-app", "no-home", "package"];', "package: a block's tone"],
+    ["a Ready summary ignores the session", "    if (setup.tone !== \"ok\" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;",
+        "    return setup;", "one judgement of the session"],
+    ["the session drops the summary's caution", 'hint: setup.hint === undefined ? fault : setup.hint + " " + fault', "hint: fault", "keeps the summary and its caution"],
+    ["a summary that is not ready names the session", 'if (setup.tone !== "ok" || !', "if (!", "the summary is readiness's own"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -1613,7 +1652,9 @@ try {
         console.log("test-jarvis-setup-gate: control=LocalRuntime.qml check=failed-check-read rejected=true");
     }
     for (const [label, needle] of [["voice-step-republish-dropped", "            localRuntime.republish();\n"],
-        ["voice-step-unstored", "            voiceStep = values.setupVoice;\n"]]) {
+        ["voice-step-unstored", "            voiceStep = values.setupVoice;\n"],
+        ["session-summary-unjudged", "        values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));\n"],
+        ["session-answer-unpublished", "; onResultChanged: root.publishShellSetup()"]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to remove must occur once");
         assert.throws(() => verifyVoiceStepRepublish(load(file), serviceSource.replace(needle, "")), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
@@ -1811,6 +1852,22 @@ try {
         assert.throws(() => fleetReader(path.join(plugin, "backend/fleet-setup.js")), assert.AssertionError, "a reader that finds no tool turns red");
         console.log("test-jarvis-setup-gate: control=fleet-reader-tool rejected=true");
     }
+    {
+        // The no-home row as main shipped it before VGS-1520: Cannot start in
+        // the warning tone beside a Ready summary that names no session.
+        let shipped = source;
+        for (const [needle, replacement] of [['var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', "var SESSION_CHOICES = [];"],
+            ['    if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;', "    return setup;"]]) {
+            assert.equal(shipped.split(needle).length, 2, "the no-home control's text occurs once");
+            shipped = shipped.replace(needle, () => replacement);
+        }
+        const copy = path.join(temp, "SetupGate.js");
+        fs.writeFileSync(copy, shipped);
+        assert.throws(() => verifyOneSessionJudgement(load(copy), [{ kind: "blocked", block: "no-home" }]),
+            error => error instanceof assert.AssertionError && error.message.includes('"no-home"') && error.message.includes("one judgement of the session"),
+            "the shipped no-home row beside a Ready summary turns red");
+        console.log("test-jarvis-setup-gate: control=session-no-home-shipped rejected=true");
+    }
     for (const [label, needle, replacement, assertion] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const changed = source.replace(needle, () => replacement);
@@ -1831,7 +1888,7 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
-    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 10 + 59}`);
+    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 13 + 59}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
@@ -1964,7 +2021,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
             return "ok";
         } } };
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: { modelAccess: { kind: "checking" } },
-            localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
+            localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
             assert.deepEqual([voice_.tone, voice_.action, "hint" in voice_], ["warning", "dictation", false], label + ": the Voice step");
@@ -2122,8 +2179,8 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     const values = {};
     const calls = [];
     const context = { Gate: gate, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
-        voiceStep: gate.readiness({ kind: "checking" }).setupVoice,
-        shell: { settings: { voiceAccount: "" }, requirements: { missing: [] }, status: { values, set: (key, value) => { values[key] = value; return "ok"; } } } };
+        voiceStep: gate.readiness({ kind: "checking" }).setupVoice, sessionStart: { result: null },
+        shell: { settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, set: (key, value) => { values[key] = value; return "ok"; } } } };
     context.localRuntime = { setupCause: "", republish: () => calls.push(plain(context.voiceStep)) };
     const publish = vm.runInNewContext("(" + publishSetup[0] + ")", context);
     for (const [label, answer, republished] of [
@@ -2137,4 +2194,13 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
         assert.equal(calls.length - before, republished ? 1 : 0, label + ": the Local voice row is published again only for a changed Voice step");
         if (republished) assert.deepEqual(calls.at(-1), plain(values.setupVoice), label + ": the row is shaped beside the published Voice step");
     }
+    // The summary publishSetup writes is judged beside the session row, and
+    // each answer of the session publishes it again (the SessionStart
+    // element's handler, read from the source: its shape, not its run).
+    context.sessionStart.result = { kind: "answer", state: "blocked", reason: "tmux-missing", detail: "", names: null };
+    publish({ kind: "answered", causes: [] });
+    assert.deepEqual(plain(values.setup), plain(gate.sessionSummary(gate.readiness({ kind: "answered", causes: [] }).setup,
+        gate.sessionStart(false, context.sessionStart.result))), "the published summary names a session that cannot start");
+    assert.notDeepEqual(plain(values.setup), plain(gate.readiness({ kind: "answered", causes: [] }).setup), "the session changes the published summary");
+    assert.match(serviceSource, /^ {4}Jarvis\.SessionStart \{[^\n]*onResultChanged: root\.publishShellSetup\(\)/m, "each session answer publishes the summary again");
 }

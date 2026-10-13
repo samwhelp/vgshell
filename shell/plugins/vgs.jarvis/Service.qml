@@ -191,7 +191,8 @@ Item {
     }
 
     // The Setup section's summary and required steps for ANSWER
-    // (SetupGate.readiness).
+    // (SetupGate.readiness), the summary beside the Jarvis session row
+    // (SetupGate.sessionSummary).
     function publishSetup(answer) {
         setupAnswer = answer;
         const setupCause = localRuntime.setupCause;
@@ -199,6 +200,7 @@ Item {
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
         const values = Gate.readiness(merged);
+        values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
         values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice), shell.requirements.missing);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
@@ -1122,6 +1124,7 @@ Item {
     }
     Jarvis.BrowserRuntime { shell: root.shell }
     Jarvis.FleetRuntime { shell: root.shell }
-    Jarvis.SessionStart { id: sessionStart; shell: root.shell }
+    // The Setup summary names a session that cannot start.
+    Jarvis.SessionStart { id: sessionStart; shell: root.shell; onResultChanged: root.publishShellSetup() }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }

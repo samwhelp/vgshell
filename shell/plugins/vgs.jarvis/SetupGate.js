@@ -517,6 +517,10 @@ var SESSION_BLOCKS = {
     "no-home": "No session can start without a home folder: choose a Home folder.",
     "package": "Install or update the Jarvis package in this home folder."
 };
+// The blocks that wait only on a choice the user has not made yet. The
+// session is optional (Start Jarvis at boot is off at first), so these read
+// as an optional step; the other blocks are faults to fix.
+var SESSION_CHOICES = ["no-account", "not-app", "no-home"];
 var SESSION_FAILED = "Jarvis did not start.";
 // PluginLogic STATUS_HINT_MAX, the longest hint a status row takes.
 var SESSION_HINT_MAX = 200;
@@ -564,7 +568,8 @@ function sessionStart(wanted, result) {
     if (result === null) return { hidden: true };
     if (result.kind === "blocked") {
         if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
-        return { tone: "warning", text: "Cannot start", hint: SESSION_BLOCKS[result.block] };
+        return SESSION_CHOICES.indexOf(result.block) !== -1 ? { tone: "info", text: "Optional", hint: SESSION_BLOCKS[result.block] }
+            : { tone: "warning", text: "Cannot start", hint: SESSION_BLOCKS[result.block] };
     }
     var failure = { tone: "danger", text: "Not started", hint: SESSION_FAILED, action: "retry" };
     if (result.kind !== "answer") return failure;
@@ -585,6 +590,20 @@ function sessionStart(wanted, result) {
     // The selection that failed its check, beside the session that stays.
     if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];
     return value;
+}
+
+// The Setup summary SETUP beside SESSION, the Jarvis session row
+// (sessionStart). The session is optional, so it never makes Jarvis not
+// ready, but a Ready summary names a session the user must fix: the page
+// gives one judgement.
+var SESSION_FAULTS = {
+    warning: "The Jarvis session cannot start: see Jarvis session under Home.",
+    danger: "The Jarvis session did not start: see Jarvis session under Home."
+};
+function sessionSummary(setup, session) {
+    if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;
+    var fault = SESSION_FAULTS[session.tone];
+    return Object.assign({}, setup, { hint: setup.hint === undefined ? fault : setup.hint + " " + fault });
 }
 
 // The session choices the page offers: none while the setting is off, so
