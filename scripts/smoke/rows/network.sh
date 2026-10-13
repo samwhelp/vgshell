@@ -201,17 +201,35 @@ net_tab_to_body() {
   done
   return 1
 }
-# net_dialog_follows HOST: `follows` when the dialog moves down with its
-# page scrolled down, else the readings. The System page overflows its
-# window, so its scroll moves. revealText finds enabled items, and the
-# page behind the dialog is disabled, so it scrolls the dialog's Cancel,
-# below the view's top third, up to that third.
+# A short nested System window gives the prompt a page that really scrolls,
+# even when hiding the list's reason line lets the normal window fit it.
+net_follow_size() { window_of 'System Settings' size | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("[") else []; print(json.dumps(r[0]) if r else "unreadable")'; }
+net_follow_overflow() { ipc smoke viewHolding window vgs.system Cancel | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("{") else {}; print("yes" if r.get("contentHeight",0)>r.get("height",0)>0 else "no")'; }
+net_follow_shorten() {
+  local layout
+  layout="$(window_of 'System Settings' address size | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("[") else []; print("%s %s %s" % (r[0],r[1][0],r[1][1]) if len(r)==2 else "unreadable")')" || return 1
+  read -r net_follow_address net_follow_width net_follow_height <<<"$layout"
+  [[ $net_follow_address =~ ^0x[[:xdigit:]]+$ && $net_follow_width =~ ^[0-9]+$ && $net_follow_height =~ ^[0-9]+$ ]] || return 1
+  net_follow_short_height=$((net_follow_height / 2))
+  expect "the scroll check shortens the nested System window" ok hypr dispatch "hl.dsp.window.resize({ x = $net_follow_width, y = $net_follow_short_height, relative = false, window = \"address:$net_follow_address\" })"
+  expect_poll "the shorter System window reads back its size" "[$net_follow_width, $net_follow_short_height]" net_follow_size
+  expect_poll "the prompt's page has real overflow" yes net_follow_overflow
+}
+net_follow_restore() {
+  expect "the scroll check restores the nested System window" ok hypr dispatch "hl.dsp.window.resize({ x = $net_follow_width, y = $net_follow_height, relative = false, window = \"address:$net_follow_address\" })"
+  expect_poll "System reads back its original size" "[$net_follow_width, $net_follow_height]" net_follow_size
+}
+# net_dialog_follows HOST: the dialog follows a measured increase in the
+# page's scroll. Its enabled title first moves to the view's top third,
+# then Cancel moves there. The disabled page behind it takes no focus.
 net_dialog_follows() {
-  local before after scrolled
+  local before after prior scrolled
+  ipc smoke revealText "$1" vgs.system Label 'Wi-Fi password' >/dev/null || return 1
   before="$(net_dialog_y "$1")" || return 1
+  prior="$(ipc smoke viewHolding "$1" vgs.system Cancel | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("{") else {}; print(r.get("contentY","unreadable"))')" || return 1
   scrolled="$(ipc smoke revealText "$1" vgs.system Button Cancel)" || return 1
   after="$(net_dialog_y "$1")" || return 1
-  python3 -c 'import sys; b,a,s=sys.argv[1:]; print("follows" if s.replace(".","",1).isdigit() and float(s) > 0 and float(a) > float(b) else "fixed before=%s after=%s scrolled=%s" % (b,a,s))' "$before" "$after" "$scrolled"
+  python3 -c 'import sys; b,a,p,s=sys.argv[1:]; moved=all(v.replace(".","",1).isdigit() for v in (b,a,p,s)) and float(s)>float(p); result="follows" if moved and float(a)>float(b) else "fixed" if moved else "unscrolled"; print(result if result=="follows" else "%s before=%s after=%s prior=%s scrolled=%s" % (result,b,a,p,s))' "$before" "$after" "$prior" "$scrolled"
 }
 net_unit $'LoadState=loaded\nActiveState=active'
 net_permission yes
@@ -633,7 +651,9 @@ expect_poll "the reprompt is a masked focused field" '{"masked":true,"length":0,
 expect "a failed saved password uses the same dialog" true net_dialog window
 expect "the System dialog names the network" True net_dialog_names window
 expect "the System dialog holds the focused field" true ipc smoke activeFocusWithin window vgs.network Dialog
+net_follow_shorten || return 0
 expect "the dialog follows the scrolled System page" follows net_dialog_follows window
+net_follow_restore
 net_expect_fixture "the failed activation is removed before retry" drop-active || return 0
 type_keys partial
 expect "an idle background failure is ignored" ok ipc smoke networkBackgroundFailure false
@@ -1025,6 +1045,7 @@ mkdir -p -- "$net_copy"
 cp -R -- "$repo/shell/plugins/vgs.network/." "$net_copy/"
 rescan "the disposable service source is discovered"
 expect_poll "the disposable service is ready" '"offline"' net_state
+net_expect_fixture "the reason controls restore a saved profile without a password" prepare || return 0
 python3 - "$net_copy/NetworkBody.qml" <<'PYREASONCONTROL'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text();old='text: root.network.problem || ""'
@@ -1184,8 +1205,10 @@ expect_poll "the prompt controls' pane is mounted" shown net_shown window
 net_reprompt "Prompt controls" || return 0
 expect_poll "the prompt controls focus the planted field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField window
 expect "control: a field outside the dialog is not the dialog's own" false ipc smoke activeFocusWithin window vgs.network Dialog
+net_follow_shorten || return 0
 net_follows_control="$(net_dialog_follows window)" || net_follows_control=unread
 expect "control: a prompt that reads no view stays put on a scrolled page" fixed printf '%s\n' "${net_follows_control%% *}"
+net_follow_restore
 expect "the prompt controls cancel their prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
 expect_poll "the prompt controls hold no prompt" none net_prompt
 expect "System closes the prompt controls" ok ipc shell hide window vgs.system
