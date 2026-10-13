@@ -27,9 +27,8 @@
 //             null or the row's binary answering: its argv, the meaning of
 //             each exit status ("updates" or "rows": the parser's rows are
 //             the updates; "none": there are none), the parser's name in
-//             PARSERS, the seconds a run may take, and whether it runs only
-//             when asked for by name (onDemand). An unlisted status is a
-//             failure. null when no read-only query exists.
+//             PARSERS and the seconds a run may take. An unlisted status is
+//             a failure. null when no read-only query exists.
 //   install, update, remove, upgrade
 //             the steps, each an argv template run in order; null when VGS
 //             plans none for the manager. An update brings named packages
@@ -67,7 +66,7 @@
 var MANAGERS = [
     {
         id: "pacman", role: "primary", family: ["arch"], requires: null, binaries: ["pacman"], elevate: true,
-        check: [{ binary: null, argv: ["checkupdates"], exits: { "0": "updates", "2": "none" }, parser: "arrow", timeout: 120, onDemand: false }],
+        check: [{ binary: null, argv: ["checkupdates"], exits: { "0": "updates", "2": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         // pacman(8): --needed skips only a target that is up to date, so
         // the install step updates an older one to the version the
@@ -86,7 +85,7 @@ var MANAGERS = [
     },
     {
         id: "aur", role: "overlay", family: [], requires: "pacman", binaries: ["paru", "yay"], elevate: false,
-        check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120, onDemand: false }],
+        check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         update: [["{bin}", "-S", "--needed", "--", "{names}"]],
         remove: [["{bin}", "-Rns", "--", "{names}"]],
@@ -103,8 +102,8 @@ var MANAGERS = [
     // apt lists what the package lists held at the last `apt update`, which
     // needs root, so the check never refreshes them.
     {
-        id: "apt", role: "primary", family: ["debian", "ubuntu"], requires: null, binaries: ["apt-get"], elevate: true,
-        check: [{ binary: null, argv: ["apt", "list", "--upgradable"], exits: { "0": "rows" }, parser: "apt", timeout: 120, onDemand: false }],
+        id: "apt", role: "primary", family: ["debian"], requires: null, binaries: ["apt-get"], elevate: true,
+        check: [{ binary: null, argv: ["apt", "list", "--upgradable"], exits: { "0": "rows" }, parser: "apt", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
         // apt-get(8): install is also the target that upgrades an installed
         // package without upgrading every package.
@@ -123,8 +122,8 @@ var MANAGERS = [
     {
         id: "dnf", role: "primary", family: ["fedora"], requires: null, binaries: ["dnf5", "dnf"], elevate: true,
         check: [
-            { binary: "dnf5", argv: ["{bin}", "check-upgrade", "--json"], exits: { "0": "rows" }, parser: "dnf5", timeout: 120, onDemand: false },
-            { binary: "dnf", argv: ["{bin}", "-q", "check-update"], exits: { "0": "none", "100": "updates" }, parser: "dnf", timeout: 120, onDemand: false }
+            { binary: "dnf5", argv: ["{bin}", "check-upgrade", "--json"], exits: { "0": "rows" }, parser: "dnf5", timeout: 120 },
+            { binary: "dnf", argv: ["{bin}", "-q", "check-update"], exits: { "0": "none", "100": "updates" }, parser: "dnf", timeout: 120 }
         ],
         install: [["{bin}", "install", "{names}"]],
         // dnf(8): upgrade with a package updates that package to the latest
@@ -145,38 +144,6 @@ var MANAGERS = [
             remove: { list: ["{bin}", "-q", "repoquery", "--userinstalled", "--queryformat", "%{name}\\n"], preview: ["rpm", "-qi", "{name}"] }
         }
     },
-    {
-        id: "xbps", role: "primary", family: ["void"], requires: null, binaries: ["xbps-install"], elevate: true,
-        check: [{ binary: null, argv: ["{bin}", "-Mun"], exits: { "0": "rows" }, parser: "xbps", timeout: 120, onDemand: false }],
-        install: [["{bin}", "-S", "{names}"]],
-        // xbps-install(1): a package that is installed is updated to the
-        // version the repositories hold.
-        update: [["{bin}", "-S", "{names}"]],
-        remove: [["xbps-remove", "-R", "{names}"]],
-        upgrade: [["{bin}", "-Su"]],
-        ignore: null,
-        owner: { argv: ["xbps-query", "-o", "{path}"], read: /^(\S+)-[^-\s]+_[0-9]+: / },
-        installed: null,
-        removable: null,
-        picker: { install: null, remove: null }
-    },
-    // emerge resolves the whole dependency graph to answer, so its check
-    // runs only when asked for by name.
-    {
-        id: "emerge", role: "primary", family: ["gentoo"], requires: null, binaries: ["emerge"], elevate: true,
-        check: [{ binary: null, argv: ["{bin}", "--pretend", "--update", "--deep", "--newuse", "--color=n", "--ask=n", "@world"], exits: { "0": "rows" }, parser: "emerge", timeout: 900, onDemand: true }],
-        install: [["{bin}", "--ask", "--noreplace", "{names}"]],
-        // emerge(1): --noreplace skips an installed package, and --update
-        // takes it to the best version.
-        update: [["{bin}", "--ask", "--update", "{names}"]],
-        remove: [["{bin}", "--ask", "--depclean", "{names}"]],
-        upgrade: [["{bin}", "--sync"], ["{bin}", "--ask", "--update", "--deep", "--newuse", "@world"]],
-        ignore: null,
-        owner: { argv: ["qfile", "{path}"], read: /^(\S+) \(/ },
-        installed: null,
-        removable: null,
-        picker: { install: null, remove: null }
-    },
     // A NixOS system changes through its own configuration, so VGS plans no
     // step and has no read-only update query for it.
     {
@@ -186,7 +153,7 @@ var MANAGERS = [
     },
     {
         id: "flatpak", role: "overlay", family: [], requires: null, binaries: ["flatpak"], elevate: false,
-        check: [{ binary: null, argv: ["{bin}", "remote-ls", "--updates", "--columns=application,branch"], exits: { "0": "rows" }, parser: "flatpak", timeout: 120, onDemand: false }],
+        check: [{ binary: null, argv: ["{bin}", "remote-ls", "--updates", "--columns=application,branch"], exits: { "0": "rows" }, parser: "flatpak", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
         // flatpak-update(1): update with a ref updates that ref alone.
         update: [["{bin}", "update", "{names}"]],
@@ -208,7 +175,7 @@ var MANAGERS = [
     // cachy, 2026-10-10).
     {
         id: "mise", role: "source", family: [], requires: null, binaries: ["mise"], elevate: false,
-        check: [{ binary: null, argv: ["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "outdated", "--json"], exits: { "0": "rows" }, parser: "mise", timeout: 120, onDemand: false }],
+        check: [{ binary: null, argv: ["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "outdated", "--json"], exits: { "0": "rows" }, parser: "mise", timeout: 120 }],
         install: [["{bin}", "use", "--global", "{names}"]],
         update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],
         remove: [["{bin}", "unuse", "--global", "{names}"]],
@@ -438,8 +405,8 @@ function plan(id, action, names, onPath, ignored) {
 // both lists where the row's install and update steps are the same, since
 // such a step installs a package it does not find and brings one it finds
 // to the current version; else the install steps over MISSING, then the
-// update steps over OUTDATED, since an update step of dnf, emerge, flatpak
-// or mise refuses or skips a package that is not installed.
+// update steps over OUTDATED, since an update step of dnf, flatpak or mise
+// refuses or skips a package that is not installed.
 function planOwed(id, missing, outdated, onPath) {
     var row = managerRow(id);
     if (row !== null && row.update !== null && JSON.stringify(row.update) === JSON.stringify(row.install))
@@ -589,54 +556,6 @@ function parseDnf5(text) {
     return { ok: true, packages: packages };
 }
 
-// `xbps-install -Mun`: `pkgver action arch repository installed-size
-// download-size` per transaction entry. Only `update` is an update; an
-// install is a new dependency the update pulls in. pkgver is
-// `name-version_revision`, and the installed version is not printed.
-function parseXbps(text) {
-    var packages = [];
-    var rows = lines(text);
-    for (var i = 0; i < rows.length; i++) {
-        var f = rows[i].split(" ");
-        if (f.length !== 6 || !/^\d+$/.test(f[4]) || !/^\d+$/.test(f[5])) return unreadable(i);
-        var pv = /^(.+)-([^-]+_\d+)$/.exec(f[0]);
-        if (pv === null) return unreadable(i);
-        if (f[1] === "update") packages.push({ name: pv[1], old: null, new: pv[2] });
-    }
-    return { ok: true, packages: packages };
-}
-
-// `emerge --pretend`: each merge is `[ebuild FLAGS] cat/pkg-version` or
-// `[binary FLAGS] ...`, then the replaced versions in brackets. FLAGS holds
-// `U` for a new version. The slot (`:0/0`) and repository (`::gentoo`) are
-// shown at --verbose and dropped here, and a binary package may carry its
-// build id as a last `-N`, which no version ends with. Every other line is
-// emerge's own narration and carries no package.
-var GENTOO_VERSION = "\\d+(?:\\.\\d+)*[a-z]?(?:_(?:alpha|beta|pre|rc|p)\\d*)*(?:-r\\d+)?";
-
-function gentooVersion(text) {
-    return text.replace(/::.*$/, "").replace(/:[^:]*$/, "");
-}
-
-function parseEmerge(text) {
-    var packages = [];
-    var rows = lines(text);
-    var cpv = new RegExp("^(.+?)-(" + GENTOO_VERSION + ")$");
-    for (var i = 0; i < rows.length; i++) {
-        if (!/^\[(?:ebuild|binary) /.test(rows[i])) continue;
-        var m = /^\[(ebuild|binary) ([^\]]*)\]\s+(\S+)(?:\s+\[([^\]]+)\])?/.exec(rows[i]);
-        if (m === null) return unreadable(i);
-        var shown = gentooVersion(m[3]);
-        var nv = m[1] === "binary" ? cpv.exec(shown.replace(/-\d+$/, "")) : null;
-        if (nv === null) nv = cpv.exec(shown);
-        if (nv === null) return unreadable(i);
-        if (m[2].indexOf("U") < 0) continue;
-        var old = m[4] === undefined ? null : gentooVersion(m[4].split(", ")[0]);
-        packages.push({ name: nv[1], old: old, new: nv[2] });
-    }
-    return { ok: true, packages: packages };
-}
-
 // `flatpak remote-ls --updates --columns=application,branch`: `app<TAB>branch`,
 // with no title row when stdout is not a terminal. flatpak prints no
 // version here, so the branch stands for the new one.
@@ -673,21 +592,18 @@ function parseMise(text) {
 
 var PARSERS = {
     arrow: parseArrow, apt: parseApt, dnf: parseDnf, dnf5: parseDnf5,
-    xbps: parseXbps, emerge: parseEmerge, flatpak: parseFlatpak, mise: parseMise
+    flatpak: parseFlatpak, mise: parseMise
 };
 
-// The update query manager ID runs with BINARY, the row's binary, NAMED
-// true when the caller asked for this manager by name: `{ check: { argv,
-// exits, parser, timeout } }` with "{bin}" filled in, or `{ skipped }`,
-// "no-check" when the row has no query for the binary and "on-demand" for
-// an on-demand query nobody named.
-function checkFor(id, binary, named) {
+// The update query manager ID runs with BINARY, the row's binary:
+// `{ check: { argv, exits, parser, timeout } }` with "{bin}" filled in, or
+// `{ skipped: "no-check" }` when the row has no query for the binary.
+function checkFor(id, binary) {
     var row = managerRow(id);
     var variants = row === null || row.check === null ? [] : row.check;
     for (var i = 0; i < variants.length; i++) {
         var c = variants[i];
         if (c.binary !== null && c.binary !== binary) continue;
-        if (c.onDemand && !named) return { skipped: "on-demand" };
         var argv = c.argv.map(function (token) { return token === "{bin}" ? binary : token; });
         return { check: { argv: argv, exits: c.exits, parser: c.parser, timeout: c.timeout } };
     }

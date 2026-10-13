@@ -39,7 +39,7 @@ const EXIT_MEANINGS = ["updates", "none", "rows"];
 function tableErrors(t) {
     const errors = [];
     const ids = t.MANAGERS.map(row => row.id);
-    if (t.MANAGERS.length < 9) errors.push("table: fewer than the nine managers D034 names; the loader read no table");
+    if (t.MANAGERS.length < 7) errors.push("table: fewer than seven managers; the loader read no table");
     if (new Set(ids).size !== ids.length) errors.push("ids: not unique");
     for (const row of t.MANAGERS) {
         const where = "manager " + row.id;
@@ -71,7 +71,6 @@ function tableErrors(t) {
             if (c.binary !== null && !row.binaries.includes(c.binary)) errors.push(at + ": binary " + c.binary + " is not one of the row's");
             if (!Object.prototype.hasOwnProperty.call(t.PARSERS, c.parser)) errors.push(at + ": parser " + c.parser);
             if (!Number.isInteger(c.timeout) || c.timeout <= 0) errors.push(at + ": timeout " + c.timeout);
-            if (typeof c.onDemand !== "boolean") errors.push(at + ": onDemand " + c.onDemand);
             if (Object.keys(c.exits).length === 0) errors.push(at + ": no exit status");
             for (const [code, meaning] of Object.entries(c.exits))
                 if (!/^[0-9]+$/.test(code) || !EXIT_MEANINGS.includes(meaning)) errors.push(at + ": exit " + code + "=" + meaning);
@@ -108,23 +107,21 @@ const DETECT_ROWS = [
         { primary: pacman, overlays: [{ id: "aur", binary: "yay" }], sources: [] }],
     ["paru is preferred to yay", "ID=endeavouros\nID_LIKE=arch\n", ["pacman", "yay", "paru"],
         { primary: pacman, overlays: [{ id: "aur", binary: "paru" }], sources: [] }],
-    ["Ubuntu through its own ID", "ID=ubuntu\nID_LIKE=debian\n", ["apt-get", "flatpak"],
+    ["Debian through its own ID", "ID=debian\n", ["apt-get", "flatpak"],
         { primary: { id: "apt", binary: "apt-get" }, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
-    ["an Ubuntu derivative through a quoted ID_LIKE list", "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n", ["apt-get"],
+    ["a Debian derivative through a quoted ID_LIKE list", "ID=acme\nID_LIKE=\"other debian\"\n", ["apt-get"],
         { primary: { id: "apt", binary: "apt-get" }, overlays: [], sources: [] }],
     ["Fedora prefers dnf5; an AUR helper without pacman is no overlay", "ID=fedora\n", ["dnf5", "dnf", "paru"],
         { primary: { id: "dnf", binary: "dnf5" }, overlays: [], sources: [] }],
     ["a Fedora derivative with dnf alone", "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n", ["dnf"],
         { primary: { id: "dnf", binary: "dnf" }, overlays: [], sources: [] }],
-    ["Void", "ID=\"void\"\n", ["xbps-install"], { primary: { id: "xbps", binary: "xbps-install" }, overlays: [], sources: [] }],
-    ["Gentoo", "ID=gentoo\n", ["emerge"], { primary: { id: "emerge", binary: "emerge" }, overlays: [], sources: [] }],
     ["NixOS", "ID=nixos\n", ["nix"], { primary: { id: "nix", binary: "nix" }, overlays: [], sources: [] }],
     ["a binary alone makes no primary", "ID=arch\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
     ["no os-release keeps overlays and sources", "", ["pacman", "paru", "flatpak", "mise"],
         { primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [{ id: "mise", binary: "mise" }] }],
     ["an unknown family has no primary", "ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n", ["zypper"], { primary: null, overlays: [], sources: [] }],
     ["a single-quoted ID", "ID='arch'\n", ["pacman"], { primary: pacman, overlays: [], sources: [] }],
-    ["the last assignment wins; a comment assigns nothing", "# ID=gentoo\nID=debian\nID=arch\n", ["pacman", "apt-get"], { primary: pacman, overlays: [], sources: [] }],
+    ["the last assignment wins; a comment assigns nothing", "# ID=fedora\nID=debian\nID=arch\n", ["pacman", "apt-get"], { primary: pacman, overlays: [], sources: [] }],
     ["a CRLF file", "ID=arch\r\nNAME=x\r\n", ["pacman"], { primary: pacman, overlays: [], sources: [] }]
 ];
 
@@ -156,14 +153,6 @@ const PLAN_ROWS = [
     ["dnf update upgrades the named package", "dnf", "update", ["gum"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade", "gum"]] }],
     ["dnf remove through dnf", "dnf", "remove", ["gum"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "remove", "gum"]] }],
     ["dnf upgrade", "dnf", "upgrade", [], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade"]] }],
-    ["xbps install", "xbps", "install", ["gum"], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-install", "-S", "gum"]] }],
-    ["xbps update", "xbps", "update", ["gum"], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-install", "-S", "gum"]] }],
-    ["xbps remove", "xbps", "remove", ["gum"], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-remove", "-R", "gum"]] }],
-    ["xbps upgrade", "xbps", "upgrade", [], ["xbps-install"], { binary: "xbps-install", elevate: true, steps: [["xbps-install", "-Su"]] }],
-    ["emerge install", "emerge", "install", ["app-misc/gum"], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--ask", "--noreplace", "app-misc/gum"]] }],
-    ["emerge update replaces the installed package", "emerge", "update", ["app-misc/gum"], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--ask", "--update", "app-misc/gum"]] }],
-    ["emerge remove", "emerge", "remove", ["app-misc/gum"], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--ask", "--depclean", "app-misc/gum"]] }],
-    ["emerge upgrade syncs, then updates the world set", "emerge", "upgrade", [], ["emerge"], { binary: "emerge", elevate: true, steps: [["emerge", "--sync"], ["emerge", "--ask", "--update", "--deep", "--newuse", "@world"]] }],
     ["flatpak install", "flatpak", "install", ["org.gnome.Loupe"], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "install", "org.gnome.Loupe"]] }],
     ["flatpak update of one ref", "flatpak", "update", ["org.gnome.Loupe"], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "update", "org.gnome.Loupe"]] }],
     ["flatpak remove", "flatpak", "remove", ["org.gnome.Loupe"], ["flatpak"], { binary: "flatpak", elevate: false, steps: [["flatpak", "uninstall", "org.gnome.Loupe"]] }],
@@ -289,9 +278,7 @@ const INSTALL_GROUP_ROWS = [
 // printUpdateList and text FormatAgeTag, apt apt-private private-list.cc and
 // private-output.cc ListSingleVersion, dnf 4 dnf/cli/output.py fmtColumns
 // and cli.py check_updates, dnf5 libdnf5-cli package_list_sections.cpp
-// print_json, xbps bin/xbps-install/transaction.c show_dry_run_actions,
-// emerge lib/_emerge/resolver/output.py _set_no_columns, flatpak
-// app/flatpak-table-printer.c.
+// print_json, flatpak app/flatpak-table-printer.c.
 const fixture = name => ({ fixture: name });
 const PARSE_ROWS = [
     ["checkupdates", "arrow", fixture("checkupdates.txt"), [["bpf", "7.2.7-1", "7.2.8-1"], ["coreutils", "9.11-2.1", "9.12-2.1"],
@@ -305,7 +292,7 @@ const PARSE_ROWS = [
     ["arrow: an error line", "arrow", "bash 5.2-1 -> 5.3-1\nerror: failed to synchronize all databases\n", "unparseable line=2"],
     ["arrow: a coloured line", "arrow", "\u001b[1mbash\u001b[0m 5.2-1 -> 5.3-1\n", "unparseable line=1"],
     ["arrow: no arrow", "arrow", "bash 5.2-1 5.3-1\n", "unparseable line=1"],
-    ["apt", "apt", fixture("apt.txt"), [["bash", "5.2.21-2ubuntu4", "5.2.21-2ubuntu4.1"], ["libssl3t64", "3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.5"]]],
+    ["apt", "apt", fixture("apt.txt"), [["bash", "5.3-4", "5.3-5"], ["libssl3t64", "3.6.2-1", "3.6.2-2"]]],
     ["apt: the progress line alone", "apt", "Listing... Done\n", []],
     ["apt: its CLI warning on stdout", "apt", "Listing...\nWARNING: apt does not have a stable CLI interface. Use with caution in scripts.\n", "unparseable line=2"],
     ["apt: an installed package", "apt", "Listing...\nbash/now 5.2 amd64 [installed,local]\n", "unparseable line=2"],
@@ -320,15 +307,6 @@ const PARSE_ROWS = [
     ["dnf5: text before the JSON", "dnf5", "Updating and loading repositories:\n{}\n", "unparseable json"],
     ["dnf5: an unknown section", "dnf5", "{\"upgradeable_packages\":[]}\n", "unparseable key=upgradeable_packages"],
     ["dnf5: an entry without a version", "dnf5", "{\"upgrades\":[{\"name\":\"bash\",\"arch\":\"x86_64\"}]}\n", "unparseable entry=0"],
-    ["xbps, updates alone counted", "xbps", fixture("xbps.txt"), [["bash", null, "5.2.037_1"], ["xbps", null, "0.60.4_1"]]],
-    ["xbps: no output", "xbps", "", []],
-    ["xbps: a field missing", "xbps", "bash-5.2_1 update x86_64 https://repo 1\n", "unparseable line=1"],
-    ["xbps: a pkgver without a revision", "xbps", "bash update x86_64 https://repo 1 2\n", "unparseable line=1"],
-    ["emerge, updates and downgrades counted", "emerge", fixture("emerge.txt"), [["sys-apps/portage", "3.0.65", "3.0.66-r1"],
-        ["app-editors/vim", "9.1.0707", "9.1.0794"], ["dev-lang/python", "3.12.5", "3.12.7"], ["sys-libs/zlib", "1.3.1-r2", "1.3.1-r1"]]],
-    ["emerge: narration alone", "emerge", "Calculating dependencies  ... done!\n", []],
-    ["emerge: a merge without a version", "emerge", "[ebuild     U  ] sys-apps/portage [3.0.65]\n", "unparseable line=1"],
-    ["emerge: a binary whose version is one number", "emerge", "[binary     U  ] app-misc/foo-5 [4]\n", [["app-misc/foo", "4", "5"]]],
     ["flatpak", "flatpak", fixture("flatpak.txt"), [["org.gnome.Loupe", null, "stable"], ["org.gnome.Platform", null, "47"], ["org.freedesktop.Platform.GL.default", null, "24.08"]]],
     ["flatpak: no output", "flatpak", "", []],
     ["flatpak: a title row", "flatpak", "Application ID\tBranch\n", "unparseable line=1"],
@@ -340,22 +318,18 @@ const PARSE_ROWS = [
     ["mise: an array", "mise", "[]\n", "unparseable json"]
 ];
 
-// Query rows: name, manager, binary, whether it was asked for by name, and
-// the query or why it is skipped.
+// Query rows: name, manager, binary, and the query or why it is skipped.
 const q = (argv, exits, parser, timeout) => ({ check: { argv, exits, parser, timeout } });
 const ROWS = { "0": "rows" };
 const CHECK_ROWS = [
-    ["pacman runs checkupdates", "pacman", "pacman", false, q(["checkupdates"], { "0": "updates", "2": "none" }, "arrow", 120)],
-    ["aur runs its helper", "aur", "yay", false, q(["yay", "-Qua"], { "0": "updates", "1": "none" }, "arrow", 120)],
-    ["apt lists the upgradable packages", "apt", "apt-get", false, q(["apt", "list", "--upgradable"], ROWS, "apt", 120)],
-    ["dnf5 answers in JSON", "dnf", "dnf5", false, q(["dnf5", "check-upgrade", "--json"], ROWS, "dnf5", 120)],
-    ["dnf 4 answers in columns", "dnf", "dnf", false, q(["dnf", "-q", "check-update"], { "0": "none", "100": "updates" }, "dnf", 120)],
-    ["xbps syncs in memory and changes nothing", "xbps", "xbps-install", false, q(["xbps-install", "-Mun"], ROWS, "xbps", 120)],
-    ["emerge waits to be named", "emerge", "emerge", false, { skipped: "on-demand" }],
-    ["emerge named", "emerge", "emerge", true, q(["emerge", "--pretend", "--update", "--deep", "--newuse", "--color=n", "--ask=n", "@world"], ROWS, "emerge", 900)],
-    ["nix has no query", "nix", "nix", true, { skipped: "no-check" }],
-    ["flatpak lists its updates", "flatpak", "flatpak", false, q(["flatpak", "remote-ls", "--updates", "--columns=application,branch"], ROWS, "flatpak", 120)],
-    ["mise waives the release-age cooldown", "mise", "mise", false, q(["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "outdated", "--json"], ROWS, "mise", 120)]
+    ["pacman runs checkupdates", "pacman", "pacman", q(["checkupdates"], { "0": "updates", "2": "none" }, "arrow", 120)],
+    ["aur runs its helper", "aur", "yay", q(["yay", "-Qua"], { "0": "updates", "1": "none" }, "arrow", 120)],
+    ["apt lists the upgradable packages", "apt", "apt-get", q(["apt", "list", "--upgradable"], ROWS, "apt", 120)],
+    ["dnf5 answers in JSON", "dnf", "dnf5", q(["dnf5", "check-upgrade", "--json"], ROWS, "dnf5", 120)],
+    ["dnf 4 answers in columns", "dnf", "dnf", q(["dnf", "-q", "check-update"], { "0": "none", "100": "updates" }, "dnf", 120)],
+    ["nix has no query", "nix", "nix", { skipped: "no-check" }],
+    ["flatpak lists its updates", "flatpak", "flatpak", q(["flatpak", "remote-ls", "--updates", "--columns=application,branch"], ROWS, "flatpak", 120)],
+    ["mise waives the release-age cooldown", "mise", "mise", q(["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "outdated", "--json"], ROWS, "mise", 120)]
 ];
 
 // Outcome rows: name, manager, binary, exit status, stdout, and the
@@ -383,14 +357,12 @@ const QUERY_ROWS = [
     ["apt installed through dpkg-query", "apt", "installed", "vgshell", ["apt-get"], ["dpkg-query", "-W", "--showformat=${Version}\n", "--", "vgshell"]],
     ["dnf owner through rpm names the package alone", "dnf", "owner", "/usr/share/vgshell/VERSION", ["dnf5"], ["rpm", "-qf", "--queryformat", "%{NAME}\n", "/usr/share/vgshell/VERSION"]],
     ["dnf installed through rpm", "dnf", "installed", "vgshell", ["dnf5"], ["rpm", "-q", "--queryformat", "%{VERSION}\n", "--", "vgshell"]],
-    ["xbps owner", "xbps", "owner", "/usr/share/vgshell/VERSION", ["xbps-install"], ["xbps-query", "-o", "/usr/share/vgshell/VERSION"]],
-    ["emerge owner", "emerge", "owner", "/usr/share/vgshell/VERSION", ["emerge"], ["qfile", "/usr/share/vgshell/VERSION"]],
     ["aur owner through pacman", "aur", "owner", "/usr/share/vgshell/VERSION", ["paru"], ["pacman", "-Qoq", "/usr/share/vgshell/VERSION"]],
     ["mise owner lists every installed tool", "mise", "owner", "/home/method/.local/bin/tool", ["mise"], ["mise", "ls", "--installed", "--json"]],
     ["pacman removable is a dry run of the removal", "pacman", "removable", "vgshell-git", ["pacman"], ["pacman", "-Rs", "--print", "--", "vgshell-git"]],
     ["apt asks no removable query", "apt", "removable", "vgshell", ["apt-get"], "manager=apt query=removable reason=unsupported"],
     ["a removable name keeps the name grammar", "pacman", "removable", "-Rdd", ["pacman"], "name=\"-Rdd\" reason=grammar"],
-    ["xbps asks no installed query", "xbps", "installed", "vgshell", ["xbps-install"], "manager=xbps query=installed reason=unsupported"],
+    ["aur asks no installed query", "aur", "installed", "vgshell", ["paru"], "manager=aur query=installed reason=unsupported"],
     ["aur still needs no helper binary for its owner query", "aur", "owner", "/usr/share/vgshell/VERSION", [], ["pacman", "-Qoq", "/usr/share/vgshell/VERSION"]],
     ["an owner path must be absolute", "pacman", "owner", "VERSION", ["pacman"], "path=\"VERSION\" reason=relative"],
     ["an installed name keeps the name grammar", "pacman", "installed", "-Qi", ["pacman"], "name=\"-Qi\" reason=grammar"],
@@ -409,8 +381,6 @@ const ANSWER_ROWS = [
     ["a native Debian version has no revision", "apt", "installed", "0.1.0\n", "0.1.0"],
     ["rpm prints the name", "dnf", "owner", "vgshell\n", "vgshell"],
     ["rpm prints the version", "dnf", "installed", "0.1.0^40.gitabc1234\n", "0.1.0^40.gitabc1234"],
-    ["xbps-query -o names the package before its version", "xbps", "owner", "vgshell-git-0.1.0_1: /usr/share/vgshell/VERSION\n", "vgshell-git"],
-    ["qfile names the category and package", "emerge", "owner", "gui-apps/vgshell (/usr/share/vgshell/VERSION)\n", "gui-apps/vgshell"],
     ["a message is no answer", "pacman", "owner", "error: No package owns /x\n", null],
     ["the first line alone is read", "pacman", "installed", "\nvgs 0.1.0-1\n", null]
 ];
@@ -520,19 +490,19 @@ function verifyTable(t) {
         parsed.add(parser);
     }
     const parsers = Object.keys(t.PARSERS);
-    if (parsers.length < 8) failures.push("parse: fewer than eight parsers; the loader read no PARSERS");
+    if (parsers.length < 6) failures.push("parse: fewer than six parsers; the loader read no PARSERS");
     for (const parser of parsers) if (!parsed.has(parser)) failures.push("parse: no row for parser " + parser);
 
     const checked = new Set();
-    for (const [name, manager, binary, named, want] of CHECK_ROWS) {
-        const got = t.checkFor(manager, binary, named);
+    for (const [name, manager, binary, want] of CHECK_ROWS) {
+        const got = t.checkFor(manager, binary);
         if (!same(got, want)) failures.push("check: " + name + ": got " + JSON.stringify(got));
         checked.add(manager);
     }
     for (const row of t.MANAGERS) if (!checked.has(row.id)) failures.push("check: no row for " + row.id);
 
     for (const [name, manager, binary, status, stdout, want] of OUTCOME_ROWS) {
-        const found = t.checkFor(manager, binary, true);
+        const found = t.checkFor(manager, binary);
         const r = found.check === undefined ? { error: "no query" } : t.checkOutcome(found.check, status, stdout);
         const got = r.error === undefined ? triples(r.packages) : r.error;
         if (!same(got, want)) failures.push("outcome: " + name + ": got " + JSON.stringify(got));
@@ -580,13 +550,10 @@ const CONTROLS = [
     ["table", "mise roots never hold a command", TABLE, "if (pathHolds(root, realPath)) return names[i];", "if (false) return names[i];"],
     ["table", "an unlisted exit status is read as output", TABLE, "if (meaning === undefined) return { error: \"exit=\" + status };", "if (meaning === undefined) meaning = \"rows\";"],
     ["table", "a query runs for a binary it does not name", TABLE, "if (c.binary !== null && c.binary !== binary) continue;", ""],
-    ["table", "an on-demand query runs unnamed", TABLE, "if (c.onDemand && !named) return { skipped: \"on-demand\" };", ""],
     ["table", "paru's ignored package is counted", TABLE, "if (f[4] === \"[ignored]\") continue;", "if (f[4] === \"[ignored]\") { packages.push({ name: f[0], old: f[1], new: f[3] }); continue; }"],
     ["table", "apt skips a line it cannot read", TABLE, "if (m === null) return unreadable(i);\n        packages.push({ name: m[1], old: m[3], new: m[2] });", "if (m === null) continue;\n        packages.push({ name: m[1], old: m[3], new: m[2] });"],
     ["table", "dnf 4 counts the obsoleting section", TABLE, "if (rows[i] === \"Obsoleting Packages\") break;", ""],
     ["table", "dnf5 accepts an unknown section", TABLE, "if (key !== \"upgrades\" && key !== \"obsoleting_packages\") return { ok: false, error: \"unparseable key=\" + key };", ""],
-    ["table", "xbps counts every transaction entry", TABLE, "if (f[1] === \"update\") packages.push", "packages.push"],
-    ["table", "emerge counts every merge", TABLE, "if (m[2].indexOf(\"U\") < 0) continue;", ""],
     ["table", "flatpak reads a title row", TABLE, " || /\\s/.test(f[0] + f[1])", ""],
     ["table", "mise accepts a tool without a latest version", TABLE, "typeof t.latest !== \"string\" || ", ""],
 ];

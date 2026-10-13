@@ -1264,6 +1264,7 @@ def language_tui_holds(base, script, suffix=""):
     cases = [
         ("pacman", "pacman", "deu+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "pacman", "tesseract-data-deu"]]),
         ("dnf", "dnf", "deu+chi_sim+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "dnf", "tesseract-langpack-deu", "tesseract-langpack-chi_sim"]]),
+        ("apt", "apt", "deu+eng", ["eng", "osd"], 0, [["pkg", "run", "install", "--manager", "apt", "tesseract-ocr-deu"]]),
         ("installed", "pacman", "eng", ["eng", "osd"], 0, []),
         ("nix", "nix", "deu+eng", ["eng", "osd"], 1, []),
     ]

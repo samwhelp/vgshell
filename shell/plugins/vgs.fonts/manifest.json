@@ -13,7 +13,7 @@
   "requirements": [
     {
       "command": "fc-list",
-      "packages": { "pacman": "fontconfig", "apt": "fontconfig", "dnf": "fontconfig", "xbps": "fontconfig", "emerge": "media-libs/fontconfig", "nix": "fontconfig" },
+      "packages": { "pacman": "fontconfig", "apt": "fontconfig", "dnf": "fontconfig", "nix": "fontconfig" },
       "optional": false,
       "purpose": "Lists the installed fonts for the interface and terminal fonts"
     }

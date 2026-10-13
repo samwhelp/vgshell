@@ -19,8 +19,8 @@
 # it. Every write under vgshell/ holds flock on vgshell/.self.lock.
 #
 # Before it writes anything it refuses root, a system other than Linux, an
-# installed system package (/usr/bin/vgshell, or vgshell or vgshell-git in the pacman,
-# rpm or dpkg database) and a ~/.local/bin/vgshell it did not make; --force
+# installed system package (/usr/bin/vgshell, or vgshell or vgshell-git in the pacman
+# or rpm database) and a ~/.local/bin/vgshell it did not make; --force
 # skips the last two. It checks the floor: Quickshell 0.3.1, Hyprland 0.56,
 # node 18, python3, git, flock and setpriv, plus xdg-terminal-exec when
 # the caller has no terminal, and
@@ -119,6 +119,7 @@ setpriv    present ^setpriv[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]
   runtime_packages='
 pacman bash bubblewrap chromium coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib2 gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify power-profiles-daemon libpulse libsecret libxkbcommon mise networkmanager nodejs pacman-contrib pipewire pipewire-audio playerctl python qrencode quickshell rclone sed slurp systemd tesseract tesseract-data-eng util-linux uv wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config
 aur agent-browser-bin ttfx vsys wlrctl
+apt bash bubblewrap chromium coreutils curl dash dbus-bin ffmpeg file fontconfig fzf gawk git gpu-screen-recorder-cli grim gum hyprland hyprpicker imagemagick iproute2 less libglib2.0-bin libnotify-bin libsecret-tools libxkbcommon0 network-manager nodejs pipewire-bin playerctl power-profiles-daemon procps pulseaudio-utils python3 qrencode quickshell rfkill sed slurp systemd tesseract-ocr tesseract-ocr-eng util-linux wireplumber wl-clipboard wlrctl wtype xdg-terminal-exec xdg-utils xkb-data
 dnf ImageMagick NetworkManager bash bubblewrap chromium coreutils curl dbus-tools fd-find ffmpeg-free file fontconfig fzf gawk git glib2 grim gum hyprland hyprpicker iproute less libnotify libsecret libxkbcommon nodejs ppd-service pipewire-utils playerctl pulseaudio-utils python3 qrencode quickshell rclone sed slurp systemd tesseract tesseract-langpack-eng util-linux util-linux-core uv wireplumber wl-clipboard wlrctl wtype xdg-terminal-exec xdg-utils xkeyboard-config
 nix bash bubblewrap chromium coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify libsecret libxkbcommon mise networkmanager nodejs pipewire playerctl power-profiles-daemon pulseaudio python3 qrencode quickshell rclone gnused slurp systemd tesseract util-linux uv wireplumber wl-clipboard wlrctl wtype xdg-terminal-exec xdg-utils xkeyboard_config
 '
@@ -128,13 +129,13 @@ nix bash bubblewrap chromium coreutils curl dbus fd ffmpeg file fontconfig fzf g
   # manager with no entry for quickshell or hyprland has no package in its
   # own repositories that meets the floor (docs/architecture/distribution.md).
   packages='
-quickshell pacman=quickshell nix=quickshell
-hyprland   pacman=hyprland nix=hyprland
-node       pacman=nodejs apt=nodejs dnf=nodejs xbps=nodejs emerge=net-libs/nodejs nix=nodejs
-python3    pacman=python apt=python3 dnf=python3 xbps=python3 emerge=dev-lang/python nix=python3
-git        pacman=git apt=git dnf=git xbps=git emerge=dev-vcs/git nix=git
-flock      pacman=util-linux apt=util-linux dnf=util-linux-core xbps=util-linux emerge=sys-apps/util-linux nix=util-linux
-setpriv    pacman=util-linux apt=util-linux dnf=util-linux xbps=util-linux emerge=sys-apps/util-linux nix=util-linux
+quickshell pacman=quickshell apt=quickshell nix=quickshell
+hyprland   pacman=hyprland apt=hyprland nix=hyprland
+node       pacman=nodejs apt=nodejs dnf=nodejs nix=nodejs
+python3    pacman=python apt=python3 dnf=python3 nix=python3
+git        pacman=git apt=git dnf=git nix=git
+flock      pacman=util-linux apt=util-linux dnf=util-linux-core nix=util-linux
+setpriv    pacman=util-linux apt=util-linux dnf=util-linux nix=util-linux
 xdg-terminal-exec pacman=xdg-terminal-exec apt=xdg-terminal-exec dnf=xdg-terminal-exec nix=xdg-terminal-exec
 '
   # The primary package managers, as the primary rows of
@@ -144,12 +145,13 @@ xdg-terminal-exec pacman=xdg-terminal-exec apt=xdg-terminal-exec dnf=xdg-termina
   # plans no install.
   managers='
 pacman arch          pacman       root -S --needed --
-apt    debian,ubuntu apt-get      root install
+apt    debian        apt-get      root install
 dnf    fedora        dnf5,dnf     root install
-xbps   void          xbps-install root -S
-emerge gentoo        emerge       root --ask --noreplace
 nix    nixos         nix          user -
 '
+
+  # The distributions whose curl install completes: one per primary row.
+  supported='VGS installs on Arch Linux, Fedora 44, Debian 14 (forky) and NixOS.'
 
   refuse() { # STATUS KEY [ENGLISH...]
     local status="$1"
@@ -304,6 +306,7 @@ EOF
     read -r manager binary <<<"$(primary_manager)" || true
     if [[ -z $manager ]]; then
       printf 'No supported package manager found: install %s with your distribution'"'"'s package manager.\n' "${names[*]}" >&2
+      printf '%s\n' "$supported" >&2
       exit 78
     fi
     local -a wanted=()
@@ -339,7 +342,7 @@ EOF
 const found = JSON.parse(process.argv[1]);
 if (found.primary === null) process.exit(1);
 process.stdout.write(found.primary.id + (found.overlays.some(row => row.id === "aur") ? " aur" : ""));
-' "$detected")" || refuse 78 "requirements=manager-missing" "The required packages need a supported package manager."
+' "$detected")" || refuse 78 "requirements=manager-missing" "The required packages need a supported package manager." "$supported"
     read -ra groups <<<"$selection"
     if [[ ${groups[0]} == pacman && " $selection " != *" aur "* ]]; then
       refuse 78 "requirements=manager-missing manager=aur" "The required AUR packages need an installed AUR helper."
@@ -392,11 +395,11 @@ process.stdout.write(String(record.code));
   }
 
   # Refuses when a system package installed VGS: /usr/bin/vgshell exists, or
-  # the pacman, rpm or dpkg database holds vgshell or vgshell-git. A database a
+  # the pacman or rpm database holds vgshell or vgshell-git. A database a
   # query cannot read counts as not holding it. A test run reads the path
   # under its own $system_root, so the host's package stays out of its rows.
   system_package() {
-    local name status
+    local name
     if [[ -e $system_root/usr/bin/vgshell || -L $system_root/usr/bin/vgshell ]]; then
       refuse 1 "system=package path=/usr/bin/vgshell" \
         "a system package installed VGS: update it with its package manager, or pass --force for a second, user-local copy"
@@ -407,10 +410,6 @@ process.stdout.write(String(record.code));
       fi
       if command -v rpm >/dev/null && rpm -q --quiet -- "$name" 2>/dev/null; then
         refuse 1 "system=package manager=rpm package=$name" "pass --force for a second, user-local copy"
-      fi
-      if command -v dpkg-query >/dev/null && status="$(dpkg-query -W -f='${Status}' -- "$name" 2>/dev/null)" &&
-        [[ $status == "install ok installed" ]]; then
-        refuse 1 "system=package manager=dpkg package=$name" "pass --force for a second, user-local copy"
       fi
     done
   }

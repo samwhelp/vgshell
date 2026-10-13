@@ -1,4 +1,16 @@
 {
+  "apt": {
+    "agent-browser": "no official package",
+    "vsys": "no official package",
+    "mise": "no official package",
+    "checkupdates": "no official package",
+    "ttfx": "no official package",
+    "fd": "no official package",
+    "rclone": "no official package",
+    "uv": "no official package",
+    "voxtype": "no official package",
+    "voxtype-audio-bridge": "no official package"
+  },
   "dnf": {
     "agent-browser": "no official package",
     "gpu-screen-recorder": "no official package",

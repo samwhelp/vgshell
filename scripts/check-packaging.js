@@ -155,7 +155,7 @@ function readGaps(requirements) {
     catch (error) { refuse("gaps=unreadable", error.message); }
     if (gaps === null || typeof gaps !== "object" || Array.isArray(gaps)) refuse("gaps=shape");
     for (const [manager, commands] of Object.entries(gaps)) {
-        if (!["dnf", "nix"].includes(manager) || commands === null || typeof commands !== "object" || Array.isArray(commands)) refuse("gaps=shape");
+        if (!["apt", "dnf", "nix"].includes(manager) || commands === null || typeof commands !== "object" || Array.isArray(commands)) refuse("gaps=shape");
         for (const [command, evidence] of Object.entries(commands)) {
             if (evidence !== "no official package" && manager === "dnf") {
                 const line = value => typeof value === "string" && value.trim() !== "" && !/[\r\n]/.test(value);
@@ -305,7 +305,7 @@ function readRequirements() {
                 || typeof row.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(row.id) || seen.has(row.id)
                 || row.packages === null || typeof row.packages !== "object" || Array.isArray(row.packages)
                 || Object.keys(row.packages).length === 0
-                || Object.entries(row.packages).some(([manager, pkg]) => !["pacman", "dnf", "nix"].includes(manager)
+                || Object.entries(row.packages).some(([manager, pkg]) => !["pacman", "apt", "dnf", "nix"].includes(manager)
                     || typeof pkg !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9+_.-]*$/.test(pkg))) refuse("libraries=shape");
         seen.add(row.id);
         list.push({ scope: "core", command: "library:" + row.id, packages: row.packages, optional: false, onRequest: false, floor: null, tool: null });
@@ -591,6 +591,11 @@ const CHANNELS = {
     },
     "install-pacman": {
         recipes: [{ name: "pacman", manager: "pacman" }], managers: ["pacman", "aur"], hardField: "runtime_packages", softField: "optional",
+        exact: false, checkFloors: false, epochs: null,
+        read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
+    },
+    "install-apt": {
+        recipes: [{ name: "apt", manager: "apt" }], managers: ["apt"], hardField: "runtime_packages", softField: "optional",
         exact: false, checkFloors: false, epochs: null,
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },

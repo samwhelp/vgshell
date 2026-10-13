@@ -1,31 +1,31 @@
 [
   {
     "command": "node",
-    "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" },
+    "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" },
     "optional": false,
     "purpose": "Runs the manifest, theme and package-manager judges behind every vgshell command"
   },
   {
     "command": "python3",
-    "packages": { "pacman": "python", "apt": "python3", "dnf": "python3", "xbps": "python3", "emerge": "dev-lang/python", "nix": "python3" },
+    "packages": { "pacman": "python", "apt": "python3", "dnf": "python3", "nix": "python3" },
     "optional": false,
     "purpose": "Scans the plugin directories on every start and rescan"
   },
   {
     "command": "git",
-    "packages": { "pacman": "git", "apt": "git", "dnf": "git", "xbps": "git", "emerge": "dev-vcs/git", "nix": "git" },
+    "packages": { "pacman": "git", "apt": "git", "dnf": "git", "nix": "git" },
     "optional": false,
     "purpose": "Adds and updates plugins and theme packages"
   },
   {
     "command": "flock",
-    "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux-core", "xbps": "util-linux", "emerge": "sys-apps/util-linux", "nix": "util-linux" },
+    "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux-core", "nix": "util-linux" },
     "optional": false,
     "purpose": "Holds the one-shell lock and the theme lock"
   },
   {
     "command": "setpriv",
-    "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "xbps": "util-linux", "emerge": "sys-apps/util-linux", "nix": "util-linux" },
+    "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" },
     "optional": false,
     "purpose": "Stops the shell when its runner dies, so no shell outlives the one-shell lock"
   },
@@ -37,19 +37,19 @@
   },
   {
     "command": "gum",
-    "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "xbps": "gum", "nix": "gum" },
+    "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" },
     "optional": false,
     "purpose": "Draws the prompts and confirmations inside floating TUIs"
   },
   {
     "command": "sed",
-    "packages": { "pacman": "sed", "apt": "sed", "dnf": "sed", "xbps": "sed", "emerge": "sys-apps/sed", "nix": "gnused" },
+    "packages": { "pacman": "sed", "apt": "sed", "dnf": "sed", "nix": "gnused" },
     "optional": false,
     "purpose": "Cleans terminal control sequences from floating TUI logs"
   },
   {
     "command": "fzf",
-    "packages": { "pacman": "fzf", "apt": "fzf", "dnf": "fzf", "xbps": "fzf", "emerge": "app-shells/fzf", "nix": "fzf" },
+    "packages": { "pacman": "fzf", "apt": "fzf", "dnf": "fzf", "nix": "fzf" },
     "optional": false,
     "purpose": "Draws the package pickers inside floating TUIs"
   },
@@ -61,7 +61,7 @@
   },
   {
     "command": "bluetoothctl",
-    "packages": { "pacman": "bluez-utils", "apt": "bluez", "dnf": "bluez", "xbps": "bluez", "emerge": "net-wireless/bluez", "nix": "bluez" },
+    "packages": { "pacman": "bluez-utils", "apt": "bluez", "dnf": "bluez", "nix": "bluez" },
     "optional": true,
     "purpose": "Registers the Bluetooth pairing agent that answers pairing prompts"
   }

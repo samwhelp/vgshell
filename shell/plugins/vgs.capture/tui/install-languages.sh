@@ -56,6 +56,9 @@ packages=()
 case "$manager" in
   pacman) for code in "${codes[@]}"; do packages+=("tesseract-data-$code"); done ;;
   dnf) for code in "${codes[@]}"; do packages+=("tesseract-langpack-$code"); done ;;
+  # Debian writes a Tesseract code's underscore as a hyphen: chi_sim is
+  # tesseract-ocr-chi-sim.
+  apt) for code in "${codes[@]}"; do packages+=("tesseract-ocr-${code//_/-}"); done ;;
   nix)
     # A NixOS system changes through its own configuration.
     printf 'capture: languages=by-hand manager=nix codes=%s\n' "${codes[*]}" >&2

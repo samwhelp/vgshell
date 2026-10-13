@@ -115,7 +115,7 @@
     { "command": "voxtype", "packages": { "aur": "voxtype-bin" }, "optional": true, "purpose": "Turns what you say into text for the local voice" },
     { "command": "uv", "packages": { "pacman": "uv", "dnf": "uv", "mise": "uv", "nix": "uv" }, "optional": false, "purpose": "Installs the locked local voice runtime when setup is selected" },
     { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Downloads pinned local voice models when setup is selected" },
-    { "command": "nvidia-smi", "packages": { "pacman": "nvidia-utils", "apt": "nvidia-smi" }, "optional": true, "purpose": "Verifies CUDA execution only when a CUDA local tier is selected" },
+    { "command": "nvidia-smi", "packages": { "pacman": "nvidia-utils" }, "optional": true, "purpose": "Verifies CUDA execution only when a CUDA local tier is selected" },
     { "command": "ss", "packages": { "pacman": "iproute2", "apt": "iproute2", "dnf": "iproute", "nix": "iproute2" }, "optional": false, "purpose": "Finds local model-server ports without making an inference request" },
     { "command": "gio", "packages": { "pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Opens a file or web link for Jarvis with its default application" },
     { "command": "claude", "packages": { "aur": "claude-code", "mise": "claude", "nix": "claude-code" }, "optional": true, "purpose": "Signs in to Claude Code and runs its account as the AI model" },
@@ -130,7 +130,7 @@
     { "command": "ydotool", "packages": { "pacman": "ydotool", "apt": "ydotool", "dnf": "ydotool" }, "optional": true, "purpose": "Pointer fallback only while its input service already runs" },
     { "command": "grim", "packages": { "pacman": "grim", "apt": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Takes the screenshots Jarvis reads; screen tools also need magick" },
     { "command": "slurp", "packages": { "pacman": "slurp", "apt": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Lets you draw the screen area Jarvis reads" },
-    { "command": "magick", "packages": { "pacman": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Paints private windows black before a screenshot leaves Jarvis" },
+    { "command": "magick", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Paints private windows black before a screenshot leaves Jarvis" },
     { "command": "tesseract", "packages": { "pacman": "tesseract", "apt": "tesseract-ocr", "dnf": "tesseract", "nix": "tesseract" }, "optional": false, "purpose": "Reads screen text for a brain that takes no image" },
     { "command": "git", "packages": { "pacman": "git", "apt": "git", "dnf": "git", "nix": "git" }, "optional": true, "purpose": "Makes the home folder a repository for the agent fleet's mail tool" },
     { "command": "kendex", "packages": { "aur": "kendex-bin" }, "optional": true, "purpose": "Installs the mail tool Jarvis hands a request for your agent fleet with" }

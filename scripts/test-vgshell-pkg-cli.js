@@ -44,9 +44,9 @@ function makeTree(dir, texts) {
 // that proves a query is killed at its timeout without waiting two minutes.
 const AUR_QUERY = "\"-Qua\"], exits: { \"0\": \"updates\", \"1\": \"none\" }, parser: \"arrow\", timeout: ";
 function quickTable(text) {
-    const count = text.split(AUR_QUERY + "120,").length - 1;
+    const count = text.split(AUR_QUERY + "120 }").length - 1;
     if (count !== 1) throw new Error("quick table: the aur query occurs " + count + " times, not once");
-    return text.replace(AUR_QUERY + "120,", () => AUR_QUERY + "1,");
+    return text.replace(AUR_QUERY + "120 }", () => AUR_QUERY + "1 }");
 }
 
 // The CLI rows run TEXTS' bin/vgshell-pkg and bin/vgshell from trees under TMP
@@ -61,7 +61,7 @@ function verifyCli(texts, tmp) {
     const tools = path.join(tmp, "tools");
     fs.mkdirSync(stubs, { recursive: true });
     fs.mkdirSync(tools, { recursive: true });
-    for (const command of ["pacman", "yay", "gum", "xbps-install"]) fs.writeFileSync(path.join(stubs, command), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+    for (const command of ["pacman", "yay", "gum", "dnf5"]) fs.writeFileSync(path.join(stubs, command), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
     // bin/vgshell runs under bash and resolves itself with readlink and
     // dirname; node runs bin/vgshell-pkg, which takes its lock through flock
     // and runs mise's query through env; the stubs use cat and sleep. None
@@ -105,8 +105,8 @@ function verifyCli(texts, tmp) {
         "{\"manager\":\"pacman\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-Syu\"]],\"elevator\":{\"ok\":true,\"command\":\"doas\"}}\n", "");
 
     // detect reads /etc/os-release, so a fixture is bound over it in a
-    // private mount namespace. It names Void, so a run that read the
-    // machine's own file instead passes only on a Void machine.
+    // private mount namespace. It names Fedora, so a run that read the
+    // machine's own file instead passes only on a Fedora machine.
     checkRows(scripts, quick, tools, tmp, expectCheckRow, failures);
 
     const osRelease = (name, text) => {
@@ -120,9 +120,9 @@ function verifyCli(texts, tmp) {
     if (probe.status !== 0) return { failures, missing: "user-namespaces", counts };
     // Each fixture names a system the machine running the suite is unlikely
     // to be, so a run that read the machine's own file instead fails.
-    const voidLinux = osRelease("os-release-void", "NAME=\"Void\"\nID=\"void\"\n");
-    expectCommand("detect --json reads os-release and PATH", bound(voidLinux, env.PATH, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"xbps\",\"binary\":\"xbps-install\"},\"overlays\":[],\"sources\":[]}\n", "");
-    expectCommand("detect prints one line per manager", bound(voidLinux, env.PATH, ["detect"]), 0, "primary=xbps binary=xbps-install\n", "");
+    const fedora = osRelease("os-release-fedora", "NAME=\"Fedora Linux\"\nID=\"fedora\"\n");
+    expectCommand("detect --json reads os-release and PATH", bound(fedora, env.PATH, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"dnf\",\"binary\":\"dnf5\"},\"overlays\":[],\"sources\":[]}\n", "");
+    expectCommand("detect prints one line per manager", bound(fedora, env.PATH, ["detect"]), 0, "primary=dnf binary=dnf5\n", "");
     const arch = osRelease("os-release-arch", "NAME=\"Arch Linux\"\nID=arch\n");
     const holders = path.join(tmp, "stubs-holders");
     const miseRoot = path.join(holders, "mise-root");
@@ -147,7 +147,6 @@ function verifyCli(texts, tmp) {
         }
     };
     expectCommand("detect --json --holders names path owners and an absent command", bound(arch, holderPath, ["detect", "--json", "--holders", "held-mise", "held-aur", "not-there"]), 0, JSON.stringify(holderWant) + "\n", "");
-    const fedora = osRelease("os-release-fedora", "ID=fedora\n");
     const unread = path.join(tmp, "stubs-holder-unread");
     fs.mkdirSync(unread, { recursive: true });
     writeScript(path.join(unread, "dnf5"), "exit 99");
@@ -156,28 +155,18 @@ function verifyCli(texts, tmp) {
     expectCommand("detect --json --holders keeps going when an owner query cannot start", bound(fedora, unread + path.delimiter + tools, ["detect", "--json", "--holders", "broken-owner"]), 0, JSON.stringify(unreadWant) + "\n", "holder=unread command=broken-owner manager=dnf cause=ENOENT\n");
     expectCommand("detect --json without holders stays byte-identical", bound(arch, holderPath, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"pacman\",\"binary\":\"pacman\"},\"overlays\":[{\"id\":\"aur\",\"binary\":\"paru\"}],\"sources\":[{\"id\":\"mise\",\"binary\":\"mise\"}]}\n", "");
     expectCommand("detect --holders refuses a malformed command", bound(arch, holderPath, ["detect", "--json", "--holders", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");
-    const gentoo = osRelease("os-release-gentoo", "NAME=Gentoo\nID=gentoo\n");
-    const gentooPath = stubPath(tmp, "gentoo", { emerge: "exit 99", flatpak: "cat \"" + path.join(FIXTURES, "flatpak.txt") + "\"" }, tools);
-    expectCheck(expectCheckRow, "check without --source checks every detected source, emerge only on demand", bound(gentoo, gentooPath, ["check", "--json"]), [
-        { source: "emerge", count: null, packages: [], checkedAt: null, error: "skipped=on-demand" },
-        { source: "flatpak", count: 3, packages: [{ name: "org.gnome.Loupe", old: null, new: "stable" }, { name: "org.gnome.Platform", old: null, new: "47" },
-            { name: "org.freedesktop.Platform.GL.default", old: null, new: "24.08" }], checkedAt: "<time>", error: null }]);
-
-    // Owner stubs answer as pacman and xbps-query do for one owned file;
-    // any other call exits 99.
+    // The owner stub answers as pacman does for one owned file; any other
+    // call exits 99.
     const owned = "/usr/share/vgshell/VERSION";
     const ownerPath = stubPath(tmp, "owner", {
         pacman: "case \"$1 $2 $3\" in\n  \"-Qoq " + owned + " \") echo vgshell-git ;;\n  \"-Qoq \"*) echo \"error: No package owns $2\" >&2; exit 1 ;;\n" +
             "  \"-Q -- vgshell-git\") echo \"vgshell-git 0.1.0.r40.gabc1234-1\" ;;\n" +
             "  \"-Rs --print --\") case \"$4\" in\n    vgshell-git) echo vgshell-git-0.1.0-1 ;;\n    *) echo \":: removing $4 breaks dependency '$4' required by vgshell-git\" >&2; exit 1 ;;\n  esac ;;\n  *) exit 99 ;;\nesac",
-        "xbps-install": "exit 99",
-        "xbps-query": "[ \"$1 $2\" = \"-o " + owned + "\" ] || exit 99\necho \"vgshell-0.1.0_1: " + owned + "\""
+        dnf5: "exit 99"
     }, tools);
     const suse = osRelease("os-release-suse", "ID=opensuse-tumbleweed\n");
     expectOwner("owner names the package and its installed version", bound(arch, ownerPath, ["owner", owned]), 0,
         "{\"manager\":\"pacman\",\"package\":\"vgshell-git\",\"version\":\"0.1.0.r40.gabc1234\"}\n", "");
-    expectOwner("owner reports a null version where the table asks none", bound(voidLinux, ownerPath, ["owner", owned]), 0,
-        "{\"manager\":\"xbps\",\"package\":\"vgshell\",\"version\":null}\n", "");
     expectOwner("owner refuses a file no package owns, the query's words after the line", bound(arch, ownerPath, ["owner", "/opt/vgshell/VERSION"]), 1, "",
         "vgshell: refused: path=/opt/vgshell/VERSION reason=unowned manager=pacman exit=1\nerror: No package owns /opt/vgshell/VERSION\n");
     expectOwner("owner refuses a system no primary serves", bound(suse, ownerPath, ["owner", owned]), 1, "", "vgshell: refused: manager=none\n");
@@ -190,7 +179,7 @@ function verifyCli(texts, tmp) {
         "{\"manager\":\"pacman\",\"package\":\"vgshell-git\",\"removable\":true}\n", "");
     expectOwner("removable is false for a package another requires, the dry run's words on stderr", bound(arch, ownerPath, ["removable", "quickshell"]), 0,
         "{\"manager\":\"pacman\",\"package\":\"quickshell\",\"removable\":false}\n", ":: removing quickshell breaks dependency 'quickshell' required by vgshell-git\n");
-    expectOwner("removable refuses a manager with no dry run", bound(voidLinux, ownerPath, ["removable", "vgshell"]), 1, "", "vgshell: refused: manager=xbps query=removable reason=unsupported\n");
+    expectOwner("removable refuses a manager with no dry run", bound(fedora, ownerPath, ["removable", "vgshell"]), 1, "", "vgshell: refused: manager=dnf query=removable reason=unsupported\n");
     expectOwner("removable without a package is a bad invocation", bound(arch, ownerPath, ["removable"]), 2, "", "vgshell: refused: name=missing\n");
     return { failures, missing: null, counts };
 }

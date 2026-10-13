@@ -17,8 +17,6 @@ var SOURCES = {
     pacman: { label: "System", icon: "package" },
     apt: { label: "System", icon: "package" },
     dnf: { label: "System", icon: "package" },
-    xbps: { label: "System", icon: "package" },
-    emerge: { label: "System", icon: "package" },
     nix: { label: "System", icon: "package" },
     aur: { label: "AUR", icon: "package-open" },
     flatpak: { label: "Flatpak", icon: "boxes" },

@@ -21,8 +21,8 @@
     "status"
   ],
   "requirements": [
-    { "command": "curl", "packages": { "pacman": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Reads the name and icon of each site" },
-    { "command": "xdg-mime", "packages": { "pacman": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Finds the default browser" }
+    { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Reads the name and icon of each site" },
+    { "command": "xdg-mime", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Finds the default browser" }
   ],
   "settings": {
     "apps": []

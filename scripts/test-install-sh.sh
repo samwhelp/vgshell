@@ -671,7 +671,7 @@ rows_join
 
 arch_os="$tmp/os-arch"; printf 'NAME="Arch Linux"\nID=arch\n' >"$arch_os"
 pm_all="$tmp/pm-all"; mkdir -p "$pm_all"
-for pm in pacman apt-get dnf5 dnf xbps-install emerge nix; do stub "$pm_all" "$pm" "" 1; done
+for pm in pacman apt-get dnf5 dnf nix; do stub "$pm_all" "$pm" "" 1; done
 low="$tmp/low"; mkdir -p "$low"
 stub "$low" Hyprland "Hyprland 0.55.2 built from branch fixture"
 stub "$low" nmcli "nmcli tool, version 1.56.0"
@@ -689,6 +689,14 @@ floor_rows() {
   check "the miss names the distribution's install command" err_has "Install them as root: pacman -S --needed -- quickshell hyprland git xdg-terminal-exec"
   check "the floor miss writes nothing" test ! -e "$h/.local"
   check "the floor miss leaves nothing in TMPDIR" scratch_empty
+}
+debian_os="$tmp/os-debian"; printf 'ID=debian\nVERSION_CODENAME=forky\n' >"$debian_os"
+debian_floor_row() { # BIN: on Debian the floor miss names apt's Quickshell and Hyprland packages
+  new_home debian-floor
+  with_os "$debian_os"
+  RUN_PATH="$low:$pm_all:$tools_nogit" run "$1" --version 0.1.0
+  RUN_WRAP=()
+  [[ $status == 78 ]] && err_has "Install them as root: apt-get install quickshell hyprland git xdg-terminal-exec" && [[ ! -e $h/.local ]]
 }
 
 # Hyprland's main() throws before it parses --version when XDG_RUNTIME_DIR
@@ -740,9 +748,7 @@ distros=(
   "fedora with dnf5|ID=fedora|$pm_all"
   "fedora with dnf 4|ID=fedora|$pm_dnf4"
   "debian|ID=debian|$pm_all"
-  "pop, like ubuntu|ID=pop\nID_LIKE=\"ubuntu debian\"|$pm_all"
-  "void|ID=\"void\"|$pm_all"
-  "gentoo|ID=gentoo|$pm_all"
+  "a distribution like debian|ID=\"acme\"\nID_LIKE=\"other debian\"|$pm_all"
   "nixos|ID=nixos|$pm_all"
   "an unknown distribution|ID=plan9|$pm_all"
   "arch without pacman|ID=arch|$pm_none"
@@ -829,6 +835,7 @@ JS
 }
 echo "floor"
 row_job floor_rows
+row_job check "on Debian a floor miss names apt's Quickshell and Hyprland packages" debian_floor_row "$installer"
 row_job check "a Hyprland that needs a runtime directory meets the floor from a shell with none" runtime_row "$installer"
 row_job check "an installed Hyprland whose version cannot be read is named with its exit and error, not an install command" unreadable_row "$installer"
 for row in "${distros[@]}"; do
@@ -1003,6 +1010,7 @@ row_job rule keep-foreign-link keep_foreign_row '[[ $state != ours ]] || rm -f -
 row_job rule keep-lock lock_kept_row '^(current|git|\.self-update-.*|[0-9]+' '^(current|git|\.self\.lock|\.self-update-.*|[0-9]+'
 row_job rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
 row_job rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
+row_job rule debian-floor-package debian_floor_row 'quickshell pacman=quickshell apt=quickshell nix=quickshell' 'quickshell pacman=quickshell nix=quickshell'
 row_job rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
 row_job rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
 row_job rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'

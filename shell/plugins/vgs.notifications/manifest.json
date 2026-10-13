@@ -94,11 +94,11 @@
     { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": true, "purpose": "Restarts WirePlumber once so it loads the sound rule." },
     { "command": "setpriv", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": true, "purpose": "Ends the sound rule's hold when the shell stops." },
     { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens files and Slack messages from notifications." },
-    { "command": "tail", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Finds the Slack message a notification opens." },
-    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Shows Slack workspace icons, photos and custom emoji." },
-    { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "xbps": "curl", "emerge": "net-misc/curl", "nix": "curl" }, "optional": true, "purpose": "Downloads Slack photos and custom emoji." },
-    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "xbps": "libsecret", "emerge": "app-crypt/libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads saved Slack credentials for sender photos." },
-    { "command": "convert", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "xbps": "ImageMagick", "emerge": "media-gfx/imagemagick", "nix": "imagemagick" }, "optional": false, "purpose": "Prepares Slack emoji and photos for display." },
+    { "command": "tail", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Finds the Slack message a notification opens." },
+    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Shows Slack workspace icons, photos and custom emoji." },
+    { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl" }, "optional": true, "purpose": "Downloads Slack photos and custom emoji." },
+    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads saved Slack credentials for sender photos." },
+    { "command": "convert", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Prepares Slack emoji and photos for display." },
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Shows the Slack photo setup steps."}
   ],
   "sounds": {

@@ -213,7 +213,7 @@ for (const command of ["git", "python3"]) {
 
 const SRC = "packaging/arch/vgshell/.SRCINFO";
 const GIT_SRC = "packaging/arch/vgshell-git/.SRCINFO";
-const ok = n => `check-packaging: ok channels=pacman,dnf,nix,install-pacman,install-dnf,install-nix requirements=${n}`;
+const ok = n => `check-packaging: ok channels=pacman,dnf,nix,install-pacman,install-apt,install-dnf,install-nix requirements=${n}`;
 const REL = "packaging/fedora/vgshell.spec";
 const GIT = "packaging/fedora/vgshell-git.spec";
 const SPECS = [REL, GIT];
@@ -266,6 +266,22 @@ const ROWS = [
         1, () => refused("requirement=library:capture-english package=tesseract-data-eng want=runtime_packages channel=install-pacman recipe=pacman scope=core")],
     ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^(aur .*?) wlrctl$", "$1"),
         1, () => refused("requirement=wlrctl package=wlrctl want=runtime_packages channel=install-pacman recipe=pacman scope=vgs.jarvis")],
+    ["Debian installer: a dropped required package is refused", t => edit(t, "install.sh", "^(apt .*?) qrencode( .*)$", "$1$2"),
+        1, () => refused("requirement=qrencode package=qrencode want=runtime_packages channel=install-apt recipe=apt scope=vgs.network")],
+    ["Debian installer: a package no requirement names is refused", t => edit(t, "install.sh", "^(apt .*?) qrencode( .*)$", "$1 qrencode rclone$2"),
+        1, () => refused("extra=rclone field=runtime_packages channel=install-apt recipe=apt")],
+    ["a removed Debian gap is refused", t => {
+        const file = path.join(t, "packaging/channel-gaps.json");
+        const gaps = JSON.parse(fs.readFileSync(file, "utf8"));
+        delete gaps.apt.fd;
+        fs.writeFileSync(file, JSON.stringify(gaps));
+    }, 1, () => refused("requirement=fd package=unmapped want=runtime_packages channel=install-apt recipe=apt scope=vgs.launcher")],
+    ["a Debian gap with evidence other than no official package is refused", t => {
+        const file = path.join(t, "packaging/channel-gaps.json");
+        const gaps = JSON.parse(fs.readFileSync(file, "utf8"));
+        gaps.apt.fd = { reason: "no dnf repository package", route: "https://example.invalid/fd", source: "a line" };
+        fs.writeFileSync(file, JSON.stringify(gaps));
+    }, 1, () => refused("gap=evidence manager=apt command=fd")],
     ["Fedora installer: a dropped required package is refused", t => edit(t, "install.sh", "^(dnf .*?) qrencode( .*)$", "$1$2"),
         1, () => refused("requirement=qrencode package=qrencode want=runtime_packages channel=install-dnf recipe=dnf scope=vgs.network")],
     ["Nix installer: a dropped required package is refused", t => edit(t, "install.sh", "^(nix .*?) qrencode( .*)$", "$1$2"),
@@ -340,7 +356,7 @@ const ROWS = [
     ["a shipped plugin's listed requirement passes and counts", t => plantPluginRequirement(t, "vgs-already-provided", "file"), 0, tree => ok(countRequirements(tree))],
     ["a shipped plugin's unlisted requirement is refused", t => plantPluginRequirement(t, "vgs-planted", "vgs-planted-package"),
         1, () => refused("requirement=vgs-planted package=vgs-planted-package want=depends-or-optdepends channel=pacman recipe=vgshell scope=vgs.launcher")],
-    ["a shipped plugin's required D-Bus requirement passes when listed", t => plantPluginDbusRequirement(t, "org.vgshell.Planted", { pacman: "git", dnf: "git", nix: "git" }), 0, tree => ok(countRequirements(tree))],
+    ["a shipped plugin's required D-Bus requirement passes when listed", t => plantPluginDbusRequirement(t, "org.vgshell.Planted", { pacman: "git", apt: "git", dnf: "git", nix: "git" }), 0, tree => ok(countRequirements(tree))],
     ["a shipped plugin's required D-Bus requirement is refused when unlisted", t => plantPluginDbusRequirement(t, "org.vgshell.Planted", { pacman: "vgs-planted-bus" }),
         1, () => refused("requirement=org.vgshell.Planted package=vgs-planted-bus want=depends channel=pacman recipe=vgshell scope=vgs.launcher")],
     // Floors from bin/vgshell's preflight table.

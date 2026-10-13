@@ -32,9 +32,9 @@
     "order": 20
   },
   "requirements": [
-    { "command": "nmcli", "packages": { "pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "xbps": "NetworkManager", "emerge": "net-misc/networkmanager", "nix": "networkmanager" }, "optional": false, "purpose": "Reads saved profiles for QR sharing, connection details and network permissions" },
-    { "command": "qrencode", "packages": { "pacman": "qrencode", "apt": "qrencode", "dnf": "qrencode", "xbps": "qrencode", "emerge": "media-gfx/qrencode", "nix": "qrencode" }, "optional": false, "purpose": "Encodes a saved Wi-Fi network for sharing by QR code" },
-    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "xbps": "systemd", "emerge": "sys-apps/systemd", "nix": "systemd" }, "optional": false, "purpose": "Reads whether NetworkManager is installed and running" }
+    { "command": "nmcli", "packages": { "pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager" }, "optional": false, "purpose": "Reads saved profiles for QR sharing, connection details and network permissions" },
+    { "command": "qrencode", "packages": { "pacman": "qrencode", "apt": "qrencode", "dnf": "qrencode", "nix": "qrencode" }, "optional": false, "purpose": "Encodes a saved Wi-Fi network for sharing by QR code" },
+    { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": false, "purpose": "Reads whether NetworkManager is installed and running" }
   ],
   "settings": {
     "showDisconnected": true

@@ -34,8 +34,6 @@
         "pacman": "iproute2",
         "apt": "iproute2",
         "dnf": "iproute",
-        "xbps": "iproute2",
-        "emerge": "sys-apps/iproute2",
         "nix": "iproute2"
       },
       "optional": false,
@@ -46,8 +44,6 @@
       "packages": {
         "pacman": "bandwhich",
         "apt": "bandwhich",
-        "xbps": "bandwhich",
-        "emerge": "net-analyzer/bandwhich",
         "nix": "bandwhich"
       },
       "optional": true,
@@ -59,8 +55,6 @@
         "pacman": "coreutils",
         "apt": "coreutils",
         "dnf": "coreutils",
-        "xbps": "coreutils",
-        "emerge": "sys-apps/coreutils",
         "nix": "coreutils"
       },
       "optional": false,
@@ -72,8 +66,6 @@
         "pacman": "libcap",
         "apt": "libcap2-bin",
         "dnf": "libcap",
-        "xbps": "libcap-progs",
-        "emerge": "sys-libs/libcap",
         "nix": "libcap"
       },
       "optional": true,
@@ -85,8 +77,6 @@
         "pacman": "libcap",
         "apt": "libcap2-bin",
         "dnf": "libcap",
-        "xbps": "libcap-progs",
-        "emerge": "sys-libs/libcap",
         "nix": "libcap"
       },
       "optional": true,

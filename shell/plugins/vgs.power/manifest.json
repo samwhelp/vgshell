@@ -57,6 +57,7 @@
       "command": "gdbus",
       "packages": {
         "pacman": "glib2",
+        "apt": "libglib2.0-bin",
         "dnf": "glib2",
         "nix": "glib"
       },

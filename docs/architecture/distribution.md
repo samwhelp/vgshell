@@ -18,6 +18,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 
 ### Channels
 
+- Do keep a package manager row, in `install.sh` and `shell/Core/PackageManagers.js`, only for a distribution with a working install path; a distribution without one is named nowhere.
 - Do install through `packaging/install-system.sh` with `DESTDIR` and `PREFIX`; it writes only under `DESTDIR` from a read-only source. `scripts/test-install-tree.sh` pins it.
 - Do commit `packaging/install-tree.manifest` after adding a shipped file, through `scripts/check-install-tree.sh --write`; every package build and the read-only-prefix smoke row run the check.
 - Do raise a `preflight_floor` in `bin/vgshell` and every recipe together, and state no runtime floor in the README; `vgshell run` checks the floor, and `scripts/check-packaging.js` refuses a recipe that differs.

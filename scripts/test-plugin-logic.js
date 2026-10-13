@@ -75,7 +75,7 @@ function suite(ctx, configLogic, check) {
         ["entry point escapes directory", { entryPoints: { bar: "../x.qml" } }, "entryPoints.bar must stay inside"],
         ["entry point absolute", { entryPoints: { bar: "/etc/x.qml" } }, "entryPoints.bar must stay inside"],
         ["requires is refused by name", { requires: ["vgs.bar"] }, "requires is refused: a plugin names no other plugin (D005)"],
-        ["requirements declaring a command", { requirements: [{ command: "gum", packages: { pacman: "gum", aur: "gum-bin", emerge: "app-misc/gum" }, optional: true, purpose: "Draws the update dialogs" }] }, null],
+        ["requirements declaring a command", { requirements: [{ command: "gum", packages: { pacman: "gum", aur: "gum-bin", dnf: "gum" }, optional: true, purpose: "Draws the update dialogs" }] }, null],
         ["requirements declaring a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }, null],
         ["requirements with only a command and a purpose", { requirements: [{ command: "notify-send", purpose: "Sends notices" }] }, null],
         ["requirements not a list", { requirements: { command: "gum" } }, "requirements must be a list"],

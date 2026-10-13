@@ -523,7 +523,7 @@ if [[ " ${scenes[*]} " =~ " "(settings|focus|jarvis-causes)" " && -f $tree/shell
 fi
 if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
   # shellcheck disable=SC2034 # the harness sourced below reads it
-  shell_hidden_commands+=(pacman paru yay apt-get dnf5 dnf xbps-install emerge nix flatpak mise sudo doas run0)
+  shell_hidden_commands+=(pacman paru yay apt-get dnf5 dnf nix flatpak mise sudo doas run0)
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
 # host claude or codex.

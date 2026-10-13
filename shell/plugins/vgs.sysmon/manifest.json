@@ -32,8 +32,6 @@
         "pacman": "btop",
         "apt": "btop",
         "dnf": "btop",
-        "xbps": "btop",
-        "emerge": "sys-process/btop",
         "nix": "btop"
       },
       "optional": true,
@@ -42,8 +40,7 @@
     {
       "command": "nvidia-smi",
       "packages": {
-        "pacman": "nvidia-utils",
-        "apt": "nvidia-smi"
+        "pacman": "nvidia-utils"
       },
       "optional": true,
       "purpose": "Reads NVIDIA graphics card use and temperature"

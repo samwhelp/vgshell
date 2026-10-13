@@ -35,8 +35,7 @@
 //       A source that could not be read has count null, no packages and an
 //       error: `exit=<n>` (a status its row does not list), `timeout=<s>`,
 //       `signal=<name>`, `absent=<command>`, `spawn=<code>`, the parser's
-//       `unparseable ...`, or `skipped=on-demand` (a query that runs only
-//       when named by --source) and `skipped=no-check` (no read-only query
+//       `unparseable ...`, or `skipped=no-check` (no read-only query
 //       exists), where checkedAt is null too. Exit 0 once the result is
 //       printed, whatever each source answered. A check stopped by SIGINT,
 //       SIGTERM or SIGHUP prints nothing and exits 128 plus the signal's
@@ -279,9 +278,9 @@ function runCheck(check) {
 }
 
 // One source's result row.
-async function checkSource(entry, named, stamp) {
+async function checkSource(entry, stamp) {
     const row = (count, packages, checkedAt, error) => ({ source: entry.id, count, packages, checkedAt, error });
-    const found = table.checkFor(entry.id, entry.binary, named);
+    const found = table.checkFor(entry.id, entry.binary);
     if (found.skipped !== undefined) return row(null, [], null, "skipped=" + found.skipped);
     const check = found.check;
     const syncs = entry.id === "pacman" && !pacmanFresh(stamp);
@@ -643,7 +642,7 @@ main(() => {
         holdCheckLock(dir);
         for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => stopQueries(signal));
         const stamp = path.join(dir, "pkg-check.synced");
-        Promise.all(entries.map(entry => checkSource(entry, source !== null, stamp))).then(rows => {
+        Promise.all(entries.map(entry => checkSource(entry, stamp))).then(rows => {
             if (json) {
                 process.stdout.write(JSON.stringify(rows) + "\n");
                 return;

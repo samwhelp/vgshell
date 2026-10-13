@@ -4,8 +4,8 @@
 # paged as shell/Core/IpcPages.qml pages it: the stub answers `shell page
 # ID INDEX` from $STUB_PAGES/ID.INDEX, and `absent` for a page it lacks. A missing
 # requirement's package comes from `vgshell pkg detect`, so the rows that name
-# one run under `unshare -rm` with a Void os-release bound over
-# /etc/os-release and a stub xbps-install on PATH; without user namespaces
+# one run under `unshare -rm` with a Fedora os-release bound over
+# /etc/os-release and a stub dnf5 on PATH; without user namespaces
 # they cannot run and the suite exits 77. The controls run the rows against
 # a copy of the tree whose judge lacks one rule, and each must turn a row
 # red.
@@ -30,8 +30,8 @@ SH
 chmod +x "$tmp/qs"
 rt_live="$tmp/rt-live"; mkdir -p "$rt_live"; printf '%s\n' "$$" >"$rt_live/vgshell.lock"
 managers="$tmp/managers"; mkdir -p "$managers"
-printf '#!/bin/sh\nexit 99\n' >"$managers/xbps-install"; chmod +x "$managers/xbps-install"
-os_release="$tmp/os-release"; printf 'NAME="Void"\nID="void"\n' >"$os_release"
+printf '#!/bin/sh\nexit 99\n' >"$managers/dnf5"; chmod +x "$managers/dnf5"
+os_release="$tmp/os-release"; printf 'NAME="Fedora Linux"\nID="fedora"\n' >"$os_release"
 
 # A reply of plugin acme.need holding REQUIREMENTS, a JSON list of rows.
 reply() { # REQUIREMENTS [UNKNOWN]
@@ -66,10 +66,10 @@ cp -- "$pages/7.0" "$pages/8.0"
 declare -a ROWS=(
   "a plugin row per plugin|plain|$(reply '[]')|acme.need                    1.0      disabled  kinds=service|0|"
   "a configured id no plugin has|plain|$(reply '[]' '[{"id":"vgs.background","key":"disabledPlugins"}]')|unknown vgs.background in disabledPlugins|0|"
-  "a present requirement prints no line|plain|$(reply "[$(req gum present false '{"xbps":"gum"}')]")|acme.need                    1.0      disabled  kinds=service|0|"
+  "a present requirement prints no line|plain|$(reply "[$(req gum present false '{"dnf":"gum"}')]")|acme.need                    1.0      disabled  kinds=service|0|"
   "a missing requirement with no package names its command|plain|$(reply "[$(req gum missing false '{}')]")|missing acme.need gum|0|"
   "a missing optional requirement says so|plain|$(reply "[$(req fzf missing true '{}')]")|missing acme.need fzf optional|0|"
-  "a missing requirement names this system's package|bound|$(reply "[$(req gum missing false '{"pacman":"gum-arch","xbps":"gum-void"}')]")|missing acme.need gum (gum-void)|0|"
+  "a missing requirement names this system's package|bound|$(reply "[$(req gum missing false '{"pacman":"gum-arch","dnf":"gum-fedora"}')]")|missing acme.need gum (gum-fedora)|0|"
   "a package for no manager here names the command alone|bound|$(reply "[$(req gum missing false '{"apt":"gum"}')]")|missing acme.need gum|0|"
   "missing lines follow the unknown lines|plain|$(reply "[$(req gum missing false '{}')]" '[{"id":"vgs.background","key":"disabledPlugins"}]')|missing acme.need gum|0|"
   "a paged reply reads as the whole reply|plain|paged=7|acme.need                    1.0      disabled  kinds=service|0|"
@@ -113,7 +113,7 @@ ln -s -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/Lucide.js"
 detect_failure_row() { # QUIET
   local good=0
   mv -- "$tree/bin/vgshell-pkg" "$tmp/vgshell-pkg.aside"
-  case_out "$tree/bin/vgshell" plain "$(reply "[$(req gum missing false '{"xbps":"gum"}')]")"
+  case_out "$tree/bin/vgshell" plain "$(reply "[$(req gum missing false '{"dnf":"gum"}')]")"
   mv -- "$tmp/vgshell-pkg.aside" "$tree/bin/vgshell-pkg"
   [[ $status == 1 && $err == "vgshell: refused: detect=failed exit=1" ]] || good=1
   [[ $1 == quiet ]] && return "$good"

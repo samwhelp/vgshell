@@ -19,7 +19,7 @@
     "hideWhenOff": { "type": "boolean", "label": "Hide when off", "description": "Hide the bar icon while Bluetooth is off", "group": "Display" }
   },
   "requirements": [
-    { "command": "rfkill", "packages": { "pacman": "util-linux", "apt": "rfkill", "dnf": "util-linux", "xbps": "util-linux", "emerge": "sys-apps/util-linux", "nix": "util-linux" }, "purpose": "Turns Bluetooth on and off and keeps it so after a restart" }
+    { "command": "rfkill", "packages": { "pacman": "util-linux", "apt": "rfkill", "dnf": "util-linux", "nix": "util-linux" }, "purpose": "Turns Bluetooth on and off and keeps it so after a restart" }
   ],
   "systemSteps": ["service-bluetooth"],
   "status": {

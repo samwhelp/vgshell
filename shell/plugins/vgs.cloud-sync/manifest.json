@@ -13,7 +13,7 @@
   "defaultSection": "right",
   "requirements": [
     { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Runs the sync and reads its status" },
-    { "command": "rclone", "packages": { "pacman": "rclone", "apt": "rclone", "dnf": "rclone", "nix": "rclone" }, "optional": false, "purpose": "Copies the files to and from Google Drive" },
+    { "command": "rclone", "packages": { "pacman": "rclone", "dnf": "rclone", "nix": "rclone" }, "optional": false, "purpose": "Copies the files to and from Google Drive" },
     { "command": "flock", "packages": { "pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux" }, "optional": false, "purpose": "Lets only one sync of a folder pair run at a time" },
     { "command": "systemctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": false, "purpose": "Runs the sync every hour while you are logged in" },
     { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": false, "purpose": "Reads the Google Drive keys from the keyring" },

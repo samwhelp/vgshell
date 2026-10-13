@@ -15,6 +15,8 @@ A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and 
 
 ## Install
 
+VGS installs on Arch Linux, Fedora 44, Debian 14 (forky) and NixOS.
+
 Arch Linux:
 
 ```bash
@@ -30,7 +32,7 @@ sudo dnf copr enable vanillagreen/vgshell
 sudo dnf install vgshell
 ```
 
-Any distribution:
+Debian 14 (forky), or a copy in your home directory on Arch Linux or Fedora 44:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash -s -- --git

@@ -13,8 +13,8 @@
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 20 },
   "requirements": [
-    { "command": "ddcutil", "packages": { "pacman": "ddcutil", "apt": "ddcutil", "dnf": "ddcutil", "xbps": "ddcutil", "emerge": "app-misc/ddcutil", "nix": "ddcutil" }, "optional": true, "purpose": "Sets the brightness of external displays" },
-    { "command": "brightnessctl", "packages": { "pacman": "brightnessctl", "apt": "brightnessctl", "dnf": "brightnessctl", "xbps": "brightnessctl", "emerge": "app-misc/brightnessctl", "nix": "brightnessctl" }, "optional": true, "purpose": "Sets the brightness of a laptop's built-in display" }
+    { "command": "ddcutil", "packages": { "pacman": "ddcutil", "apt": "ddcutil", "dnf": "ddcutil", "nix": "ddcutil" }, "optional": true, "purpose": "Sets the brightness of external displays" },
+    { "command": "brightnessctl", "packages": { "pacman": "brightnessctl", "apt": "brightnessctl", "dnf": "brightnessctl", "nix": "brightnessctl" }, "optional": true, "purpose": "Sets the brightness of a laptop's built-in display" }
   ],
   "systemSteps": ["apple-displays", "i2c-dev"],
   "settings": {

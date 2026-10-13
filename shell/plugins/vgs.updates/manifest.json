@@ -14,9 +14,9 @@
   "defaultSection": "right",
   "requirements": [
     { "command": "checkupdates", "packages": { "pacman": "pacman-contrib" }, "optional": false, "purpose": "Checks Arch system updates" },
-    { "command": "snapper", "packages": { "pacman": "snapper" }, "optional": true, "purpose": "Saves a system snapshot before updates" },
-    { "command": "timeshift", "packages": { "pacman": "timeshift" }, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable" },
-    { "command": "less", "packages": { "pacman": "less", "apt": "less", "dnf": "less", "xbps": "less", "emerge": "sys-apps/less", "nix": "less" }, "optional": false, "purpose": "Shows the last update log" },
+    { "command": "snapper", "packages": { "pacman": "snapper", "apt": "snapper" }, "optional": true, "purpose": "Saves a system snapshot before updates" },
+    { "command": "timeshift", "packages": { "pacman": "timeshift", "apt": "timeshift" }, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable" },
+    { "command": "less", "packages": { "pacman": "less", "apt": "less", "dnf": "less", "nix": "less" }, "optional": false, "purpose": "Shows the last update log" },
     { "command": "claude", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install" },
     { "command": "codex", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install" }
   ],

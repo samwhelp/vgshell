@@ -63,8 +63,6 @@
       "packages": {
         "pacman": "tailscale",
         "dnf": "tailscale",
-        "xbps": "tailscale",
-        "emerge": "net-vpn/tailscale",
         "nix": "tailscale"
       },
       "optional": true,
@@ -87,8 +85,6 @@
         "pacman": "networkmanager",
         "apt": "network-manager",
         "dnf": "NetworkManager",
-        "xbps": "NetworkManager",
-        "emerge": "net-misc/networkmanager",
         "nix": "networkmanager"
       },
       "optional": true,
