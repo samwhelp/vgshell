@@ -14,7 +14,8 @@ import qs.Unit
 // Enter emits `pageActivated` with the page and tab, and Escape closes it
 // with the focus still on the item. The crossing waits on `tooltip.delay`
 // in real time, so it proves the timer's wiring; the nested sandbox proves
-// the real pointer, the real keys and the popup's surface.
+// the real pointer, the real keys and the popup's surface. With the
+// user's glass on, the tooltip draws its glass solid.
 Item {
     id: root
     width: 300
@@ -46,6 +47,7 @@ Item {
 
         function init() {
             UnitTheme.reset();
+            Theme.appearanceInput = "";
             compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
             activations.clear();
             away();
@@ -84,6 +86,30 @@ Item {
         function hoverOpen(item) {
             mouseMove(item, item.width / 2, item.height / 2);
             opened(item);
+        }
+
+        // The fill the tooltip draws, read from its surface's body, as
+        // tst_glasssurface.qml reads it.
+        function drawnFill(tip) { return named(tip, "tooltipSurface")[0].children[1].color; }
+
+        // With the user's glass on, the tooltip draws its glass solid, the
+        // fill check-theme-contrast.js judges its text on, though its
+        // popup is a transparent window where glass is drawn. Control: the
+        // same surface handed no `solidOnly` draws the translucent fill,
+        // which the check refuses.
+        function test_glass_on_draws_the_tooltip_solid() {
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            hoverOpen(bare);
+            const surface = named(bare.tip, "tooltipSurface")[0];
+            const solid = Theme.glassSolid(surface.fill);
+            verify(!Qt.colorEqual(solid, surface.fill), "the solid fill is not the glass fill");
+            compare([surface.on, surface.solid], [true, true]);
+            verify(Qt.colorEqual(drawnFill(bare.tip), solid), "glass on draws the solid fill: " + drawnFill(bare.tip));
+            surface.solidOnly = false;
+            compare(surface.drawn, true, "control: without solidOnly the popup draws glass");
+            verify(!Qt.colorEqual(drawnFill(bare.tip), solid), "control: the translucent fill is not the solid one");
+            surface.solidOnly = true;
+            Theme.appearanceInput = "";
         }
 
         function test_a_tooltip_with_no_link_closes_when_the_pointer_leaves() {

@@ -29,14 +29,19 @@ Item {
 
     property bool optIn: false
     readonly property bool on: Theme.glassOn(optIn)
-    // Whether glass is drawn: `on`, in a window whose own colour is
-    // transparent, as every VGS layer and popup is, and over nothing that
-    // window draws (overContent). Under a surface drawn over its window's own
-    // content, a dialog inline in a page, a menu over a glass card or a card
-    // in an application window, that content would show through unblurred.
+    // A surface whose text must read over any backdrop, such as a tooltip,
+    // hands true: it never draws translucent glass, and draws solid while
+    // glass is on wherever it lies.
+    property bool solidOnly: false
+    // Whether glass is drawn: `on`, not `solidOnly`, in a window whose own
+    // colour is transparent, as every VGS layer and popup is, and over
+    // nothing that window draws (overContent). Under a surface drawn over
+    // its window's own content, a dialog inline in a page, a menu over a
+    // glass card or a card in an application window, that content would
+    // show through unblurred.
     // `on` comes first, so a surface without glass reads none of its
     // window's items.
-    readonly property bool drawn: on && Window.window !== null && Window.window.color.a === 0 && !overContent()
+    readonly property bool drawn: on && !solidOnly && Window.window !== null && Window.window.color.a === 0 && !overContent()
     // Glass that is on but not drawn: its fill made opaque hides the
     // content under it.
     readonly property bool solid: on && !drawn

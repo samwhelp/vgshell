@@ -262,10 +262,15 @@ Item {
                 top: Theme.tooltip.paddingY
             }
 
+            // Solid while glass is on: its text is judged on that fill
+            // (ThemeLogic.readabilityShortfalls), which reads over any
+            // backdrop, where translucent glass over a light one would not.
             GlassSurface {
+                objectName: "tooltipSurface"
                 anchors.fill: parent
                 standard: root.side === "belowStart" ? root.band : Theme.tooltip
                 elevation: "tight"
+                solidOnly: true
             }
 
             // The whole popup, its padding too, holds a tooltip with a
