@@ -43,9 +43,20 @@ lock="$run/voxtype.lock"
 override="$run/output_mode_override"
 POLL=0.05
 
+# The lock's holder, while it is a running stand-in daemon by its command
+# line, as dictation_processes of rows/capabilities.sh counts one. An ended
+# daemon its parent has not reaped still takes signal 0 and has an empty
+# command line, so it holds nothing, as voxtype's lock ends with its
+# process.
 daemon_pid() {
-  local pid
-  pid="$(cat -- "$lock" 2>/dev/null)" && [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && printf '%s\n' "$pid"
+  local pid i
+  local -a args
+  pid="$(cat -- "$lock" 2>/dev/null)" && [[ $pid =~ ^[0-9]+$ ]] || return 1
+  mapfile -d '' args 2>/dev/null <"/proc/$pid/cmdline" || return 1
+  for i in "${!args[@]}"; do
+    [[ ${args[i]##*/} == voxtype && ${args[i + 1]:-} == daemon ]] && { printf '%s\n' "$pid"; return 0; }
+  done
+  return 1
 }
 state_now() { if daemon_pid >/dev/null; then cat -- "$run/state" 2>/dev/null || echo stopped; else echo stopped; fi; }
 # src/status_json.rs: text, alt, class, tooltip, then model, device, backend.
