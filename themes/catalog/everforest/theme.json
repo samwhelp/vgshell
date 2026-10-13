@@ -16,7 +16,7 @@
     },
     "color": {
       "textMuted": "mix({palette.foreground}, {palette.background}, 0.10)",
-      "textFaint": "mix({palette.foreground}, {palette.background}, 0.20)",
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.16)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.15)"
     }
   },

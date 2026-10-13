@@ -15,9 +15,10 @@
       "info": "#8caaee"
     },
     "color": {
-      "textFaint": "mix({palette.foreground}, {palette.background}, 0.24)",
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.20)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.15)",
-      "info": "mix({palette.info}, contrast({palette.background}), 0.02)"
+      "info": "mix({palette.info}, contrast({palette.background}), 0.02)",
+      "textMuted": "mix({palette.foreground}, {palette.background}, 0.20)"
     }
   },
   "backgrounds": {

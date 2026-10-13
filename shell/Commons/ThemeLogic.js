@@ -242,6 +242,11 @@ var READABILITY_SURFACES = [
     "color.surfaceSunken"
 ];
 var READABILITY_FLOOR = 4.5;
+// Native-pixel Tray Settings captures measured with Pillow on ff5695762
+// (2026-10-13): catppuccin-latte, dracula and nord stem medians fit one
+// 0.949 coverage after channel rounding (VGS-1653's captured-page refit).
+// Judge the hint on its raised fill after that coverage and channel rounding.
+var HINT_STROKE_COVERAGE = 0.949;
 // Text drawn on a control's own fill rather than on a resting surface, at
 // the same floor. A translucent fill, such as a badge's faint tone, is
 // judged laid over each resting surface, as it is drawn.
@@ -373,6 +378,10 @@ function readabilityShortfalls(values, glass) {
         var ratio = text === null || surface === null || text.a < 1 || surface.a < 1
             ? null
             : contrastRatio(text, surface);
+        if (ratio !== null && pairs[q][0] === "color.textFaint" && pairs[q][1] === "color.surfaceRaised") {
+            text.a = HINT_STROKE_COVERAGE;
+            ratio = contrastRatio(parseColor(formatColor(overlay(text, surface))), surface);
+        }
         if (ratio !== null && pairs[q][4] === true && luminance(text) >= luminance(surface))
             continue;
         if (ratio === null || ratio < pairs[q][2])

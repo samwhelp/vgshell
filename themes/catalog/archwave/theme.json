@@ -15,7 +15,7 @@
       "info": "#8b9aff"
     },
     "color": {
-      "textFaint": "mix({palette.foreground}, {palette.background}, 0.30)"
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.27)"
     }
   },
   "backgrounds": {

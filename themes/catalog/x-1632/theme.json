@@ -15,10 +15,11 @@
       "info": "#7f8da1"
     },
     "color": {
-      "textFaint": "mix({palette.foreground}, {palette.background}, 0.21)",
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.17)",
       "success": "mix({palette.success}, contrast({palette.background}), 0.23)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.27)",
-      "info": "mix({palette.info}, contrast({palette.background}), 0.23)"
+      "info": "mix({palette.info}, contrast({palette.background}), 0.23)",
+      "textMuted": "mix({palette.foreground}, {palette.background}, 0.17)"
     }
   },
   "backgrounds": {

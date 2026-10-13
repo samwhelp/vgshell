@@ -721,6 +721,7 @@ function verify(judge) {
     assert.equal(judge.BOUNDARY_FLOOR, 3);
     assert.equal(judge.contrastRatio(judge.parseColor("#000000"), judge.parseColor("#ffffff")), 21);
     assert.deepEqual(plain(readability(judge, defaults.values)), [], "default vgs readability");
+    verifyHintMargin(judge);
     const faintFailure = judge.accept(TOKENS, document({ color: { textFaint: "#111111" } }));
     assert.equal(faintFailure.ok, true, faintFailure.ok ? "" : judge.refusalLine(faintFailure));
     const faintShortfalls = readability(judge, faintFailure.values);
@@ -1362,24 +1363,36 @@ function verifyAppearance(judge) {
 }
 verify(load(judgeFile));
 
-// Rendering-margin model, not a rendered-text test. Pillow's native-pixel
-// Tray Settings capture on b6500021 (2026-10-13) gave median stem ink
-// #79797a on #101010 and #6f6d69 on #edeadf. A 0.96 ink coverage bounds
-// both readings below the token colour. Landed captures verify real ink.
+// The production judge owns the rendering margin. These old catalogue
+// amounts passed token contrast but fail the sampled-stroke floor.
+function verifyHintMargin(judge) {
+    for (const [name, oldInk, expected] of [
+        ["vgs", "#7d7d7e", null],
+        ["catalog/flexoki-light", "#6b6965", null],
+        ["catalog/catppuccin-latte", "mix({palette.foreground}, {palette.background}, 0.13)", 4.159352660397403],
+        ["catalog/dracula", "mix({palette.foreground}, {palette.background}, 0.41)", 4.312050812197351],
+        ["catalog/nord", "mix({palette.foreground}, {palette.background}, 0.29)", 4.242458619271823]
+    ]) {
+        const source = JSON.parse(fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
+        source.tokens.color = { ...source.tokens.color, textFaint: oldInk };
+        const values = judge.accept(TOKENS, JSON.stringify(source)).values;
+        assert.ok(judge.contrastRatio(judge.parseColor(values.color.textFaint), judge.parseColor(values.color.surfaceRaised)) >= 4.5, name + ": old token contrast passes");
+        const row = readability(judge, values).find(row => row.text === "color.textFaint" && row.surface === "color.surfaceRaised");
+        assert.ok(row, name + ": old hint is refused by stroke-core contrast");
+        assert.equal(row.floor, 4.5);
+        if (expected !== null) assert.ok(Math.abs(row.ratio - expected) < 1e-12, name + ": rounded stroke-core ratio");
+        assert.ok(!readability(judge, values).some(row => row.text === "color.textFaint" && row.surface === "color.background"), name + ": other surfaces retain token contrast");
+    }
+}
+
 {
     const judge = load(judgeFile);
-    const holdsHint = values => {
-        const fill = judge.parseColor(values.color.surfaceRaised);
-        const ink = judge.parseColor(values.text.hint.color);
-        ink.a = 0.96;
-        const core = judge.parseColor(judge.formatColor(judge.overlay(ink, fill)));
-        assert.ok(judge.contrastRatio(core, fill) >= 4.5, "hint stroke-core margin");
-    };
-    for (const [name, oldInk] of [["vgs", "#7d7d7e"], ["catalog/flexoki-light", "#6b6965"]]) {
-        const source = JSON.parse(fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
-        holdsHint(judge.accept(TOKENS, JSON.stringify(source)).values);
-        source.tokens.color = { ...source.tokens.color, textFaint: oldInk };
-        assert.throws(() => holdsHint(judge.accept(TOKENS, JSON.stringify(source)).values), { code: "ERR_ASSERTION" }, name + " old hint control");
+    const catalog = judge.acceptCatalogIndex(TOKENS, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
+    assert.equal(catalog.ok, true);
+    for (const name of ["vgs", ...catalog.entries.map(entry => "catalog/" + entry.name)]) {
+        const accepted = judge.accept(TOKENS, fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
+        assert.equal(accepted.ok, true, name);
+        assert.deepEqual(plain(readability(judge, accepted.values)), [], name + ": every readability rule passes");
     }
 }
 
@@ -1685,6 +1698,7 @@ try {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["hint stroke-core margin", "var HINT_STROKE_COVERAGE = 0.949;", "var HINT_STROKE_COVERAGE = 1;"],
     ["unknown top-level key", "if (DOCUMENT_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
     ["schema version", "if (document.schemaVersion !== SCHEMA_VERSION)", "if (false)"],
     ["document name", 'if (typeof document.name !== "string" || document.name.trim() === "")', "if (false)"],

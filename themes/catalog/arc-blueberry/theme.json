@@ -15,7 +15,7 @@
       "info": "#69c3ff"
     },
     "color": {
-      "textFaint": "mix({palette.foreground}, {palette.background}, 0.33)",
+      "textFaint": "mix({palette.foreground}, {palette.background}, 0.30)",
       "danger": "mix({palette.danger}, contrast({palette.background}), 0.05)"
     }
   },
