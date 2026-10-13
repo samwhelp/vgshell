@@ -377,7 +377,7 @@ FocusScope {
                             PointerCursor {}
 
                             // The chosen word also draws at bodyStrong's weight:
-                            // in light, hintActive and hint are both near black.
+                            // hintActive and hint are both near the same black or white.
                             Label {
                                 id: scopeText
                                 readonly property bool chosen: scopeWord.index === root.scopeIndex

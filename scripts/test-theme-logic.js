@@ -747,6 +747,14 @@ function verify(judge) {
     assert.deepEqual(modalRows(Object.assign({}, LIGHT_PAGE, OLD_MODAL)),
         READABILITY_SURFACES.flatMap(surface => [["dialog.border", "color.scrim over " + surface, 3], ["dialog.background", "color.scrim over " + surface, 3]]));
     assert.deepEqual(modalRows(OLD_MODAL), READABILITY_SURFACES.map(surface => ["dialog.border", "color.scrim over " + surface, 3]));
+    // Rail text over the scrim on a black wallpaper: catppuccin-latte's
+    // palette holds 4.5:1 with the table's own rule, and falls under it
+    // with the theme's text and heading colours.
+    const LATTE = { scheme: { mode: "light" }, palette: { background: "#eff1f5", foreground: "#4c4f69" } };
+    const railRows = tokens => modalRows(tokens).filter(row => row[0].startsWith("carousel."));
+    assert.deepEqual(railRows(LATTE), []);
+    assert.deepEqual(railRows(Object.assign({}, LATTE, { carousel: { hint: "{color.text}", hintActive: "{color.textHeading}" } })),
+        [["carousel.hint", "color.scrim over #000000", 4.5], ["carousel.hintActive", "color.scrim over #000000", 4.5]]);
     // A segmented control's text the colour of the fill it sits on falls
     // under the 4.5:1 floor, and a chosen segment's mark the colour of its
     // segment or of the track under the 3:1 floor.

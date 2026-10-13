@@ -961,11 +961,15 @@ var TOKENS = {
     // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels and
     // dropped `sliceName.shadowOffset` pixels down and right on screen,
     // the same in every mode. Text beside the rail sits on the scrim over
-    // any wallpaper, not on a resting surface, so it draws `hint`, the text
-    // colour, and a chosen word `hintActive`, further from the backdrop:
-    // over flexoki-light's scrim on a black wallpaper textFaint reads
-    // 1.4:1 and text 4.9:1 (ThemeLogic.contrastRatio on the resolved
-    // catalog theme, node, 2026-10-13).
+    // any wallpaper, not on a resting surface, and a black wallpaper leaves
+    // the darkest backdrop: the scrim's colour moved toward black by one
+    // minus its 0.6 opacity, made opaque. A chosen word draws
+    // `hintActive`, the white or black that contrasts more with that
+    // backdrop, 4.58:1 or more on any colour; other text draws `hint`,
+    // that colour moved 0.06 toward the theme's text, at least 4.66:1 in
+    // every catalog theme, where the theme's own text read 1.80:1 in
+    // rose-pine (ThemeLogic.contrastRatio on the resolved catalog themes,
+    // node, 2026-10-13).
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -979,8 +983,8 @@ var TOKENS = {
         band: number(2, 0, 16),
         decodeCap: length(2048),
         duration: duration("{motion.duration.normal}"),
-        hint: color("{color.text}"),
-        hintActive: color("{color.textHeading}"),
+        hint: color("mix({carousel.hintActive}, {color.text}, 0.06)"),
+        hintActive: color("contrast(alpha(mix({color.scrim}, #000000, 0.4), 1))"),
         sliceName: {
             role: textRole("h2"),
             inset: length("{space.xxl}"),

@@ -282,6 +282,10 @@ var BOUNDARY_FLOOR = 3;
 var MODAL_SCRIM = "color.scrim";
 var MODAL_BORDER = "dialog.border";
 var MODAL_FILL = "dialog.background";
+// Text beside the theme browser's rail sits on the scrim over the
+// wallpaper; a black wallpaper leaves it the darkest backdrop.
+var RAIL_TEXT_ROLES = ["carousel.hint", "carousel.hintActive"];
+var RAIL_WALLPAPER = "#000000";
 
 function valueAt(values, path) {
     var node = values;
@@ -297,8 +301,9 @@ function valueAt(values, path) {
 // and named `<fill> over <surface>`, then input boundaries, selected
 // indicators and knobs at 3, then the modal card's border and fill at 3 on
 // the scrim laid over each resting surface, a fill at least as light as
-// that dimmed surface passing at any ratio. Any other translucent colour
-// has no ratio and is a shortfall.
+// that dimmed surface passing at any ratio, then the rail text at 4.5 on
+// the scrim laid over a black wallpaper. Any other translucent colour has
+// no ratio and is a shortfall.
 function readabilityShortfalls(values) {
     var pairs = [];
     for (var i = 0; i < READABILITY_TEXT_ROLES.length; i++)
@@ -321,13 +326,16 @@ function readabilityShortfalls(values) {
         pairs.push([MODAL_BORDER, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s]]);
         pairs.push([MODAL_FILL, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s], true]);
     }
+    for (var w = 0; w < RAIL_TEXT_ROLES.length; w++)
+        pairs.push([RAIL_TEXT_ROLES[w], MODAL_SCRIM, READABILITY_FLOOR, RAIL_WALLPAPER]);
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
         var under = pairs[q][3];
         var text = parseColor(valueAt(values, pairs[q][0]));
         var surface = parseColor(valueAt(values, pairs[q][1]));
+        // UNDER names a role, or is the literal wallpaper colour.
         if (under !== undefined)
-            surface = overlay(surface, parseColor(valueAt(values, under)));
+            surface = overlay(surface, parseColor(under === RAIL_WALLPAPER ? under : valueAt(values, under)));
         var ratio = text === null || surface === null || text.a < 1 || surface.a < 1
             ? null
             : contrastRatio(text, surface);
