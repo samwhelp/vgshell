@@ -1558,6 +1558,27 @@ for (const mode of ["dark", "light"]) {
     }
 }
 
+// A hinted icon's tone colour on the same glass, held to the non-text
+// floor (WCAG 2.2 SC 1.4.11) over both wallpapers. The controls restore the
+// old light darkening and the old dark danger, each of which falls short.
+const ICON_FLOOR = 3;
+const TONES = ["success", "warning", "danger", "info"];
+function toneShortfalls(look) {
+    const out = [];
+    for (const tone of TONES) for (const wallpaper of WALLPAPERS) {
+        const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
+        if (themeLogic.contrastRatio(over(themeLogic.parseColor(look.tone[tone]), card), card) < ICON_FLOOR) out.push([tone, wallpaper]);
+    }
+    return out;
+}
+for (const mode of ["dark", "light"]) same(toneShortfalls(lookIn(appearance.TOKENS, appearance.LIGHT, mode)), [], mode + " tone icons meet 3:1 over both wallpapers");
+const oldLight = JSON.parse(JSON.stringify(appearance.LIGHT));
+oldLight.tone = { success: "mix(#b4c96f, #2a2a2a, 0.35)", warning: "mix(#ffb000, #2a2a2a, 0.3)", danger: "mix(#f43f5e, #2a2a2a, 0.15)", info: "mix(#74a7f7, #2a2a2a, 0.3)" };
+same(toneShortfalls(lookIn(appearance.TOKENS, oldLight, "light")), [["success", "#000000"], ["warning", "#000000"], ["warning", "#ffffff"], ["danger", "#000000"], ["info", "#000000"]], "control: the old light tones fall short");
+const oldDark = JSON.parse(JSON.stringify(appearance.TOKENS));
+oldDark.tone.danger.value = "#f43f5e";
+same(toneShortfalls(lookIn(oldDark, appearance.LIGHT, "dark")), [["danger", "#ffffff"]], "control: the old dark danger falls short");
+
 // CardSlot.qml plays the plain exit as toastMotion's fade, then its close,
 // one after the other, and the service's timers read toastMotion under the
 // state the slot reads: a source check of the two files, since the

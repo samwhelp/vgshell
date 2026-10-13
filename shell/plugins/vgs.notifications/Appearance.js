@@ -226,11 +226,13 @@ var TOKENS = {
 
     // The colour of a hinted icon per x-vgs-tone, one per design-system
     // status tone and each the default theme's `palette` value of the same
-    // name; LIGHT darkens them for the pale glass.
+    // name, danger lifted for the dark card over a light wallpaper; LIGHT
+    // darkens them for the pale glass. scripts/test-notifications-logic.js
+    // holds each to 3:1 on the card over any wallpaper.
     tone: {
         success: color("#b4c96f"),
         warning: color("#ffb000"),
-        danger: color("#f43f5e"),
+        danger: color("mix(#f43f5e, #ffffff, 0.15)"),
         info: color("#74a7f7")
     },
 
@@ -343,9 +345,9 @@ var LIGHT = {
         neutral: "#ffffff"
     },
     tone: {
-        success: "mix(#b4c96f, #2a2a2a, 0.35)",
-        warning: "mix(#ffb000, #2a2a2a, 0.3)",
-        danger: "mix(#f43f5e, #2a2a2a, 0.15)",
-        info: "mix(#74a7f7, #2a2a2a, 0.3)"
+        success: "mix(#b4c96f, #2a2a2a, 0.55)",
+        warning: "mix(#ffb000, #2a2a2a, 0.55)",
+        danger: "mix(#f43f5e, #2a2a2a, 0.25)",
+        info: "mix(#74a7f7, #2a2a2a, 0.45)"
     }
 };
