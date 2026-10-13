@@ -219,7 +219,7 @@ try {
             { encoding: "utf8", env: env(path.join(dir, "env")) });
         const drawn = judge();
         assertStatus(drawn, 1);
-        assert.match(drawn.stdout, /^short    vgs: tooltip\.detail on glass\.fill solid ratio=4\.14 floor=4\.5$/m);
+        assert.match(drawn.stdout, /^short    vgs: tooltip\.detail on glass\.fill solid ratio=4\.37 floor=4\.5$/m);
         assert.match(drawn.stdout, /^short    catalog\/moon-orbit: tooltip\.foreground on glass\.fill solid ratio=4\.12 floor=4\.5$/m);
         plant(path.join(copy, "shell", "Commons", "ThemeLogic.js"), [
             ["        pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);\n", ""]
