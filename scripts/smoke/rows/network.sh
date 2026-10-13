@@ -5,6 +5,8 @@
 # No latency budget is measured. Polls use expect_poll's IPC round trip.
 # The production reprompt control suppresses the password prompt in a
 # sandbox plugin copy. The secret reader's control plants a synthetic log.
+# The password prompt's control plants the field in the list and drops the
+# prompt's reading of its scrolled view, in a sandbox plugin copy.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
@@ -103,6 +105,38 @@ net_wifi_field_absent() { ipc smoke itemValues panel vgs.network Field label,vis
 net_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.network" in ids for ids in json.load(sys.stdin)))'; }
 net_do() { ipc vgs.network invoke action "{\"kind\":\"$1\",\"key\":\"[\\\"wlan0\\\",\\\"VGS Smoke Wi-Fi\\\"]\"}"; }
 net_refresh() { ipc vgs.network invoke refresh ""; }
+net_widget_click() { rest_pointer && click_centre "$(bar_key)" vgs.network; }
+# The password prompt of the view HOST holds: whether its dialog shows,
+# whether the dialog names the prompted network, and its top in the body.
+net_dialog() { ipc smoke readMatchingDescendant "$1" vgs.network Dialog objectName network-prompt visible; }
+net_dialog_names() { ipc smoke readMatchingDescendant "$1" vgs.network Label objectName network-prompt-name text | py_reply 'import json,sys; print("VGS Smoke Wi-Fi" in json.load(sys.stdin))'; }
+net_dialog_y() { ipc smoke itemValues "$1" vgs.network Dialog objectName,y | py_reply 'import json,sys; print(next(r["y"] for r in json.load(sys.stdin) if r["objectName"]=="network-prompt"))'; }
+net_dropdown_button() { # TEXT: one real click on the dropdown's button
+  local rect x y
+  rect="$(ipc smoke itemGeometry panel vgs.network Button "$1")" || return 1
+  [[ $rect == \[* ]] || { echo "net_dropdown_button: no $1: $rect" >&2; return 1; }
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$rect") || return 1
+  hover "$((x + 1))" "$y" && click "$x" "$y"
+}
+# net_reprompt LABEL: the saved profile's activation fails on its password,
+# so the service prompts, and the failed activation is removed.
+net_reprompt() {
+  expect "$1: the saved profile starts" ok net_do connect
+  expect_poll "$1: the activation is pending" connect net_action
+  net_expect_fixture "$1: the mock refuses the saved password" fail || return 1
+  expect_poll "$1: the service prompts" prompt net_prompt
+  net_expect_fixture "$1: the failed activation is removed" drop-active || return 1
+}
+# net_dialog_follows HOST: `follows` when the dialog moves down with its
+# page scrolled to the end, else the readings. The System page overflows
+# its window, so its scroll moves.
+net_dialog_follows() {
+  local before after scrolled
+  before="$(net_dialog_y "$1")" || return 1
+  scrolled="$(ipc smoke revealText "$1" vgs.system Field 'Show disconnected icon')" || return 1
+  after="$(net_dialog_y "$1")" || return 1
+  python3 -c 'import sys; b,a,s=sys.argv[1:]; print("follows" if s.replace(".","",1).isdigit() and float(s) > 0 and float(a) > float(b) else "fixed before=%s after=%s scrolled=%s" % (b,a,s))' "$before" "$after" "$scrolled"
+}
 net_unit $'LoadState=loaded\nActiveState=active'
 net_permission yes
 rescan "the private sharing commands are discovered"
@@ -373,6 +407,80 @@ expect_poll "device loss releases the operation" idle net_action
 net_expect_fixture "the pending source is restored" restore || return 0
 net_expect_fixture "the source-loss activation is removed" drop-active || return 0
 
+# The password prompt in the real dropdown, a popup that holds the seat
+# grab: the dropdown stays open under its prompt, the prompt keeps the keys
+# and the presses, and each way out clears the typed text.
+net_widget_click || fail "the click on the Network widget for the prompt failed"
+expect_poll "the prompt's dropdown opens" shown net_shown panel
+summon_drawn panel vgs.network || fail "the prompt's dropdown never drew a frame"
+net_reprompt "Prompt" || return 0
+expect_poll "a network that needs a password opens the dialog" true net_dialog panel
+expect "the dropdown stays open under its dialog" shown net_shown panel
+expect "the dialog is drawn in the dropdown, on no layer of its own" 0 layer_count vgs:dialog
+expect "the dialog names the network" True net_dialog_names panel
+expect_poll "the dialog focuses its masked field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+expect "the focused field is the dialog's own" true ipc smoke activeFocusWithin panel vgs.network Dialog
+type_keys partial
+expect_poll "the dialog's field takes the typed text" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+net_expect_fixture "the list gains a network under the dialog" enterprise || return 0
+expect_poll "the list refreshes under the dialog" True net_enterprise_seen
+expect "a list refresh keeps the dialog" true net_dialog panel
+expect "a list refresh keeps the typed text and the focus" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+net_expect_fixture "the added network leaves the list" unenterprise || return 0
+# One Tab leaves the field for Cancel, and two more pass Join and come back
+# to the field. With the field empty Join is disabled, so one Tab rests on
+# Cancel, where Delete would forget the profile if the list behind took the
+# key. The text typed after Delete shows the shell has handled Delete.
+net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin panel vgs.network Dialog)" "$(ipc smoke activeFocusIn panel vgs.network)"; }
+type_keys -k Tab
+expect_poll "Tab moves the focus off the field" '{"masked":true,"length":7,"focused":false}' ipc smoke networkField panel
+type_keys -k Tab -k Tab
+expect_poll "Tab wraps inside the dialog, back to its field" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+type_keys -M ctrl -k a -m ctrl -k BackSpace
+expect_poll "the field empties before the list check" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+type_keys -k Tab
+expect_poll "Tab rests on the dialog's Cancel" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
+expect "the focus on Cancel is inside the dialog" '[true, true]' net_dialog_focus
+type_keys -k Delete -M shift -k Tab -m shift
+type_keys partial
+expect_poll "Shift+Tab returns to the field" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+expect "the list behind the dialog takes no key" idle net_action
+expect "the profile stays saved under the dialog" True net_known
+type_keys -k Escape
+expect_poll "Escape cancels the prompt" none net_prompt
+expect_poll "Escape closes the dialog" false net_dialog panel
+expect "Escape clears the typed text" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
+expect "Escape keeps the dropdown open" shown net_shown panel
+expect_poll "the focus returns to the dropdown, outside the dialog" '[false, true]' net_dialog_focus
+net_reprompt "Cancel" || return 0
+expect_poll "the prompt opens the dialog again" true net_dialog panel
+expect_poll "the reopened dialog focuses its field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+type_keys partial
+expect_poll "the reopened field takes the typed text" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+net_dropdown_button Cancel || fail "the click on the dialog's Cancel failed"
+expect_poll "Cancel cancels the prompt" none net_prompt
+expect_poll "Cancel closes the dialog" false net_dialog panel
+expect "Cancel clears the typed text" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
+net_reprompt "Vanish" || return 0
+expect_poll "the dialog opens before its network vanishes" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+type_keys partial
+expect_poll "the field holds text before its network vanishes" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+net_expect_fixture "the prompted network's device is replaced" replace || return 0
+expect_poll "a vanished network ends the prompt" none net_prompt
+expect_poll "a vanished network closes the dialog" false net_dialog panel
+expect "a vanished network clears the typed text" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField panel
+net_expect_fixture "the prompted network's device returns" restore || return 0
+expect_poll "the returned device is scanned for the dropdown" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
+expect_poll "the returned network is listed" '[["VGS Smoke Wi-Fi", 82, true, false]]' net_rows panel
+net_reprompt "Close" || return 0
+expect_poll "the dialog opens before the dropdown closes" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField panel
+type_keys partial
+expect_poll "the field holds text before the dropdown closes" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+expect "the dropdown closes over its prompt" ok ipc shell hide panel vgs.network
+expect_poll "closing the dropdown leaves no password field" absent ipc smoke networkField panel
+expect "the closed dropdown's prompt is cancelled" ok ipc vgs.network invoke action '{"kind":"cancel"}'
+expect_poll "the service holds no prompt after the dropdown" none net_prompt
+
 # Keyboard-only join and forget, through the actual NM failure signal.
 hypr_lua_save network
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
@@ -392,6 +500,10 @@ expect "the unrelated failure keeps the matching operation" connect net_action
 net_expect_fixture "the mock emits a wrong saved password failure" fail || return 0
 expect_poll "a wrong saved password reprompts" prompt net_prompt
 expect_poll "the reprompt is a masked focused field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField window
+expect "a failed saved password uses the same dialog" true net_dialog window
+expect "the System dialog names the network" True net_dialog_names window
+expect "the System dialog holds the focused field" true ipc smoke activeFocusWithin window vgs.network Dialog
+expect "the dialog follows the scrolled System page" follows net_dialog_follows window
 net_expect_fixture "the failed activation is removed before retry" drop-active || return 0
 type_keys partial
 expect "an idle background failure is ignored" ok ipc smoke networkBackgroundFailure false
@@ -399,7 +511,8 @@ expect "the password prompt keeps its typed value" '{"masked":true,"length":7,"f
 type_keys -M ctrl -k a -m ctrl -k BackSpace
 net_expect_fixture "the PSK update refusal is installed" refuse-psk || return 0
 type_keys network-smoke-joined-secret
-type_keys -k Return
+click_in 'window:System Settings' window vgs.network Button Join || fail "the click on the dialog's Join failed"
+expect_poll "Join closes the dialog" false net_dialog window
 expect "the sandbox advances the PSK watchdog" ok ipc smoke networkWatchdog true
 expect_poll "a refused PSK update releases the operation" idle net_action
 expect "the field clears after the refused PSK update" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField window
@@ -409,9 +522,11 @@ expect_poll "connect retries after a refused PSK" connect net_action
 net_expect_fixture "the retry requests a password again" fail || return 0
 expect_poll "the retry reprompts for the password" prompt net_prompt
 net_expect_fixture "the retry activation is removed" drop-active || return 0
+expect_poll "the retry's dialog focuses its field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField window
 type_keys network-smoke-joined-secret
 type_keys -k Return
-expect_poll "the supplied PSK joins the network" True net_joined
+expect_poll "Enter in the dialog joins the network" True net_joined
+expect "Enter closes the dialog" false net_dialog window
 expect "the field clears its PSK" '{"masked":true,"length":0,"focused":false}' ipc smoke networkField window
 net_no_secret() {
   local status
@@ -518,7 +633,6 @@ net_wired_rows() { ipc smoke itemValues "$1" vgs.network ListItem text,secondary
 net_wired_listed() { net_wired_rows "$1" | py_reply 'import json,sys; print(json.dumps([[t, s != ""] for t,s in json.load(sys.stdin)]))'; }
 # The System window's ScrollArea holds the pane, so its instance reveals.
 net_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
-net_widget_click() { rest_pointer && click_centre "$(bar_key)" vgs.network; }
 net_below() { ipc smoke itemGeometry window vgs.network ListItem enp11s0 | py_reply 'import json,sys; print(json.load(sys.stdin)[1])'; }
 net_spinners() { ipc smoke itemValues window vgs.network Spinner visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["visible"]))'; }
 net_detail_state() { net_snapshot | py_reply 'import json,sys; d=json.load(sys.stdin)["network"]["detail"]; print(d["interface"] + " " + d["state"])'; }
@@ -776,6 +890,34 @@ net_expect_fixture "the empty-PSK control ends its failed request" fail || retur
 net_expect_fixture "the empty-PSK control removes the activation" drop-active || return 0
 expect "the empty-PSK control cancels its prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
 expect "the empty-PSK control closes" ok ipc shell hide panel vgs.network
+# The prompt's controls, in one copy: the password field planted in the
+# list, outside the dialog, and a prompt that reads no scrolled view.
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
+python3 - "$net_copy/NetworkBody.qml" <<'PYPROMPT'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text()
+field=s[s.index('        TextField {\n            id: password\n'):]
+field=field[:field.index('        }\n')+len('        }\n')]
+slot='        Button {\n            objectName: "network-other"\n'
+view='                promptView = at;\n'
+assert s.count(field)==1 and s.count(slot)==1 and s.count(view)==1
+s=s.replace(field,'').replace(slot,field+slot).replace(view,'                break;\n')
+p.write_text(s)
+PYPROMPT
+rescan "the prompt controls are discovered"
+expect_poll "the prompt controls finish their backend probes" '"offline"' net_state
+expect "System opens the prompt controls" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the prompt controls' pane is mounted" shown net_shown window
+net_reprompt "Prompt controls" || return 0
+expect_poll "the prompt controls focus the planted field" '{"masked":true,"length":0,"focused":true}' ipc smoke networkField window
+expect "control: a field in the list is not the dialog's own" false ipc smoke activeFocusWithin window vgs.network Dialog
+net_follows_control="$(net_dialog_follows window)" || net_follows_control=unread
+expect "control: a prompt that reads no view stays put on a scrolled page" fixed printf '%s\n' "${net_follows_control%% *}"
+expect "the prompt controls cancel their prompt" ok ipc vgs.network invoke action '{"kind":"cancel"}'
+expect_poll "the prompt controls hold no prompt" none net_prompt
+expect "System closes the prompt controls" ok ipc shell hide window vgs.system
+expect_poll "the prompt controls' pane is gone" hidden net_shown window
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
 # These mutations make the production scanner and keyboard checks red.
 python3 - "$net_copy/Service.qml" "$net_copy/NetworkBody.qml" <<'PYCONTROL'
 import pathlib,sys

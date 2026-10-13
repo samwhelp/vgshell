@@ -10,6 +10,12 @@ import "NetworkLogic.js" as Logic
 // A device's Details draws its rows once they are read: while the service
 // reads, the row shows a Spinner and its content takes no height, so the
 // rows under it move once.
+// The Wi-Fi password prompt is a Dialog over a Scrim in the body's own
+// window. The shared ModalDialog is a layer surface that takes the keyboard,
+// and Hyprland ends the flyout's popup grab when one maps, which closes the
+// flyout and the prompt with it (network smoke row with a ModalDialog on the
+// prompt, 2026-10-13: the flyout read hidden at the first reading; Hyprland
+// 0.56.2 LayerSurface.cpp onMap, XDGShell.cpp addOrStartGrab).
 FocusScope {
     id: root
     focus: true
@@ -34,9 +40,19 @@ FocusScope {
     readonly property var selected: rows.find(row => row.key === currentKey) || null
     readonly property string permissionNotice: network.access === "unavailable" ? "Network permissions could not be checked. NetworkManager still handles each change." : ""
     readonly property bool busy: network.action.kind !== "idle"
-    readonly property Item initialFocus: list
+    readonly property bool prompting: promptKey !== "" && content.visible
+    readonly property Item initialFocus: prompting ? password : list
     readonly property string promptName: network.prompt === null || !network.prompt ? "" : network.prompt.name
-    implicitHeight: joinTarget !== undefined ? (joinLoader.item === null ? 0 : joinLoader.item.implicitHeight) : shareTarget === null ? content.implicitHeight : shareLoader.item === null ? 0 : shareLoader.item.implicitHeight
+    // The view that scrolls the body, read when a prompt opens, and the
+    // body's top in that view's content. The prompt centres on the part of
+    // the body the view shows, so a long list scrolled down still shows it.
+    // Flickable.contentY is the content coordinate at the view's top edge
+    // (Qt 6 Flickable reference).
+    property Flickable promptView: null
+    property real promptOrigin: 0
+    readonly property real shownTop: promptView === null ? 0 : Math.max(0, Math.min(height, promptView.contentY - promptOrigin))
+    readonly property real shownBottom: promptView === null ? height : Math.max(shownTop, Math.min(height, promptView.contentY - promptOrigin + promptView.height))
+    implicitHeight: joinTarget !== undefined ? (joinLoader.item === null ? 0 : joinLoader.item.implicitHeight) : shareTarget === null ? Math.max(content.implicitHeight, prompting ? prompt.implicitHeight + 2 * Theme.dialog.margin : 0) : shareLoader.item === null ? 0 : shareLoader.item.implicitHeight
 
     function open() {
         if (leaseId === "") leaseId = String(root);
@@ -75,9 +91,31 @@ FocusScope {
         }
         const next = network.prompt ? network.prompt.key : "";
         if (next === promptKey) return;
+        const held = prompt.activeFocus;
         password.text = "";
         promptKey = next;
-        if (next !== "") Qt.callLater(() => password.forceActiveFocus(Qt.OtherFocusReason));
+        if (next === "") {
+            if (held) list.forceActiveFocus(Qt.OtherFocusReason);
+            return;
+        }
+        promptView = null;
+        for (let at = root.parent; at !== null && promptView === null; at = at.parent) {
+            if (at instanceof Flickable) {
+                promptOrigin = root.mapToItem(at.contentItem, 0, 0).y;
+                promptView = at;
+            }
+        }
+        Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); });
+    }
+    // Whether the focus left the open prompt for `item` by Tab, or for an
+    // item of the body behind the scrim. A Qt Quick Control records how it
+    // took the focus in focusReason (Qt 6 Control reference); the list is no
+    // Control. A host that moves the focus off the body keeps it.
+    function strayed(item) {
+        if (item === null) return false;
+        if (item.focusReason === Qt.TabFocusReason || item.focusReason === Qt.BacktabFocusReason) return true;
+        for (let at = item; at !== null; at = at.parent) if (at === root) return true;
+        return false;
     }
     function answered(reply) {
         localProblem = reply === "ok" ? "" : reply === "busy" ? "A network change is still in progress." : "The network action is unavailable.";
@@ -365,26 +403,6 @@ FocusScope {
                 }
             }
         }
-        Column {
-            width: parent.width
-            spacing: Theme.stack.row
-            visible: root.promptKey !== ""
-            Label { role: "hint"; text: "Password for " + root.promptName }
-            TextField {
-                id: password
-                objectName: "network-password"
-                width: parent.width
-                password: true
-                placeholderText: "Wi-Fi password"
-                onAccepted: root.submitPassword()
-                Keys.onEscapePressed: event => { root.cancelPassword(); event.accepted = true; }
-            }
-            Row {
-                spacing: Theme.control.gap
-                Button { text: "Join"; enabled: password.text !== ""; onClicked: root.submitPassword() }
-                Button { text: "Cancel"; variant: "secondary"; onClicked: root.cancelPassword() }
-            }
-        }
         Button {
             objectName: "network-other"
             text: "Other Network…"
@@ -461,6 +479,58 @@ FocusScope {
                     onClicked: root.answered(root.shell.configure.set("showDisconnected", checked))
                 }
             }
+        }
+    }
+
+    // The scrim takes each press, hover and wheel over the body, and the
+    // dialog keeps the focus, so the list takes no input while the prompt
+    // is open. A press on the scrim keeps the typed text.
+    Scrim {
+        visible: root.prompting
+        onClicked: prompt.takeFocus()
+    }
+    Dialog {
+        id: prompt
+        objectName: "network-prompt"
+        visible: root.prompting
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.shownTop + Math.max(0, (root.shownBottom - root.shownTop - height) / 2)
+        width: Math.min(implicitWidth, root.width)
+        title: "Wi-Fi password"
+        initialFocus: password
+        actions: [{ label: "Cancel", role: "cancel" }, { label: "Join", role: "accept", enabled: password.text !== "" }]
+        onAccepted: root.submitPassword()
+        onRejected: root.cancelPassword()
+        // Tab left the dialog in the dropdown's popup: three Tabs from the
+        // field ended outside it and Delete reached the list (network smoke
+        // row, 2026-10-13), so the Shortcut that cycles Tab in Dialog did
+        // not take the key there. A Tab on the field, which Dialog takes
+        // out of Qt's focus chain, arrives here as a key (Qt 6 Keys,
+        // tabPressed and backtabPressed). A Tab on an action walks Qt's
+        // chain, and a focus that leaves the dialog that way goes to the
+        // field, the stop after the last action and before the first.
+        Keys.onTabPressed: cycle(1)
+        Keys.onBacktabPressed: cycle(-1)
+        onActiveFocusChanged: Qt.callLater(() => {
+            if (root.prompting && !prompt.activeFocus && root.strayed(root.Window.activeFocusItem)) prompt.takeFocus();
+        })
+
+        // The name comes from the access point. Plain text draws it as
+        // sent: Qt's default AutoText would style a name that holds tags,
+        // and the Dialog's message would draw a page reference in it as a link.
+        Label {
+            objectName: "network-prompt-name"
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+            text: root.promptName === "" ? "Enter the password for this network." : "Enter the password for " + root.promptName + "."
+        }
+        TextField {
+            id: password
+            objectName: "network-password"
+            width: parent.width
+            password: true
+            placeholderText: "Wi-Fi password"
         }
     }
 }
