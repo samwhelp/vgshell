@@ -21,13 +21,13 @@ import qs.Ui
 // `[words](page:)`, reads as its words.
 // The focus ring goes round the first occurrence's words, `linkBox`, not
 // the whole text, so a ring on a line of prose shows which words act.
-// The box is the words' own: as wide as their underline, from their
-// highest ink to the underline's bottom, and the ring stands
-// `focusRing.offset` clear of it on every side. The glyph beside the
-// words stands a pixel past the ring's outer edge or further, so the ring
-// holds and touches no neighbouring glyph: where the line is short of that
-// room, as before a mark that follows the link, `drawn` holds a no-break
-// gap on that side. `ringBelow` is how far the ring's outer edge lies
+// The box holds the words and the punctuation against their end, since a
+// ring cannot part a mark from its word and the text keeps its spacing
+// at rest. It runs from their highest ink to the underline's bottom, and
+// the ring stands `focusRing.offset` clear of it on every side. The glyph
+// before the words stands a pixel past the ring's outer edge or further:
+// where the line is short of that room, `drawn` holds a no-break gap
+// there. `ringBelow` is how far the ring's outer edge lies
 // under this item, for an owner whose edge the ring must clear.
 // `focusPreview` draws that ring for an owner that keeps the keyboard and
 // names this link as its current one, as a tooltip's item does.
@@ -57,13 +57,14 @@ T.Control {
     readonly property string words: cited ? link : reference.page !== "" ? reference.words : ""
     readonly property bool linked: words !== "" && plain.indexOf(words) !== -1
     readonly property bool hoveredLink: linked && pointer.containsMouse && onWords(pointer.mouseX, pointer.mouseY)
-    // The room the ring takes beside the words: its offset, its width and
+    // The room the ring takes before the words: its offset, its width and
     // one pixel clear of the glyph there.
     readonly property real ringRoom: Theme.focusRing.offset + Theme.focusRing.width + 1
     // The text drawn: `plain` with the gaps the ring needs.
     readonly property string drawn: linked ? spaced(underline.font) : plain
-    // The first occurrence, as the [start, end) indices of `drawn`.
-    readonly property var run: linked ? [drawn.indexOf(words), drawn.indexOf(words) + words.length] : [0, 0]
+    // The first occurrence and the marks against its end, as the
+    // [start, end) indices of `drawn`.
+    readonly property var run: linked ? [drawn.indexOf(words), marked(drawn.indexOf(words) + words.length)] : [0, 0]
     // That run's box in this item, on the line it is laid out on, once
     // the twin holds the text. The arguments name what the twin's layout
     // depends on, since its positions are a function a binding cannot
@@ -94,14 +95,22 @@ T.Control {
         return parts.join("<font color=\"" + colour + "\">" + needle + "</font>");
     }
 
-    // The gap for one side of an occurrence, where `beside` is the text on
-    // that side, nearest glyph first: as many narrow no-break spaces, glue
-    // the line never breaks at, as the room there is short of `ringRoom`.
-    // A word space there is room, and no glyph or a line break past
-    // it needs none. Styled text reads a run of spaces of any kind as one
-    // plain space and keeps a space only as an entity (Qt 6.11
-    // qquickstyledtext.cpp, parse and parseEntity), which `htmlEscaped`
-    // writes.
+    // Where the glyphs against index `end` of `drawn` stop.
+    function marked(end) {
+        while (end < drawn.length && !/\s/.test(drawn.charAt(end))) end++;
+        return end;
+    }
+
+    // The gap before an occurrence, where `beside` is the text before it,
+    // nearest glyph first: as many narrow no-break spaces, glue the line
+    // never breaks at, as the room there is short of `ringRoom`. A word
+    // space there is room, and no glyph or a line break past it needs
+    // none. One such space is 2.4 px at 13 px, which a word space of 3.7 px
+    // there is short by (FontMetrics.advanceWidth, Inter Variable, under
+    // scripts/qml-unit.sh on 2026-10-13). Styled text reads a run of spaces
+    // of any kind as one plain space and keeps a space only as an entity
+    // (Qt 6.11 qquickstyledtext.cpp, parse and parseEntity), which
+    // `htmlEscaped` writes.
     function gap(beside) {
         const space = beside.charAt(0) === " ";
         const next = beside.charAt(space ? 1 : 0);
@@ -110,17 +119,17 @@ T.Control {
         return "\u202f".repeat(Math.max(0, Math.ceil(short / underline.advanceWidth("\u202f"))));
     }
 
-    // `plain` with each occurrence's gaps. A gap stays on the far side of
-    // the space before the words and against the words after them, so no
-    // wrapped line starts with one. `font` names what the gaps depend on,
-    // since a metric is a function a binding cannot follow.
+    // `plain` with each occurrence's gap. The gap stays on the far side of
+    // the space before the words, so no wrapped line starts with one, and
+    // the text after the words keeps its spacing. `font` names what the
+    // gaps depend on, since a metric is a function a binding cannot follow.
     function spaced(font) {
         const parts = plain.split(words);
         let out = "";
         for (let i = 0; i < parts.length; i++) {
             const part = parts[i];
             const ends = part.endsWith(" ") ? 1 : 0;
-            if (i > 0) out += words + gap(part);
+            if (i > 0) out += words;
             out += i === parts.length - 1 ? part
                 : part.slice(0, part.length - ends) + gap(part.slice(-2).split("").reverse().join("")) + part.slice(part.length - ends);
         }
@@ -143,11 +152,12 @@ T.Control {
         const from = twin.positionToRectangle(run[0]);
         const first = lineOf(from, twinHeight, twinLines);
         const last = lineOf(twin.positionToRectangle(run[1] - 1), twinHeight, twinLines);
-        const top = Math.floor(label.baselineOffset + first * linePitch + underline.tightBoundingRect(words).y);
+        const held = drawn.slice(run[0], run[1]);
+        const top = Math.floor(label.baselineOffset + first * linePitch + underline.tightBoundingRect(held).y);
         const height = Math.ceil(underlineBottom(last)) - top;
         if (last !== first) return Qt.rect(0, top, width, height);
         const left = Math.round(from.x);
-        return Qt.rect(left, top, Math.round(from.x + underline.advanceWidth(words)) - left, height);
+        return Qt.rect(left, top, Math.round(from.x + underline.advanceWidth(held)) - left, height);
     }
 
     function lineOf(r, twinHeight, twinLines) {

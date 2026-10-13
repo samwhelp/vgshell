@@ -236,22 +236,23 @@ Item {
             return descendants(item).find(child => child.target === item && child.border !== undefined);
         }
 
-        // Each case: the item and the line its link is on.
+        // Each case: the item, the line its link is on and what its ring
+        // holds: the words and the punctuation against their end.
         function test_focus_ring_stands_clear_of_the_link_words_on_every_side() {
             const cases = [
-                [inline, 0],
-                [wrapped, 1],
-                [closing, 0]
+                [inline, 0, "hyprland.lua"],
+                [wrapped, 1, "hyprland.lua"],
+                [closing, 0, "hyprland.lua."]
             ];
             const clear = Theme.focusRing.offset;
-            for (const [item, line] of cases) {
+            for (const [item, line, held] of cases) {
                 const label = labelOf(item);
                 const box = item.linkBox;
                 const baseline = line * label.lineBox + label.baselineOffset;
                 const x = line === 0 ? font.advanceWidth(item.drawn.slice(0, item.run[0])) : 0;
                 fuzzyCompare(box.x, x, 0.5, "the box starts at the words");
-                fuzzyCompare(box.width, words.advanceWidth, 1, "the box is as wide as the words, no mark beside them in it");
-                compare(box.y, Math.floor(baseline + font.tightBoundingRect("hyprland.lua").y), "the box starts at the words' highest ink");
+                fuzzyCompare(box.width, font.advanceWidth(held), 1, "the box is as wide as the words and the mark against them");
+                compare(box.y, Math.floor(baseline + font.tightBoundingRect(held).y), "the box starts at the words' highest ink");
                 compare(box.y + box.height, Math.ceil(baseline + label.underlineOffset + item.underlineThickness), "the box ends at the underline's bottom");
                 verify(box.y > line * label.lineBox, "the box starts at the words' ink, not their line box: " + box.y);
                 item.forceActiveFocus(Qt.TabFocusReason);
@@ -265,29 +266,24 @@ Item {
                 compare(at.y + ring.height - stroke - (box.y + box.height), clear, "clear of the underline");
                 verify(ring.width < item.width, "the ring leaves the prose outside it");
             }
-            // The glyph beside the words stands a pixel past the ring's outer
-            // edge, and no further than one gap space more.
+            // The glyph before the words stands a pixel past the ring's outer
+            // edge, and no further than one gap space more. The text after
+            // the words keeps its spacing.
             const reach = Theme.focusRing.offset + Theme.focusRing.width + 1;
             const glue = font.advanceWidth("\u202f");
             for (const item of [inline, wrapped, closing]) {
                 const start = item.drawn.indexOf("hyprland.lua");
                 const before = item.drawn.slice(0, start).match(/[ \u202f]*$/)[0];
-                const after = item.drawn.slice(start + "hyprland.lua".length).match(/^[ \u202f]*/)[0];
-                for (const room of [before, after]) {
-                    verify(font.advanceWidth(room) >= reach, "room for the ring: " + font.advanceWidth(room));
-                    if (room.indexOf("\u202f") !== -1)
-                        verify(font.advanceWidth(room) - glue < reach, "no wider than the ring needs: " + font.advanceWidth(room));
-                }
+                verify(font.advanceWidth(before) >= reach, "room for the ring: " + font.advanceWidth(before));
+                if (before.indexOf("\u202f") !== -1)
+                    verify(font.advanceWidth(before) - glue < reach, "no wider than the ring needs: " + font.advanceWidth(before));
                 verify(!before.endsWith("\u202f"), "no line starts with a gap before the words");
-                verify(!/^ \u202f/.test(after), "no line starts with a gap after the words");
+                compare(item.drawn.slice(start), item.plain.slice(item.plain.indexOf("hyprland.lua")), "the text from the words on is drawn as written");
                 compare(item.drawn.replace(/\u202f/g, ""), item.plain, "the gaps are all the drawn text adds");
             }
-            verify(/hyprland\.lua\u202f+\.$/.test(closing.drawn), "a mark against the words stands off by the gap");
-            const ring = ringOf(closing);
-            verify(ring.mapToItem(closing, 0, 0).x + ring.width + 1 <= font.advanceWidth(closing.drawn.slice(0, -1)), "the mark stands outside the ring, a pixel clear");
-            verify(labelOf(closing).text.indexOf("</font>&#x202f;") !== -1, "styled text keeps the gap only as its entity");
-            compare(closing.plain, "Read the notes in hyprland.lua.", "the gap is drawn, not read out");
-            compare(closing.Accessible.name, closing.plain);
+            verify(inline.drawn.indexOf("\u202f") !== -1, "a word space narrower than the ring's room gets the gap");
+            verify(labelOf(inline).text.indexOf("&#x202f; <font") !== -1, "styled text keeps the gap only as its entity");
+            compare(inline.Accessible.name, inline.plain, "the gap is drawn, not read out");
         }
 
         // A message that changes to a shorter one, as a row's does when
