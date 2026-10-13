@@ -547,6 +547,7 @@ PY
     scenes=(screensaver capture)
     park_pointer() { :; }
     set_mode() { :; }
+    scene_desktop() { :; }
     take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\ts\tp\tsettled\thidden\tclean\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
     scene_capture() { take "capture-$1-panel"; }
     ok() { :; }
