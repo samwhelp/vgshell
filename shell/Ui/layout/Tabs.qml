@@ -106,27 +106,36 @@ T.TabBar {
             // its pointer focus before the template changes the index.
             onPressed: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; }
 
-            contentItem: Row {
-                spacing: Theme.stack.inline
-                // Qt Row omits invisible children from its width, so the
-                // warning leaves no empty space once Setup is done.
-                // https://doc.qt.io/qt-6/qml-qtquick-row.html
-                Label {
-                    role: "button"
-                    text: tab.text
-                    horizontalAlignment: Text.AlignHCenter
-                    color: tab.checked ? tab.active : tab.hovered || tab.down ? tab.hover : tab.foreground
-                    verticalAlignment: Text.AlignVCenter
-                    anchors.verticalCenter: parent.verticalCenter
-                    Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-                }
-                Icon {
-                    objectName: "tabWarning"
-                    name: "triangle-alert"
-                    color: Theme.color.warning
-                    size: Theme.icon.size.sm
-                    visible: tab.warning
-                    anchors.verticalCenter: parent.verticalCenter
+            contentItem: Item {
+                implicitWidth: labelGroup.implicitWidth
+                implicitHeight: labelGroup.implicitHeight
+                // Control stretches its contentItem inside the padding.
+                // Keep the Row at its natural size and centre that group.
+                // https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#contentItem-prop
+                Row {
+                    id: labelGroup
+                    anchors.centerIn: parent
+                    spacing: Theme.stack.inline
+                    // Qt Row omits invisible children and their spacing.
+                    // https://doc.qt.io/qt-6/qml-qtquick-row.html
+                    Label {
+                        objectName: "tabLabel"
+                        role: "button"
+                        text: tab.text
+                        horizontalAlignment: Text.AlignHCenter
+                        color: tab.checked ? tab.active : tab.hovered || tab.down ? tab.hover : tab.foreground
+                        verticalAlignment: Text.AlignVCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+                    }
+                    Icon {
+                        objectName: "tabWarning"
+                        name: "triangle-alert"
+                        color: Theme.color.warning
+                        size: Theme.icon.size.sm
+                        visible: tab.warning
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
             }
 

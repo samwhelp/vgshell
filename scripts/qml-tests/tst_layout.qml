@@ -51,12 +51,15 @@ Item {
     Surface { id: surface; level: "raised"; width: 100; height: 40; y: 220 }
     Divider { id: divider; width: 100; y: 270 }
     SignalSpy { id: clicks; target: row; signalName: "clicked" }
+    Component { id: centredTabs; Tabs { y: 60 } }
 
     TestCase {
         name: "layout"
         when: windowShown
 
         function init() { UnitTheme.reset(); tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); }
+
+        function tabLabel(tab) { return findChild(tab.contentItem, "tabLabel"); }
 
         function test_scroll_area_follows_its_content() {
             compare(scroll.contentHeight, 200);
@@ -85,12 +88,11 @@ Item {
             const tab = tabs.itemAt(1);
             compare(tab.leftPadding, Theme.tabs.paddingX);
             compare(tab.rightPadding, Theme.tabs.paddingX);
-            compare(tab.contentItem.children[0].horizontalAlignment, Text.AlignHCenter);
             compare(tab.contentItem.x, Theme.tabs.paddingX);
             compare(tab.contentItem.width, tab.width - 2 * Theme.tabs.paddingX);
             tabs.currentIndex = 0;
             mouseMove(tab, tab.width / 2, tab.height / 2);
-            tryCompare(tab.contentItem.children[0], "color", Qt.color(Theme.tabs.hover));
+            tryCompare(tabLabel(tab), "color", Qt.color(Theme.tabs.hover));
             verify(String(Qt.color(Theme.tabs.hover)) !== String(Qt.color(Theme.tabs.active)), "hover differs from the open tab");
             mousePress(tab, tab.width / 2, tab.height / 2);
             tryCompare(tab.background, "color", Qt.color(Theme.tabs.pressed));
@@ -101,11 +103,63 @@ Item {
             tabs.enabled = true;
         }
 
+        function test_tabs_centre_the_visible_label_group_data() {
+            const cases = [
+                { tag: "short ordinary narrow", label: "Status", width: 240, setup: false },
+                { tag: "long ordinary wide", label: "Plugin settings", width: 400, setup: false },
+                { tag: "Setup narrow", label: "Setup", width: 240, setup: true },
+                { tag: "Setup wide", label: "Setup", width: 400, setup: true }
+            ];
+            return ["dark", "light"].flatMap(mode => cases.map(row => Object.assign({}, row, { tag: mode + " " + row.tag, mode: mode })));
+        }
+
+        // Read the actual child bounds. Text alignment alone cannot centre
+        // a natural-width label inside a stretched content item.
+        function test_tabs_centre_the_visible_label_group(data) {
+            compare(UnitTheme.override({ scheme: { mode: data.mode } }), "ok");
+            const bar = createTemporaryObject(centredTabs, root, { width: data.width, model: data.setup ? ["Status", "Setup"] : [data.label, "Setup"] });
+            verify(bar !== null);
+            tryCompare(bar, "count", 2);
+            const tab = bar.itemAt(data.setup ? 1 : 0);
+            const label = tabLabel(tab);
+            const warning = findChild(tab.contentItem, "tabWarning");
+            verify(warning !== null);
+            for (const width of [data.width, data.width + 80]) {
+                const previousWidth = tab.width;
+                bar.width = width;
+                if (width !== data.width) tryVerify(() => tab.width > previousWidth, 1000, "the tab expands with its bar");
+                for (const needsSetup of [false, true, false]) {
+                    bar.warningTabs = needsSetup ? ["Setup"] : [];
+                    tryCompare(warning, "visible", data.setup && needsSetup);
+                    // The Row repositions on polish after warning or width changes.
+                    tryVerify(() => {
+                        const left = label.mapToItem(tab, 0, 0).x;
+                        const right = warning.visible ? warning.mapToItem(tab, warning.width, 0).x : label.mapToItem(tab, label.width, 0).x;
+                        return Math.abs((left + right) / 2 - tab.width / 2) <= 0.5;
+                    }, 1000, "the visible label and warning group centres in the tab");
+                    compare(label.width, label.implicitWidth);
+                    const left = label.mapToItem(tab, 0, 0).x;
+                    const right = warning.visible ? warning.mapToItem(tab, warning.width, 0).x : label.mapToItem(tab, label.width, 0).x;
+                    const visibleWidth = label.width + (warning.visible ? Theme.stack.inline + warning.width : 0);
+                    verify(tab.width > tab.implicitWidth, "the tab has room beyond its natural label group");
+                    fuzzyCompare(right - left, visibleWidth, 0.01);
+                    fuzzyCompare(tab.implicitWidth, visibleWidth + tab.leftPadding + tab.rightPadding, 0.01);
+                    verify(left >= tab.leftPadding);
+                    verify(right <= tab.width - tab.rightPadding);
+                    const centreY = label.mapToItem(tab, 0, label.height / 2).y;
+                    fuzzyCompare(centreY, tab.height / 2, 0.5);
+                    if (warning.visible) {
+                        fuzzyCompare(warning.mapToItem(tab, 0, warning.height / 2).y, centreY, 0.5);
+                    }
+                }
+            }
+        }
+
         // A row handed label colours draws its closed and open tabs in them.
         function test_tabs_draw_handed_colours() {
             handedTabs.currentIndex = 0;
-            compare(handedTabs.itemAt(0).contentItem.children[0].color, Qt.color("#6080a0"));
-            tryCompare(handedTabs.itemAt(1).contentItem.children[0], "color", Qt.color("#204060"));
+            compare(tabLabel(handedTabs.itemAt(0)).color, Qt.color("#6080a0"));
+            tryCompare(tabLabel(handedTabs.itemAt(1)), "color", Qt.color("#204060"));
         }
 
         // A row with `hoverMark` draws the mark under a closed tab while

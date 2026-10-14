@@ -1217,7 +1217,7 @@ mutations=(
   "the switch shows no hover|controls/Switch.qml|Theme.toggle.offHover : Theme.toggle.off|Theme.toggle.off : Theme.toggle.off|tst_toggles.qml"
   "the checkbox shows no press|controls/Checkbox.qml|: root.down ? Theme.checkbox.pressed : Theme.checkbox.background|: Theme.checkbox.background|tst_toggles.qml"
   "the slider keeps no input area|controls/Slider.qml|implicitHeight: Math.max(Theme.size.control.sm, |implicitHeight: Math.max(|tst_slider.qml"
-  "the tab label hugs its left edge|layout/Tabs.qml|horizontalAlignment: Text.AlignHCenter|horizontalAlignment: Text.AlignLeft|tst_layout.qml"
+  "the tab label group hugs its left edge|layout/Tabs.qml|anchors.centerIn: parent|anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter|tst_layout.qml"
   "tab hover reads as the open tab|layout/Tabs.qml|tab.hover : tab.foreground|tab.active : tab.foreground|tst_layout.qml"
   "a hovered closed tab draws no mark|layout/Tabs.qml|visible: tab.hoverMark && !tab.checked|visible: false && !tab.checked|tst_layout.qml"
   "every row draws the hover mark|layout/Tabs.qml|visible: tab.hoverMark && !tab.checked|visible: !tab.checked|tst_layout.qml"
