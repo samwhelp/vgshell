@@ -222,16 +222,17 @@ FocusScope {
     Keys.onTabPressed: event => { if (modal) cycle(event.modifiers & Qt.ShiftModifier ? -1 : 1); else event.accepted = false; }
     Keys.onBacktabPressed: event => { if (modal) cycle(-1); else event.accepted = false; }
 
-    // Keys handles its specific signals before native Tab navigation (Qt 6 Keys).
-    // Use the delivered key because a popup's shortcut map can miss Tab.
-    Instantiator {
-        model: root.modal ? root.cycleStops() : []
-        delegate: Connections {
-            required property Item modelData
-            target: modelData.Keys
-            function onTabPressed(event) { root.cycle(event.modifiers & Qt.ShiftModifier ? -1 : 1); }
-            function onBacktabPressed(event) { root.cycle(-1); }
+    // Window.activeFocusItem is the key receiver; Keys handles its specific
+    // signals before native Tab navigation (Qt 6 Window and Keys). Read the
+    // cycle only on the delivered key, never during the action Repeater's rebuild.
+    // A popup's shortcut map can miss Tab.
+    Connections {
+        target: {
+            const focused = root.Window.activeFocusItem;
+            return root.modal && focused !== root && KeyNavLogic.contains(root, focused) ? focused.Keys : null;
         }
+        function onTabPressed(event) { root.cycle(event.modifiers & Qt.ShiftModifier ? -1 : 1); }
+        function onBacktabPressed(event) { root.cycle(-1); }
     }
 
     GlassSurface {

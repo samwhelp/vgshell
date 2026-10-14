@@ -289,40 +289,69 @@ Item {
             let fixture = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDialog { actions: [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}] }', root);
             try {
                 fixture.takeFocus();
-                const wiring = Array.from(fixture.resources).find(object => typeof object.objectAt === "function" && object.count > 0 && "target" in object.objectAt(0));
-                verify(wiring !== undefined, "the modal dialog connects its stops");
-                const actionCount = fixture.buttons().length;
-                compare(wiring.count, actionCount);
                 const added = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nTextField { activeFocusOnTab: true }', fixture);
-                tryCompare(wiring, "count", actionCount + 1);
+                const tracker = Qt.createQmlObject('import QtQml\nQtObject { property QtObject stop: null }', root);
+                tracker.stop = added;
                 added.forceActiveFocus(Qt.TabFocusReason);
                 keyClick(Qt.Key_Tab);
                 compare(fixture.buttons()[0].activeFocus, true);
                 added.forceActiveFocus(Qt.TabFocusReason);
                 added.destroy();
-                tryCompare(wiring, "count", actionCount);
+                tryCompare(tracker, "stop", null);
+                tracker.destroy();
                 fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
                 keyClick(Qt.Key_Tab);
                 compare(fixture.buttons()[0].activeFocus, true);
                 fixture.modal = false;
-                tryCompare(wiring, "count", 0);
+                fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Tab);
+                compare(fixture.activeFocus, false, "an inline card releases Tab to the window");
                 fixture.modal = true;
-                tryCompare(wiring, "count", actionCount);
                 fixture.visible = false;
-                compare(wiring.count, actionCount, "a retained hidden card retains only its own connections");
+                outside.forceActiveFocus();
+                keyClick(Qt.Key_Tab);
+                compare(fixture.activeFocus, false, "a retained hidden card takes no key");
                 fixture.visible = true;
                 // A host can close its dialog when the next stop takes focus.
-                const closer = Qt.createQmlObject('import QtQuick\nConnections { property Item card: null; property var wiring; target: card === null ? null : card.buttons()[0]; function onActiveFocusChanged() { if (target.activeFocus) card.destroy(); } }', root);
+                const closer = Qt.createQmlObject('import QtQuick\nConnections { property Item card: null; target: card === null ? null : card.buttons()[0]; function onActiveFocusChanged() { if (target.activeFocus) card.destroy(); } }', root);
                 closer.card = fixture;
-                closer.wiring = wiring;
                 fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
                 keyClick(Qt.Key_Tab);
                 tryCompare(closer, "card", null);
                 tryCompare(closer, "target", null);
-                tryCompare(closer, "wiring", null);
                 fixture = null;
                 closer.destroy();
             } finally { if (fixture !== null) fixture.destroy(); }
+        }
+
+        function test_a_modal_dialog_cycles_replaced_actions_while_open() {
+            failOnWarning(/TypeError/);
+            const fixture = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDialog { property alias field: field; initialFocus: field; actions: [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}]; TextField { id: field; width: parent.width } }', root);
+            try {
+                fixture.takeFocus();
+                const cases = [
+                    [{label: "Close", role: "cancel"}, {label: "Later", role: "cancel", enabled: false}, {label: "Approve", role: "accept"}],
+                    [{label: "OK", role: "cancel"}],
+                    [],
+                    [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}]
+                ];
+                for (const actions of cases) {
+                    fixture.actions = actions;
+                    compare(fixture.visible, true);
+                    compare(fixture.field.activeFocus, true);
+                    const enabled = fixture.buttons().filter(button => button.enabled);
+                    compare(enabled.map(button => button.text), actions.filter(action => action.enabled !== false).map(action => action.label));
+                    for (const button of enabled) {
+                        keyClick(Qt.Key_Tab);
+                        compare(button.activeFocus, true);
+                    }
+                    keyClick(Qt.Key_Tab);
+                    compare(fixture.field.activeFocus, true);
+                    keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
+                    compare((enabled.length === 0 ? fixture.field : enabled[enabled.length - 1]).activeFocus, true);
+                    fixture.field.forceActiveFocus(Qt.OtherFocusReason);
+                }
+            } finally { fixture.destroy(); }
         }
 
         // A us keyboard reports Shift+Tab as Backtab with Shift held; a

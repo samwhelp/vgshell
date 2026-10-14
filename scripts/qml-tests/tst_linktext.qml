@@ -160,7 +160,9 @@ Item {
             compare(linked.Accessible.name, linked.text);
             compare(linked.Accessible.role, Accessible.Link);
             compare(linked.visualFocus, false);
-            verify(waitForRendering(linked));
+            // Qt 6.11.2 QuickTestResult::waitForRendering waits for frameSwapped
+            // without requesting a frame. init() already gave this focus reason,
+            // so the unchanged hidden ring needs no rendering wait.
             compare(ring.visible, false);
             keyClick(Qt.Key_Tab);
             compare(escaped.activeFocus, true);
