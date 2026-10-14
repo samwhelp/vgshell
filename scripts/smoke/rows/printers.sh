@@ -296,8 +296,7 @@ pr_main() {
 
 # Printing not installed: a copy whose lpstat no PATH holds
 # (cups_uninstalled_copy). The `printing` line offers no step, since the
-# page's Requirements section installs CUPS; the section offers Install
-# printing, and its press raises the requirement notice for the missing
+# pane offers Install printing. Its press raises the notice for the missing
 # command alone; Escape answers Not now.
 pr_uninstalled() {
   rm -rf -- "${pr_copy:?}"

@@ -342,8 +342,18 @@ def helper(state):
 def uninstalled(source, dest):
     import shutil
     shutil.copytree(source, dest)
+    manifest_path = os.path.join(dest, "manifest.json")
+    with open(manifest_path, encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+    requirements = [row for row in manifest["requirements"] if row.get("command") == "lpstat"]
+    if len(requirements) != 1:
+        print(f"copy=failed file=manifest.json match={len(requirements)}", file=sys.stderr)
+        sys.exit(1)
+    requirements[0]["command"] = "vgs-smoke-lpstat"
+    with open(manifest_path, "w", encoding="utf-8") as manifest_file:
+        json.dump(manifest, manifest_file, indent=2)
+        manifest_file.write("\n")
     for name, old, new in [
-        ("manifest.json", '{ "command": "lpstat",', '{ "command": "vgs-smoke-lpstat",'),
         ("PrintersLogic.js", 'var CUPS_COMMANDS = ["lpstat", "ipptool"];', 'var CUPS_COMMANDS = ["vgs-smoke-lpstat", "ipptool"];'),
     ]:
         path = os.path.join(dest, name)
