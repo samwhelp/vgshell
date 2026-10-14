@@ -490,7 +490,7 @@ Mirroring GitHub intake into Linear is a MANUAL triage step. No automation does 
 ```bash
 gh issue list --state open --limit 50 --json number,title,url,createdAt \
   --jq '.[] | [.number, .createdAt, .url, .title] | @tsv' &&
-.agents/skills/linear/scripts/linear.sh cache issues list --all-projects
+.agents/skills/linear/scripts/linear.sh issues list --all-projects --max
 ```
 
 The two listings are chained: a `gh issue list` that fails prints nothing, and unchained the Linear listing's success becomes the block's — an empty GitHub column then reads as "nothing to mirror", the exact false-clean this pass exists to prevent.
@@ -539,11 +539,8 @@ Link work to its issue through the branch name: `vgs-<n>-<slug>`. Linear's GitHu
 Issue labels are live Linear issue labels. Inventory source of truth:
 
 ```bash
-.agents/skills/linear/scripts/linear.sh cache labels list &&
-.agents/skills/linear/scripts/linear.sh sync --reconcile
+.agents/skills/linear/scripts/linear.sh labels list
 ```
-
-Chained for the same reason: a `cache labels list` that fails prints no labels, and unchained the reconcile's success becomes the block's — leaving an agent believing it read the live inventory when it read nothing.
 
 Use the project-management label taxonomy when assigning labels. If the taxonomy and live inventory disagree, stop before mutation and report the missing/extra label; do not substitute a nearby label. Never create labels without explicit user authorization.
 
