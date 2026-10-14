@@ -30,6 +30,49 @@ function report(name, got, want) {
     console.log("  FAIL  " + name + "\n        got  " + g + "\n        want " + w);
 }
 
+// The page's own row judge, which the shipped manifests' rows run through.
+const STEPS = path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js");
+
+// Every shipped manifest's Settings rows as the page draws them
+// (Steps.featureRow, STEPS) from the rows CTX judged, with the plugin on,
+// in two states. Work: each state entry reads a warning and offers its
+// action, a presence is absent and every optional tool is missing; then
+// every action row offers a press. Set up: each state reads ready and
+// offers nothing, a presence is present and every tool is there; then no
+// row draws an action of its entries or one that takes no press.
+function featureRowsHold(ctx, steps, check) {
+    const on = { enabled: true, name: "Fixture", error: "" };
+    const base = path.join(__dirname, "..", "shell", "plugins");
+    for (const id of fs.readdirSync(base).sort()) {
+        const file = path.join(base, id, "manifest.json");
+        if (!fs.existsSync(file)) continue;
+        const judged = ctx.validateManifest(JSON.parse(fs.readFileSync(file, "utf8")), path.join(base, id));
+        if (!judged.ok) continue;
+        const m = judged.manifest;
+        const valueOf = (entry, work) => {
+            switch (entry.type) {
+            case "state": return work ? { tone: "warning", text: "To do", action: entry.actions !== undefined ? Object.keys(entry.actions)[0] : entry.action !== undefined } : { tone: "ok", text: "Ready" };
+            case "presence": return work ? "absent" : "present";
+            case "presenceList": return [];
+            case "count": return 1;
+            case "time": return 0;
+            default: return "Fixture";
+            }
+        };
+        const page = work => ({ schema: m.schema, tuis: ctx.listedTuis(m),
+            status: ctx.statusRows(m, Object.fromEntries(Object.keys(m.status).map(key => [key, valueOf(m.status[key], work)]))),
+            requirements: ctx.requirementRows(m, work ? m.requirements.filter(row => row.optional).map(row => row.name) : [], {}) });
+        const buttons = line => [line.action, line.aside].concat(line.more).filter(button => button !== null);
+        const working = page(true), setUp = page(false);
+        check("featureRow: " + id + ": every action row offers a press while its feature has work to do",
+            m.fieldRows.filter(field => m.schema[field.key].type === "action")
+                .filter(field => !steps.featureRow(field, working, on).some(line => buttons(line).some(button => button.enabled))).map(field => field.key), []);
+        check("featureRow: " + id + ": a row whose feature is set up draws no dead action and none of its entries'",
+            m.fieldRows.filter(field => steps.featureRow(field, setUp, on).some(line => buttons(line).some(button => !button.enabled)
+                || ((line.kind === "own" || line.kind === "entry") && (line.action !== null || line.aside !== null)))).map(field => field.key), []);
+    }
+}
+
 // Every row against one loaded judge, `ctx`, and the configuration judge it
 // imports, `configLogic`, each result handed to `check`.
 function suite(ctx, configLogic, check) {
@@ -92,10 +135,16 @@ function suite(ctx, configLogic, check) {
         ["an own entry labelled like its field", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "Mode", setting: "mode" } }, ownAction) }, ""],
         ["a field labelled as the page labels its own row", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "More settings" } }, settings: { mode: false, again: false } }, "schema.again page-row=page-label"],
         ["a field's hint from its own entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { mode: { type: "boolean", label: "Mode", group: "Main", hintFrom: "one" } } }, "schema.mode page-row=own-hint"],
-        ["a field's hint from another field's entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { again: { type: "boolean", label: "Again", hintFrom: "one" } }, settings: { mode: false, again: false } }, ""]
+        ["a field's hint from another field's entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { again: { type: "boolean", label: "Again", hintFrom: "one" } }, settings: { mode: false, again: false } }, ""],
+        ["an action field's hint from a state", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One" } }, ownAction), schema: { feature: { type: "action", label: "Feature", hintFrom: "one" } } }, "schema.feature page-row=action-hint"],
+        ["one configuration screen", { tui: { fix: fix, configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix) }, status: ownAction }, ""],
+        ["two configuration screens, each a More settings row", { tui: { fix: fix, configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix), tune: Object.assign({ entry: { label: "Tune", icon: "wrench", group: "Acme", settings: true } }, fix) }, status: ownAction }, "tui.tune.entry page-row=duplicate-label"],
+        ["a configuration screen a status entry opens beside another", { tui: { fix: fix, configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix), tune: Object.assign({ entry: { label: "Tune", icon: "wrench", group: "Acme", settings: true } }, fix) },
+            status: { fixing: { type: "state", label: "Fixing", setting: "feature", action: { label: "Tune", tui: "tune" } } } }, ""],
+        ["each page label the page draws itself", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "Show on the bar", group: "Other" } }, settings: { mode: false, again: false } }, "schema.again page-row=page-label"]
     ]) {
         const judged = ctx.validateManifest(withPageRows(keys), "/p");
-        check("pageRows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length), refusal);
+        check("pageRows: " + name, judged.ok ? "" : refusal === "" ? judged.error : judged.error.slice(0, refusal.length), refusal);
     }
     const drawn = ctx.validateManifest(withPageRows({
         tui: { fix: fix, task: Object.assign({ entry: fixEntry }, fix), declared: Object.assign({ entry: fixEntry }, fix) },
@@ -108,6 +157,7 @@ function suite(ctx, configLogic, check) {
     // The defects first-party manifests held before their rows were judged,
     // planted again in the shipped manifest: each is refused at its path by
     // its rule.
+    featureRowsHold(ctx, load(STEPS), check);
     const firstParty = id => JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/" + id + "/manifest.json"), "utf8"));
     for (const [name, id, plant, refusal] of [
         ["AI Usage with Codex's state twice beside its switch", "vgs.ai-usage", m => { m.status.codexAgain = { type: "state", label: "Codex", setting: "showCodex" }; }, "status.codex page-row=duplicate-label"],
@@ -119,7 +169,7 @@ function suite(ctx, configLogic, check) {
         check("pageRows: shipped " + id + " is judged ok", ctx.validateManifest(raw, "/p").ok, true);
         plant(raw);
         const judged = ctx.validateManifest(raw, "/p");
-        check("pageRows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length), refusal);
+        check("pageRows: " + name, judged.ok ? "" : refusal === "" ? judged.error : judged.error.slice(0, refusal.length), refusal);
     }
     check("action field refuses configuration writes", ctx.settingError(actionSchema.feature, false) !== "", true);
     check("manifest invokes page association judge", ctx.validateManifest({ ...actionRaw, requirements: actionRaw.requirements.concat([{ command: "acme-other", purpose: "Feature", optional: true, setting: "missing" }]) }, "/p").ok, false);
@@ -1952,6 +2002,24 @@ function suite(ctx, configLogic, check) {
 
 suite(load(LOGIC), load(CONFIG), report);
 
+// Its control: a copy of the page judge that draws a set-up row's declared
+// action, not offered, as a dead one; the shipped manifests' rows must fail.
+{
+    const stepsTemp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-steps-control-"));
+    try {
+        const source = fs.readFileSync(STEPS, "utf8");
+        const needle = "action: lineAction(stepButton(row.tuis, entry), head, plugin)";
+        report("control: the dead-action Steps.js text occurs once", source.split(needle).length - 1, 1);
+        const copy = path.join(stepsTemp, "Steps.js");
+        fs.writeFileSync(copy, source.replace(needle, 'action: lineAction(stepButton(row.tuis, entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)'));
+        let red = 0;
+        featureRowsHold(load(LOGIC), load(copy), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+        report("control: a page judge that draws dead actions fails the shipped rows", red > 0, true);
+    } finally {
+        fs.rmSync(stepsTemp, { recursive: true, force: true });
+    }
+}
+
 // Each control removes one rule from a copy of a judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the
 // judge's own place in a temporary tree, beside the other judge, the icon
@@ -1969,8 +2037,11 @@ const CONTROLS = [
     ["labels are judged across sections", 'var scope = row.list ? "list " + row.key : "section " + row.section;', 'var scope = "page";'],
     ["labels are judged with their case", "var label = String(labels[l][1]).toLowerCase();", "var label = String(labels[l][1]);"],
     ["a field's one entry is drawn as one of many", 'own: lines.length === 1 ? lines[0] : "",', 'own: "",'],
-    ["a declared screen is drawn in its field too", " && declared.indexOf(name) === -1; })", "; })"],
+    ["a declared screen is drawn in its field too", "entry.setting === key && declared.indexOf(name) === -1; })", "entry.setting === key; })"],
+    ["a declared configuration screen counts as a More settings row", "entry.settings === true && declared.indexOf(name) === -1; })", "entry.settings === true; })"],
     ["a D-Bus requirement needs no label", "if (!isPrintableLine(requirement.dbus.label, REQUIREMENT_LABEL_MAX))", "if (false)"],
+    ["an action field reads a hint it draws nowhere", 'if (spec.type === "action" && spec.hintFrom !== undefined)', "if (false)"],
+    ["two configuration screens draw two More settings rows", "if (configuring.length > 1)", "if (false)"],
     ["association names a real field", 'typeof value !== "string" || !hasOwn(schema, value)', 'false'],
     ["setup declaration is boolean", 'entry.setup !== undefined && typeof entry.setup !== "boolean"', 'false'],
     ["required step is displayed", 'entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1', 'false'],

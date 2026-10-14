@@ -179,9 +179,10 @@ Item {
     }
 
     // The manager row a page draws: ROW with the rows of its fields as the
-    // core judges them with the manifest (PluginLogic.fieldRows), from its
-    // schema alone, since no row here attaches an entry to a field.
-    function withFields(row) { return Object.assign({}, row, { fieldRows: PluginLogic.fieldRows(row.schema, {}, [], {}) }); }
+    // core judges them with the manifest (PluginLogic.fieldRows), the ones
+    // ROW holds, else from its schema alone, for a row that attaches no
+    // entry to a field.
+    function withFields(row) { return Object.assign({}, row, { fieldRows: row.fieldRows !== undefined ? row.fieldRows : PluginLogic.fieldRows(row.schema, {}, [], {}) }); }
 
     TestCase {
         name: "settingsEdits"
@@ -484,13 +485,24 @@ Item {
         function test_a_hide_empty_field_has_no_place_while_nothing_is_offered() {
             const original = root.pageRow;
             const choices = { type: "string", optionsFrom: "items" };
+            // `attached` keeps its row while the state beside it draws, as
+            // Voice preview keeps Jarvis's Voice field with no voices;
+            // `attachedHidden`'s state is published hidden, so it draws
+            // nothing beside the field and the field has no place.
+            const schema = {
+                kept: Object.assign({ label: "Kept", group: "Choices" }, choices),
+                hiding: Object.assign({ label: "Hiding", group: "Choices", hideEmpty: true }, choices),
+                alone: Object.assign({ label: "Alone", group: "Lone", hideEmpty: true }, choices),
+                attached: Object.assign({ label: "Attached", group: "Choices", hideEmpty: true }, choices),
+                attachedHidden: Object.assign({ label: "Attached hidden", group: "Choices", hideEmpty: true }, choices)
+            };
+            const status = { shownState: { type: "state", label: "Shown state", setting: "attached" }, hiddenState: { type: "state", label: "Hidden state", setting: "attachedHidden" } };
             root.pageRow = Object.assign({}, original, {
-                schema: {
-                    kept: Object.assign({ label: "Kept", group: "Choices" }, choices),
-                    hiding: Object.assign({ label: "Hiding", group: "Choices", hideEmpty: true }, choices),
-                    alone: Object.assign({ label: "Alone", group: "Lone", hideEmpty: true }, choices)
-                },
-                settings: { kept: "", hiding: "", alone: "" }, settingChoices: { kept: [], hiding: [], alone: [] }, binds: []
+                schema: schema,
+                settings: { kept: "", hiding: "", alone: "", attached: "", attachedHidden: "" },
+                settingChoices: { kept: [], hiding: [], alone: [], attached: [], attachedHidden: [] }, binds: [],
+                status: PluginLogic.statusRows({ status: status }, { shownState: { tone: "ok", text: "Ready" }, hiddenState: { hidden: true } }),
+                fieldRows: PluginLogic.fieldRows(schema, status, [], {})
             });
             const page = createTemporaryObject(pluginPageComponent, root);
             verify(page !== null);
@@ -499,6 +511,9 @@ Item {
             tryVerify(() => drawn().indexOf("kept") !== -1);
             compare(drawn().filter(key => key === "hiding" || key === "alone"), [], "a hideEmpty field with nothing offered is not drawn");
             compare(headings().indexOf("Lone"), -1, "a group whose every field is hidden draws no heading");
+            verify(drawn().indexOf("attached") !== -1, "a hideEmpty field keeps its place while a line beside it draws");
+            verify(descendants(page).some(item => item instanceof StatusLine && item.visible && item.entry !== undefined && item.entry !== null && item.entry.key === "shownState"), "the line beside it draws");
+            compare(drawn().indexOf("attachedHidden"), -1, "a hideEmpty field whose attached state is published hidden is not drawn");
             root.pageRow = Object.assign({}, root.pageRow, { settingChoices: { kept: [], hiding: [{ label: "One", value: "" }], alone: [{ label: "One", value: "" }] } });
             tryVerify(() => drawn().indexOf("hiding") !== -1 && drawn().indexOf("alone") !== -1);
             verify(headings().indexOf("Lone") !== -1, "an offer draws the field under its heading");

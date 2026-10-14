@@ -139,9 +139,9 @@ function verify(logic, producer) {
     same([signInButton === null ? null : [signInButton.label, signInButton.enabled, signInButton.name], signIn.hint.includes(REVIEW)],
         [["Sign in", true, "task"], false], "on: a step whose screen lacks an optional tool offers its own action");
     const byHand = rows(Object.assign({}, allDone, { home: blocked })).find(entry => entry.key === "home");
-    same([logic.stepButton(screens, byHand), logic.stepView(byHand, String, on).hint !== ""], [null, true], "on: a by-hand step draws its explanation");
+    same([logic.stepButton(screens, byHand), logic.stepView(byHand, String, on).hint], [null, status.home.hint], "on: a by-hand step draws its explanation");
     const waiting = logic.stepView(rows({}).find(entry => entry.key === "home"), String, on);
-    same(waiting.lines.map(line => line.includes(on.name)), [true], "on, unreported: the step names the wait");
+    same(waiting.lines, [logic.waitingLine(on.name)], "on, unreported: the step names the wait");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, Object.assign({}, on, { error: "This plugin could not start." })).lines,
         ["This plugin could not start."], "on, unreported after a failed build: the step names the failure");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, off).lines, [], "off: an unreported step names no wait");
@@ -169,15 +169,15 @@ function verify(logic, producer) {
     same(lines("feature", allDone, [], on).find(line => line.kind === "own").label, "", "an own state draws no label of its own");
     same(lines("owned", allDone, [], on).map(line => [line.kind, line.label]), [["own", "Owned"]], "an action row's own state is its head, under the field's label");
     same(lines("feature", allDone, [], on).find(line => line.kind === "screens").more.map(button => button.name), ["extra"], "a screen stays in its field's row");
-    same(lines("tooled", allDone, ["org.example.Tool"], on).map(line => [line.label, line.hint, line.lines]), [["Tooled", "Tools: Tool service (missing)", ["Uses its tools"]]],
-        "a tools row names its tools by title under the field's label");
+    same(lines("tooled", allDone, ["org.example.Tool"], on).map(line => [line.label, line.hint.includes("Tool service"), line.hint.includes("org.example.Tool"), line.lines]),
+        [[schema.tooled.label, true, false, [schema.tooled.description]]], "a tools row names its tools by title under the field's label");
     const offScreens = lines("feature", {}, [], off).find(line => line.kind === "screens");
-    same([offScreens.more[0].reason !== "", offScreens.hint === offScreens.more[0].reason], [true, true], "off: a screen that takes no press names why");
+    same([offScreens.more[0].reason, offScreens.hint], [logic.offReason(off.name), logic.offReason(off.name)], "off: a screen that takes no press names why");
     same(logic.freeScreens(screens, status0, "Settings", on).map(screen => screen.name), ["configure"], "settings screens stay in More settings");
     same(logic.freeScreens(screens, status0, "Details", on).map(screen => [screen.name, screen.enabled]), [["chore", true]], "task screens alone stay in Details");
     for (const place of ["Settings", "Details"]) {
         const held = logic.freeScreens(screens, status0, place, off);
-        same([held.every(screen => !screen.enabled && screen.reason !== ""), logic.withheldHint(held) !== ""], [true, true], "off: " + place + " screens take no press and name why");
+        same([held.every(screen => !screen.enabled && screen.reason === logic.offReason(off.name)), logic.withheldHint(held)], [true, logic.offReason(off.name)], "off: " + place + " screens take no press and name why");
         same(logic.withheldHint(logic.freeScreens(screens, status0, place, on)), "", "on: " + place + " screens name no reason");
     }
     same(logic.itemView({ access: "connect", value: "absent", tone: "info" }), { tone: "", text: "" }, "absent stored key gives Add key its place");

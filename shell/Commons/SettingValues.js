@@ -13,6 +13,11 @@ var PROBLEM_TEXT = {
     "no-field": "Use at least one date or time field, such as HH, mm or ddd."
 };
 
+// The row labels a plugin's Settings page draws itself, beside its schema
+// rows: the one source the page and the manifest judge read, so no field
+// of a manifest takes one (PluginLogic.pageRowsError).
+var PAGE_LABELS = { enabled: "Enabled", showInBar: "Show in bar", showOnBar: "Show on the bar", moreSettings: "More settings" };
+
 var CONTROL_OR_SEPARATOR = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 var DATETIME_FIELD = /[dMyhHmszaAt]/;
 

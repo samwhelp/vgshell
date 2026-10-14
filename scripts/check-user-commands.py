@@ -45,6 +45,9 @@ command:
                 names no plugin directory under the root's plugins/. A
                 target completed by concatenation is not judged. With
                 --plugin, the target directories are that plugin's siblings.
+  page-reference-field  a complete literal `page:<id>/Settings/<field key>`
+                reference whose key names no field of that plugin's
+                manifest schema, which its Settings tab would not show.
 A string literal is a quoted one or a template literal, whose `${...}`
 parts read as the argument $ARG.
 The text read is every Markdown file and every manifest.json of each plugin
@@ -104,7 +107,7 @@ PAGE_REFERENCE = re.compile(r"\bSettings >|\b(?:in|from) (?:Settings|Plugins)\b|
 PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
 # Only complete literal targets can be judged. An empty id opens the
 # plugin list; a template argument or unfinished concatenation is unknown.
-PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/Settings/[^\s()/$]+|/[^\s()/$]+)?\)")
+PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/Settings/([^\s()/$]+)|/[^\s()/$]+)?\)")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.
@@ -406,6 +409,17 @@ def resolve(node, pattern, where=()):
         yield from resolve(node[head], rest, where + (head,))
 
 
+def schema_keys(base, plugin):
+    """The field keys of plugin PLUGIN's manifest schema under BASE."""
+    path = os.path.join(base, plugin, "manifest.json")
+    try:
+        doc = json.loads(read(path))
+    except ValueError as exc:
+        unreadable(path, "not JSON: " + str(exc))
+    schema = doc.get("schema") if isinstance(doc, dict) else None
+    return set(schema) if isinstance(schema, dict) else set()
+
+
 def manifest_strings(doc):
     """(where, text) of every user-facing string of manifest DOC (FIELDS)."""
     return [(where, value) for pattern in FIELDS for where, value in resolve(doc, pattern) if isinstance(value, str)]
@@ -434,7 +448,8 @@ def main(argv):
         for current, subdirs, files in os.walk(d, onerror=lambda e: unreadable(e.filename, e.strerror)):
             subdirs.sort()
             markdown.extend(os.path.join(current, f) for f in sorted(files) if f.endswith(".md"))
-    targets = {os.path.basename(d) for d in plugin_dirs(os.path.join(root, "plugins") if core else os.path.dirname(root))}
+    plugin_base = os.path.join(root, "plugins") if core else os.path.dirname(root)
+    targets = {os.path.basename(d) for d in plugin_dirs(plugin_base)}
     heads = command_heads(root, manifests)
     findings = []
     pages = []
@@ -484,6 +499,8 @@ def main(argv):
         for target in PAGE_TARGET.finditer(text):
             if target.group(1) not in targets:
                 findings.append(("page-reference-target", path, where, text.strip()[:120]))
+            elif target.group(2) is not None and target.group(2) not in schema_keys(plugin_base, target.group(1)):
+                findings.append(("page-reference-field", path, where, text.strip()[:120]))
     for path, where, excerpt in pages:
         findings.append(("page-reference", path, where, excerpt))
     for rule, path, where, excerpt in findings:

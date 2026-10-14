@@ -9,7 +9,8 @@ function stepRank(entry) { return stepOpen(entry) ? 0 : 1; }
 // What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error }:
 // To do or Done, and under the chip the published state's own text, or,
 // while the plugin is on and has published nothing for the step, why:
-// ERROR, its failed build, or that it has not reported yet.
+// ERROR, why it was not built, or that it has not reported yet
+// (waitingLine).
 function stepView(entry, timeText, plugin) {
     var view = statusView(entry, timeText);
     view.text = stepOpen(entry) ? "To do" : "Done";
@@ -18,9 +19,10 @@ function stepView(entry, timeText, plugin) {
     if (entry.report === "reported" && entry.type === "state" && entry.value.text !== "" && entry.value.text !== view.text)
         view.lines = [entry.value.text].concat(view.lines);
     if (entry.report !== "reported" && plugin.enabled)
-        view.lines = [plugin.error !== "" ? plugin.error : plugin.name + " has not reported this step yet"];
+        view.lines = [plugin.error !== "" ? plugin.error : waitingLine(plugin.name)];
     return view;
 }
+function waitingLine(name) { return name + " has not reported this step yet"; }
 function detailEntries(status) {
     return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === ""; });
 }

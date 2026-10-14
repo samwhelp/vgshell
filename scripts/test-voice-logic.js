@@ -10,6 +10,7 @@ const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
 const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
+const pageReference = load(path.join(repo, "shell", "Commons", "PageReference.js"));
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
 // Typed setup readings published by the core, after its single probe chain.
@@ -218,9 +219,10 @@ function verify(logic) {
   // The lines that send the user to the Voice page link to the tab that
   // holds the step: Setup holds Install all missing and Set up, Settings
   // holds Configure.
-  assert.equal(logic.FEEDBACK_PROBLEMS.missing, "Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).", "voxtype missing links to the Setup tab");
-  assert.equal(logic.FEEDBACK_PROBLEMS["no-config"], "Voice is not set up. Use Set up on the [Voice page](page:vgs.voice/Setup).", "no config links to the Setup tab");
-  assert.equal(logic.FEEDBACK_PROBLEMS.link, "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Settings).", "a linked config links to the Settings tab");
+  const target = problem => { const found = pageReference.parse(logic.FEEDBACK_PROBLEMS[problem]); return [found.page, found.tab]; };
+  same(target("missing"), ["vgs.voice", "Setup"], "voxtype missing links to the Setup tab");
+  same(target("no-config"), ["vgs.voice", "Setup"], "no config links to the Setup tab");
+  same(target("link"), ["vgs.voice", "Settings"], "a linked config links to the Settings tab");
 }
 
 verify(load(file));

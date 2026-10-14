@@ -526,10 +526,11 @@ Singleton {
     // shows its page, "" for a plugin without kind `pane` or while no
     // holder is enabled (PluginLogic.panesHolderId), its setting
     // choices (PluginLogic.settingChoices over those same values), its
-    // requirements with their state and its errors: each failed build of
-    // one of its kinds, once per cause, then each problem the Hyprland
-    // layer reports for it, then each of its launcher rows another
-    // plugin listed first.
+    // requirements with their state and its errors: why an enabled plugin is
+    // not built while another plugin holds a capability it needs or the
+    // monitor rules (buildRefusal), each failed build of one of its kinds,
+    // once per cause, then each problem the Hyprland layer reports for it,
+    // then each of its launcher rows another plugin listed first.
     readonly property var managerRows: {
         const config = Config.effective;
         const descriptions = Capabilities.shortcutDescriptions;
@@ -540,6 +541,8 @@ Singleton {
         return Object.keys(manifests).sort().map(id => {
             const m = manifests[id];
             const errors = [];
+            const refusal = buildRefusal(id);
+            if (refusal.startsWith("refused: capability=") || refusal.startsWith("refused: hyprland.monitors=")) errors.push(refusal);
             for (const key of Object.keys(failures)) {
                 const failure = failures[key];
                 const text = "build failed: " + failure.kind + ": " + failure.error;

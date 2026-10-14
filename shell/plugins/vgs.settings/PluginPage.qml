@@ -34,10 +34,11 @@ FocusScope {
     readonly property bool dirty: unsaved.edited
 
     // What the page's lines act on: whether the plugin is on, its name and,
-    // while it is on, its first failed build in the shell's words, which a
-    // step it never reported reads in place of the wait (Steps.stepView).
+    // while it is on, why it was not built, its first failed build or the
+    // capability another plugin holds, in the shell's words, which a step it
+    // never reported reads in place of the wait (Steps.stepView).
     readonly property var plugin: row === null ? { enabled: false, name: "", error: "" }
-        : { enabled: row.enabled, name: row.name, error: Reply.line(row.errors.find(error => error.startsWith("build failed: ")) || "ok") }
+        : { enabled: row.enabled, name: row.name, error: Reply.line(row.errors.find(error => error.startsWith("build failed: ") || error.startsWith("refused: ")) || "ok") }
 
     // The rows of the manager row's `fieldRows` (PluginLogic.fieldRows)
     // decide each field's section. Fields of no group are rows under the
@@ -46,13 +47,14 @@ FocusScope {
     // then each group in the order its first field appears. A `list` field
     // whose group exists on the page follows that group; one whose group is
     // absent stays with ungrouped lists at the end. A `hideEmpty` field has
-    // no place while its select model is empty and nothing is attached to
-    // it: nothing is offered for it.
-    function attaches(field) {
-        return field.own !== "" || field.entries.length > 0 || field.keyLists.length > 0 || field.tools.length > 0 || field.screens.length > 0;
+    // no place while its select model is empty and it draws no line beside
+    // it (Steps.featureRow), such as an attached state published hidden:
+    // nothing is offered for it.
+    function drawsLines(field) {
+        return Steps.featureRow(field, row, plugin).length > 0;
     }
     function placed(field) {
-        return !field.list && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !attaches(field));
+        return !field.list && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
     }
     function fieldRow(key) {
         return row === null ? null : row.fieldRows.find(field => field.key === key) || null;
@@ -143,10 +145,12 @@ FocusScope {
     }
     // The last refusal of BUTTON's press for ENTRY's line, "" for none: a
     // screen's and an entry's own are kept by their step key; a Turn on's
-    // and the notice's read at the page head.
+    // and the notice's under the plugin's id, which the page head reads
+    // too, so the pressed line reads it beside its button.
     function replyFor(button, entry) {
         if (button === null || row === null || panel === null) return "";
         if (button.kind === "tui") return panel.replyOf(row.id, panel.tuiKey(button.name));
+        if (button.kind === "enable" || button.kind === "tools") return panel.replyOf(row.id);
         return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
     }
 
@@ -163,7 +167,9 @@ FocusScope {
         property var asideAction: null
         property var more: []
         property string fallbackHint: ""
-        readonly property var view: setup ? Steps.stepView(entry, ms => Timestamp.text(ms, Time.now.getTime()), page.plugin) : Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
+        // A step whose entry left the row draws as no entry (statusView),
+        // and its delegate is hidden.
+        readonly property var view: setup && entry !== null ? Steps.stepView(entry, ms => Timestamp.text(ms, Time.now.getTime()), page.plugin) : Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
         width: parent.width
         label: view.label
         info: view.info
@@ -236,8 +242,13 @@ FocusScope {
     component ChoiceExtras: Column {
         id: choiceExtras
         required property string key
-        readonly property var field: page.fieldRow(key)
-        readonly property var lines: field === null ? [] : Steps.featureRow(field, page.row, page.plugin)
+        // One evaluation reads the field and the row it belongs to, so a
+        // row replaced or cleared under the field never meets the field of
+        // the row before.
+        readonly property var lines: {
+            const field = page.fieldRow(key);
+            return field === null ? [] : Steps.featureRow(field, page.row, page.plugin);
+        }
         readonly property bool subText: {
             const shown = children.filter(child => child.visible && child.height > 0);
             return shown.length > 0 && shown[shown.length - 1].subText === true;
@@ -302,25 +313,48 @@ FocusScope {
     // key>` tab (PageReference.place) also brings that field into view.
     function open(reason, tab) {
         const place = PageReference.place(tab);
-        revealing = place.field;
         tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
         back.forceActiveFocus(reason);
-        if (revealing !== "") Qt.callLater(page.revealField);
+        if (place.field === "") {
+            revealing = "";
+            return;
+        }
+        revealMoving = true;
+        layout.scrollArea.contentY = 0;
+        revealMoving = false;
+        revealing = place.field;
+        Qt.callLater(page.revealField);
     }
 
-    // The key of the field an open asked to show, "" once it is shown. The
-    // Settings tab lays out a newly shown plugin's rows after the open, so
-    // each layout that completes tries again (Column.positioningComplete);
-    // the call waits for the next turn, as SettingField's reveal does.
+    // The key of the field an open asked to show, "" for none. A newly
+    // shown plugin's rows lay out after the open, so each layout of the
+    // Settings tab that completes shows it again (Column.positioningComplete),
+    // the call waiting for the next turn, as SettingField's reveal does,
+    // until the next open, a change of tab or a scroll the reveal did not
+    // make, so the page never moves under the user later.
     property string revealing: ""
-    // Scroll the Settings tab to the row of the field `revealing` names,
-    // once the page draws it.
+    property bool revealMoving: false
+    Connections {
+        target: layout.scrollArea
+        function onContentYChanged() { if (!page.revealMoving) page.revealing = ""; }
+    }
+    // Scroll the Settings tab to the row of the field `revealing` names, a
+    // field's or a list's. A key the page draws no row for is refused once,
+    // at the page head and in the log.
     function revealField() {
+        if (revealing === "" || row === null) return;
+        const field = fieldRow(revealing);
+        if (field === null || (!field.list && !placed(field))) {
+            panel.keep(row.id, "refused: page-field=" + revealing + " reason=" + (field === null ? "unknown" : "undrawn"));
+            revealing = "";
+            return;
+        }
         const found = [settingsPage];
-        for (let i = 0; i < found.length && revealing !== ""; i++) {
+        for (let i = 0; i < found.length; i++) {
             if (found[i].fieldKey === revealing && found[i].visible) {
+                revealMoving = true;
                 layout.scrollArea.reveal(found[i]);
-                revealing = "";
+                revealMoving = false;
                 return;
             }
             for (const child of found[i].children) found.push(child);
@@ -445,6 +479,7 @@ FocusScope {
                 property bool returning: false
                 onCurrentIndexChanged: {
                     if (returning) return;
+                    page.revealing = "";
                     if (currentIndex === 0 || !page.dirty) {
                         layout.scrollArea.contentY = 0;
                         return;
@@ -471,7 +506,7 @@ FocusScope {
 
                         Field {
                             width: parent.width
-                            label: "Enabled"
+                            label: SettingValues.PAGE_LABELS.enabled
                             inline: true
                             visible: page.row !== null && !page.row.alwaysOn
                             hint: page.row !== null && !page.row.enabled && !page.bare ? "Turn on " + page.row.name + " to change its settings and shortcuts" : ""
@@ -487,7 +522,7 @@ FocusScope {
 
                         Field {
                             width: parent.width
-                            label: "Show in bar"
+                            label: SettingValues.PAGE_LABELS.showInBar
                             inline: true
                             visible: page.row !== null && page.row.kinds.indexOf("bar-widget") !== -1 && page.row.kinds.some(kind => kind !== "bar" && kind !== "bar-widget")
                             hint: page.row !== null && !page.row.enabled ? "Turn on " + page.row.name + " to show it in the bar" : ""
@@ -556,7 +591,7 @@ FocusScope {
                                 SettingField {
                                     required property var modelData
                                     pluginId: modelData.id
-                                    spec: ({ type: "boolean", label: "Show on the bar" })
+                                    spec: ({ type: "boolean", label: SettingValues.PAGE_LABELS.showOnBar })
                                     value: modelData.placed
                                     editable: page.editable
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
@@ -592,6 +627,8 @@ FocusScope {
                                 Section {
                                     id: groupedListSection
                                     required property string modelData
+                                    // The key a page reference names the list by (revealField).
+                                    readonly property string fieldKey: modelData
                                     width: section.width
                                     title: page.row.schema[modelData].label
                                     description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
@@ -628,6 +665,8 @@ FocusScope {
                         Section {
                             id: listSection
                             required property string modelData
+                            // The key a page reference names the list by (revealField).
+                            readonly property string fieldKey: modelData
                             width: body.width
                             title: page.row.schema[modelData].label
                             description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
@@ -691,7 +730,7 @@ FocusScope {
                             id: moreSettingsRow
                             required property var modelData
                             width: settingsPage.width
-                            label: "More settings"
+                            label: SettingValues.PAGE_LABELS.moreSettings
                             inline: true
                             hint: modelData.reason
                             error: page.row === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData.name))
@@ -741,6 +780,8 @@ FocusScope {
                                     id: requiredEntry
                                     required property var modelData
                                     width: requiredSteps.width
+                                    // A step whose entry left the row draws no line.
+                                    visible: modelData.keys || modelData.tools === true || page.statusEntry(modelData.key) !== null
                                     sourceComponent: modelData.keys ? requiredKeys : requiredState
                                     Component {
                                         id: requiredKeys

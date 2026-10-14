@@ -435,7 +435,7 @@ var CLONE_WITHHELD = {
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
-var CLONE_READY_HINT = "Jarvis speaks in this voice while [Settings > Jarvis > Cloned voice](page:vgs.jarvis/Settings) is on";
+var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on";
 function clonedVoiceStep(value, provider) {
     var action = value.action === true ? "setup" : value.action;
     var reason = provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null;
@@ -464,10 +464,10 @@ var VOICE_KEY_HINTS = {
 // (voiceKeyProvider): what the key gives, and how to use another. Jarvis
 // stores its keys itself, several for one provider, each under a name, so
 // the row is no line of a key the core stores and takes no Replace or
-// Remove: a new key goes in through Add key on the API keys row, which
-// stays offered on this Setup tab, and the Voice key field, on the
-// Settings tab, chooses it: the hint's one page reference.
-var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys row, then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)";
+// Remove: a new key goes in through Add key on the API keys line under
+// Account, and the Voice key field, whose own line this is, chooses it,
+// both on the Settings tab this line is drawn on, so the hint links none.
+var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys line under Account, then choose it in Voice key";
 var VOICE_KEY_STORED = {
     openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
     gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
@@ -494,7 +494,7 @@ function voiceKey(offered, settings) {
 // or waiting while another cause holds the Voice step. Only the hints
 // that send the user to ElevenLabs API keys name it, the declared one and
 // the failed read's, so the row's link draws in those two states alone.
-var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";
+var ELEVENLABS_READY = "Choose one in the Voice list";
 var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key";
 var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the [Voice step on Setup](page:vgs.jarvis/Setup) is done";
 function elevenLabsStep(facts) {

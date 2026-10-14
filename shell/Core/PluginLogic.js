@@ -3870,7 +3870,7 @@ function validateManifest(raw, sourceDir) {
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
     manifest.fieldRows = fieldRows(manifest.schema, manifest.status, manifest.requirements, manifest.tui);
-    var badRows = pageRowsError(manifest.fieldRows, manifest.schema, manifest.status);
+    var badRows = pageRowsError(manifest.fieldRows, manifest.schema, manifest.status, manifest.tui);
     if (badRows !== "") return { ok: false, error: badRows };
     if (raw.hyprland !== undefined) {
         manifest.hyprland = {
@@ -5038,10 +5038,6 @@ function pagePlacementError(status, requirements, tui, schema) {
     return "";
 }
 
-// The labels a plugin's Settings page draws itself beside its schema rows,
-// which no field, entry or key list of the manifest may take.
-var PAGE_OWN_LABELS = ["Enabled", "Show in bar", "Show on the bar", "More settings"];
-
 // The rows a plugin's Settings page draws for SCHEMA, one per field in
 // schema order, from the normalized STATUS, REQUIREMENTS and TUI:
 // { key, section, list, own, entries, keyLists, tools, screens }.
@@ -5072,20 +5068,32 @@ function fieldRows(schema, status, requirements, tui) {
     });
 }
 
-// The first row of ROWS, fieldRows' over SCHEMA and STATUS, a Settings page
-// could not draw truly, or "": `schema.<key> page-row=<rule>` or
-// `status.<key> page-row=<rule>`, then why. `no-action`, an action field,
-// which has no control, with nothing to act on: no own entry that declares
-// an action, no screen and no tool. `two-states`, an action field with more
-// than one attached line, whose one line has room for one. `duplicate-label`,
-// a label drawn twice in one section, a list's own included, ignoring
-// case. `page-label`, a label PAGE_OWN_LABELS holds. `own-hint`, a `hintFrom`
-// naming the field's own entry, whose hint its row draws already.
-function pageRowsError(rows, schema, status) {
-    var own = PAGE_OWN_LABELS.map(function (label) { return label.toLowerCase(); });
+// The first row a Settings page could not draw truly, of ROWS, fieldRows'
+// over SCHEMA and STATUS, and of the More settings rows of TUI, or "":
+// `schema.<key> page-row=<rule>`, `status.<key> page-row=<rule>` or
+// `tui.<name>.entry page-row=<rule>`, then why. `no-action`, an action
+// field, which has no control, with nothing to act on: no own entry that
+// declares an action, no screen and no tool. `two-states`, an action field
+// with more than one attached line, whose one line has room for one.
+// `action-hint`, a `hintFrom` on an action field, which draws no control to
+// read it under. `duplicate-label`, a label drawn twice in one section, a
+// list's own included, ignoring case, or a second configuration screen,
+// whose More settings row would repeat the first's. `page-label`, a label
+// of the rows the page draws itself (SettingValues.PAGE_LABELS). `own-hint`,
+// a `hintFrom` naming the field's own entry, whose hint its row draws
+// already.
+function pageRowsError(rows, schema, status, tui) {
+    var own = Object.keys(SettingValues.PAGE_LABELS).map(function (name) { return SettingValues.PAGE_LABELS[name].toLowerCase(); });
+    var declared = [];
+    Object.keys(status).forEach(function (key) { declared = declared.concat(statusDeclaredTuis(status[key])); });
+    var configuring = Object.keys(tui).filter(function (name) { return tui[name].entry !== null && tui[name].entry.settings === true && declared.indexOf(name) === -1; });
+    if (configuring.length > 1)
+        return "tui." + configuring[1] + ".entry page-row=duplicate-label: " + JSON.stringify(SettingValues.PAGE_LABELS.moreSettings) + " is drawn for " + configuring[0] + " already; list one configuration screen";
     var drawn = Object.create(null);
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i], spec = schema[row.key], at = "schema." + row.key;
+        if (spec.type === "action" && spec.hintFrom !== undefined)
+            return at + " page-row=action-hint: an action field draws no control for " + spec.hintFrom + "'s hint to read under";
         if (spec.type === "action") {
             if (row.entries.length > 1)
                 return at + " page-row=two-states: an action field draws one status line; attach the others to another field";

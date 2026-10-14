@@ -4,6 +4,7 @@ import qs.Commons
 import qs.Core
 import qs.Ui
 import "../../shell/plugins/vgs.settings"
+import "../../shell/plugins/vgs.settings/Steps.js" as Steps
 
 // PluginLogic produces the manager rows. The actual page and list consume
 // them. Required steps, including an actionless Home failure, keep Setup
@@ -335,7 +336,7 @@ Item {
             window.openPlugin("acme.held", Qt.OtherFocusReason, "Details");
             verify(action() !== undefined); compare(action().enabled, false, "a task screen takes no press while its plugin is off");
             const reason = descendants(action()).find(item => item instanceof Tooltip).text;
-            verify(reason !== "", "the screen names why");
+            compare(reason, Steps.offReason("acme.held"), "the screen names why");
             compare(fieldOf(action()).hint, reason, "the row reads the reason too");
         }
         function test_detached_rows_keep_their_layout_owner_width_data() {

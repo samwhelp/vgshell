@@ -502,12 +502,12 @@ Item {
         const value = shown.kind === "section"
             ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
             : shown.kind === "none" ? { tone: "info", text: "No home folder",
-                hint: "Choose a home folder first in [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)" }
+                hint: "Choose a home folder first in [Home folder](page:vgs.jarvis/Settings/home)" }
             : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
                 hint: "Edit opens AGENTS.md. Add the heading ## Personality on its own line and say how Jarvis talks under it." }
             : shown.kind === "too-large" ? { tone: "warning", text: "AGENTS.md is too long", action: true,
                 hint: "Edit opens AGENTS.md. Make it shorter than 8 KB." }
-            : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)" };
+            : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" };
         const reply = shell.status.set("personality", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }

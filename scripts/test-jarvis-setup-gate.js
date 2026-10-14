@@ -1011,13 +1011,12 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         assert.deepEqual([stored.local.hint === stored.realtime.hint, new Set(kept.map(item => item.hint)).size], [true, 3],
             "a stored key's row names the voice its key runs");
         const adds = manifest.status.keyStore;
-        // The API keys row belongs beside Account; the Voice key field is on
-        // the Settings tab, the hint's one page reference, since LinkText
-        // draws one link a text and the row's declared link gives way to it.
-        const references = hint => [...hint.matchAll(/\[([^\[\]]+)\]\(page:([^\s()\/]*)\/([^\s()\/]+)\)/g)].map(found => [found[1], found[2], found[3]]);
-        assert.deepEqual(kept.map(item => [[adds.label, adds.action.label].map(words => item.hint.includes(words)), references(item.hint)]),
-            kept.map(() => [[true, true], [["Settings > Jarvis > " + field.label, "vgs.jarvis", "Settings"]]]),
-            "a stored key's row names where another key goes in and links where it is chosen");
+        // The API keys line sits under Account and the Voice key field is the
+        // row this line is drawn in, both on the Settings tab, so the hint
+        // names them and links no page.
+        assert.deepEqual(kept.map(item => [[adds.label, adds.action.label, manifest.schema.brain.label, field.label].map(words => item.hint.includes(words)), pageReference.parse(item.hint).page]),
+            kept.map(() => [[true, true, true, true], ""]),
+            "a stored key's row names where another key goes in and where it is chosen");
         assert.deepEqual([adds.action.tui, plain(words.keysValue({ kind: "listed", rows: [{ label: "OpenAI", value: "present" }] })).action],
             ["add-key", true], "the API keys row offers Add key while a key is stored");
         // The preview row of a cloud voice names whose key it uses.
@@ -1689,8 +1688,8 @@ const CONTROLS = [
         "dictation setup leaves local voice maintenance available: the rows that offer"],
     ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory"',
         '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
-    ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice";',
-        "the voices hint names Jarvis's own field"],
+    ["the voices hint links the tab it is drawn on", 'var ELEVENLABS_READY = "Choose one in the Voice list";', 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";',
+        "the voices hint links no page"],
     ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
@@ -1709,7 +1708,7 @@ const CONTROLS = [
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
-    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";', 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings), or open ElevenLabs API keys";',
+    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in the Voice list";', 'var ELEVENLABS_READY = "Choose one in the Voice list, or open ElevenLabs API keys";',
         "draws its link only where the user needs the key page"],
     ["a failed voice read names no key page", "check under ElevenLabs API keys that it may read voices", "check that it may read voices",
         "draws its link only where the user needs the key page"],
@@ -1740,10 +1739,10 @@ const CONTROLS = [
     ["a stored key still offers Add key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: true }'],
     ["a stored key's row says to get a key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: hint, action: false }'],
     ["a stored key's row names one voice", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED.openai, action: false }'],
-    ["a stored key's row names no field", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)"', 'then choose it"',
-        "links where it is chosen"],
-    ["a stored key's row names its field in plain words", 'then choose it in [Settings > Jarvis > Voice key](page:vgs.jarvis/Settings)"',
-        'then choose it in Settings > Jarvis > Voice key"', "links where it is chosen"],
+    ["a stored key's row names no field", 'then choose it in Voice key"', 'then choose it"',
+        "names where another key goes in and where it is chosen"],
+    ["a stored key's row links the tab it is drawn on", 'then choose it in Voice key"',
+        'then choose it in [Voice key](page:vgs.jarvis/Settings)"', "names where another key goes in and where it is chosen"],
     ["a failed key read offers no Add key", 'text: "Could not check", hint: hint, action: true }', 'text: "Could not check", hint: hint, action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
@@ -1756,8 +1755,8 @@ const CONTROLS = [
         "    else if (row.tone === \"ok\") row.hint = CLONE_READY_HINT;\n    if (value.lines !== undefined) row.lines = value.lines;\n    return row;",
         "a timed-out read words its state: the row draws no keyed cause"],
     ["a ready clone row keeps the setup instruction", '    else if (row.tone === "ok") row.hint = CLONE_READY_HINT;\n', "", "a ready cloned voice offers Remove and says what the recording gives"],
-    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while [Settings > Jarvis > Cloned voice](page:vgs.jarvis/Settings) is on";',
-        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while [Settings > Jarvis > Cloned voice](page:vgs.jarvis/Settings) is on.";'],
+    ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on";',
+        'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Cloned voice is on.";'],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
     ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
     ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
@@ -2549,7 +2548,9 @@ function verifyPathForm(gate) {
     assert.equal(paths.length >= 10, true, "the gate's Settings paths are read");
     for (const found of paths)
         assert.match(found, /^Settings > (Voice$|Jarvis( > [A-Z][A-Za-z ]*)?)/, JSON.stringify(found) + ": the Settings path has the one form");
-    assert.equal(gate.ELEVENLABS_READY.includes("Settings > Jarvis > "), true, "the voices hint names Jarvis's own field");
+    // The voices line is drawn under the Voice field on Settings: it names
+    // that field and links no page.
+    assert.deepEqual([gate.ELEVENLABS_READY.includes(manifest.schema.voice.label), pageReference.parse(gate.ELEVENLABS_READY).page], [true, ""], "the voices hint links no page");
     for (const text of texts)
         assert.ok((text.match(/\]\(page:/g) ?? []).length <= 1, JSON.stringify(text) + ": at most one reference per drawn text");
     for (const [cause, page, tab] of [
