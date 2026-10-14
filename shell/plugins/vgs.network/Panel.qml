@@ -6,6 +6,8 @@ import qs.Ui
 // connected through, the Wi-Fi networks to join where a Wi-Fi device
 // exists, every Ethernet device with its state, and a footer whose Network
 // settings opens System on this plugin's pane and closes the dropdown.
+// A Wi-Fi password prompt draws over the whole Pane, its header and footer
+// included (NetworkBody promptPane).
 Item {
     id: root
     property var shell: null
@@ -44,6 +46,6 @@ Item {
         onSwitchToggled: checked => body.action("radio", null)
 
         footer: [Button { width: layout.contentWidth; text: "Network settings"; iconName: "settings"; variant: "tertiary"; onClicked: root.openSettings() }]
-        NetworkBody { id: body; objectName: "network-body"; width: layout.contentWidth; shell: root.shell }
+        NetworkBody { id: body; objectName: "network-body"; width: layout.contentWidth; shell: root.shell; promptPane: layout }
     }
 }

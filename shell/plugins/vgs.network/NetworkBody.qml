@@ -11,11 +11,16 @@ import "NetworkLogic.js" as Logic
 // reads, the row shows a Spinner and its content takes no height, so the
 // rows under it move once.
 // The Wi-Fi password prompt is a Dialog over a Scrim in the body's own
-// window. The shared ModalDialog is a layer surface that takes the keyboard,
-// and Hyprland ends the flyout's popup grab when one maps, which closes the
-// flyout and the prompt with it (network smoke row with a ModalDialog on the
-// prompt, 2026-10-13: the flyout read hidden at the first reading; Hyprland
-// 0.56.2 LayerSurface.cpp onMap, XDGShell.cpp addOrStartGrab).
+// window, drawn over `promptPane` when the host names one: the dropdown
+// names its own Pane, so the Scrim also covers the title row's switch and
+// gear and the footer, which lie outside the body, and none of them
+// answers while the dialog waits. The System pane names none, and the
+// prompt draws over the body there. The shared ModalDialog is a layer
+// surface that takes the keyboard, and Hyprland ends the flyout's popup
+// grab when one maps, which closes the flyout and the prompt with it
+// (network smoke row with a ModalDialog on the prompt, 2026-10-13: the
+// flyout read hidden at the first reading; Hyprland 0.56.2
+// LayerSurface.cpp onMap, XDGShell.cpp addOrStartGrab).
 FocusScope {
     id: root
     focus: true
@@ -50,15 +55,23 @@ FocusScope {
     onShownPromptChanged: if (shownPrompt !== "") Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); })
     readonly property Item initialFocus: prompting ? password : list
     readonly property string promptName: network.prompt === null || !network.prompt ? "" : network.prompt.name
+    property Pane promptPane: null
+    readonly property Item promptHost: promptPane === null ? root : promptPane
+    // The corner the scrim rounds to: the hosting Pane's container corner,
+    // or none over the body, a square part of its page.
+    readonly property real promptCorner: promptPane === null ? 0 : promptPane.cornerRadius
     // The view that scrolls the body, read when a prompt opens, and the
     // body's top in that view's content. The prompt centres on the part of
-    // the body the view shows, so a long list scrolled down still shows it.
+    // its host the view shows, so a long list scrolled down still shows it;
+    // a Pane that hosts it does not scroll, and shows all of it.
     // Flickable.contentY is the content coordinate at the view's top edge
     // (Qt 6 Flickable reference).
     property Flickable promptView: null
     property real promptOrigin: 0
-    readonly property real shownTop: promptView === null ? 0 : Math.max(0, Math.min(height, promptView.contentY - promptOrigin))
-    readonly property real shownBottom: promptView === null ? height : Math.max(shownTop, Math.min(height, promptView.contentY - promptOrigin + promptView.height))
+    readonly property real shownTop: promptPane !== null || promptView === null ? 0 : Math.max(0, Math.min(height, promptView.contentY - promptOrigin))
+    readonly property real shownBottom: promptPane !== null ? promptPane.height : promptView === null ? height : Math.max(shownTop, Math.min(height, promptView.contentY - promptOrigin + promptView.height))
+    // The body keeps the prompt's height, so the Pane that hosts it is
+    // never shorter than the dialog either.
     implicitHeight: joinTarget !== undefined ? (joinLoader.item === null ? 0 : joinLoader.item.implicitHeight) : shareTarget === null ? Math.max(content.implicitHeight, prompting ? prompt.implicitHeight + 2 * Theme.dialog.margin : 0) : shareLoader.item === null ? 0 : shareLoader.item.implicitHeight
 
     function open() {
@@ -487,15 +500,22 @@ FocusScope {
         }
     }
 
-    // The scrim takes each press, hover and wheel over the body. A press on
-    // it keeps the typed text.
+    // The scrim takes each press, hover and wheel over its host. A press on
+    // it keeps the typed text. Over a Pane it rounds to the Pane's container
+    // corner, the dropdown Surface's, so it darkens nothing outside the card
+    // in the transparent popup. Both items join the host when it is named,
+    // in no set order, so the dialog's `z` keeps it above the scrim.
     Scrim {
         visible: root.prompting
+        parent: root.promptHost
+        radius: root.promptCorner
         onClicked: prompt.takeFocus()
     }
     Dialog {
         id: prompt
         objectName: "network-prompt"
+        parent: root.promptHost
+        z: 1
         visible: root.prompting
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.shownTop + Math.max(0, (root.shownBottom - root.shownTop - height) / 2)

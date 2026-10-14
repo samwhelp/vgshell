@@ -8,7 +8,10 @@
 # The password prompt's control plants the field in the body, outside the
 # dialog, and drops the prompt's reading of its scrolled view, in a sandbox
 # plugin copy. Its focus controls, in another copy, drop the hand-off to the
-# dialog when it shows and leave the page enabled behind it.
+# dialog when it shows and leave the page enabled behind it. The scrim's
+# control, in another copy, parents the Scrim back to the body, so it
+# leaves the dropdown's header and footer undimmed and a click on the
+# Wi-Fi switch turns Wi-Fi off.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
@@ -146,12 +149,34 @@ net_hint_suppressed() { expect "$1: the list hint is hidden under the dialog" fa
 # body holds it].
 net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin "$1" vgs.network Dialog)" "$(ipc smoke activeFocusIn "$1" vgs.network)"; }
 net_dialog_y() { ipc smoke itemValues "$1" vgs.network Dialog objectName,y | py_reply 'import json,sys; print(next(r["y"] for r in json.load(sys.stdin) if r["objectName"]=="network-prompt"))'; }
-net_dropdown_button() { # TEXT: one real click on the dropdown's button
+# net_dropdown_click READER TYPE TEXT: one real click on the centre of the
+# dropdown item the probe's READER, itemGeometry or labelledGeometry, finds.
+net_dropdown_click() {
   local rect x y
-  rect="$(ipc smoke itemGeometry panel vgs.network Button "$1")" || return 1
-  [[ $rect == \[* ]] || { echo "net_dropdown_button: no $1: $rect" >&2; return 1; }
+  rect="$(ipc smoke "$1" panel vgs.network "$2" "$3")" || return 1
+  [[ $rect == \[* ]] || { echo "net_dropdown_click: no $2 $3: $rect" >&2; return 1; }
   read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$rect") || return 1
   hover "$((x + 1))" "$y" && click "$x" "$y"
+}
+net_dropdown_button() { net_dropdown_click itemGeometry Button "$1"; }
+# net_scrim_covers: `covers` while the shown Scrim's box is the dropdown
+# Surface's, its header and footer included, else `partial` with both boxes.
+net_scrim_covers() { ipc smoke descendantGeometry panel vgs.network | py_reply 'import json,sys
+items=json.load(sys.stdin); box=lambda t: next((i["box"] for i in items if i["type"]==t and i["visible"]), None)
+print("covers" if box("Scrim") is not None and box("Scrim")==box("Surface") else "partial scrim=%s surface=%s" % (box("Scrim"), box("Surface")))'; }
+# net_scrim_click LABEL READER TYPE TEXT: Tab moves the dialog's focus to
+# Cancel, then a real click on that dropdown control lands on the scrim,
+# which hands the focus back to the field: the click arrived, and the
+# control under it changed nothing and took no focus.
+net_scrim_click() {
+  type_keys -k Tab
+  expect_poll "$1: Tab moves the focus to Cancel" '{"masked":true,"length":7,"focused":false}' ipc smoke networkField panel
+  net_dropdown_click "${@:2}" || fail "$1: the click failed"
+  expect_poll "$1: the scrim hands the focus back to the field" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+  expect "$1: the dialog keeps the focus" '[true, true]' net_dialog_focus panel
+  expect "$1: Wi-Fi stays on" True net_radio
+  expect "$1: no radio action starts" idle net_action
+  expect "$1: the dropdown stays open" shown net_shown panel
 }
 # net_reprompt LABEL: the saved profile's activation fails on its password,
 # so the service prompts, and the failed activation is removed.
@@ -518,6 +543,12 @@ expect_poll "the dialog focuses its masked field" '{"masked":true,"length":0,"fo
 expect "the focused field is the dialog's own" true ipc smoke activeFocusWithin panel vgs.network Dialog
 type_keys partial
 expect_poll "the dialog's field takes the typed text" '{"masked":true,"length":7,"focused":true}' ipc smoke networkField panel
+expect "the dim layer covers the whole dropdown, header and footer included" covers net_scrim_covers
+net_scrim_click "Wi-Fi switch" itemGeometry Switch ""
+net_scrim_click "Settings gear" labelledGeometry IconButton Settings
+net_scrim_click "Network settings" itemGeometry Button "Network settings"
+expect "the header switch stays checked under the dialog" '{"checked": true, "enabled": true, "placed": true}' net_header
+expect "no click under the dialog opens System" hidden net_shown window
 net_expect_fixture "the list gains a network under the dialog" enterprise || return 0
 expect_poll "the list refreshes under the dialog" True net_enterprise_seen
 expect "a list refresh keeps the dialog" true net_dialog panel
@@ -1250,6 +1281,29 @@ expect "the focus controls cancel the System prompt" ok ipc vgs.network invoke a
 expect_poll "the focus controls hold no prompt" none net_prompt
 expect "System closes the focus controls" ok ipc shell hide window vgs.system
 expect_poll "the focus controls' pane is gone" hidden net_shown window
+# The scrim's control: the Scrim parented back to the body.
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
+python3 - "$net_copy/NetworkBody.qml" <<'PYSCRIM'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='    Scrim {\n        visible: root.prompting\n        parent: root.promptHost\n'
+assert s.count(old)==1
+p.write_text(s.replace(old,'    Scrim {\n        visible: root.prompting\n'))
+PYSCRIM
+rescan "the scrim control is discovered"
+expect_poll "the scrim control finishes its backend probes" '"offline"' net_state
+net_widget_click || fail "the click on the Network widget for the scrim control failed"
+expect_poll "the scrim control's dropdown opens" shown net_shown panel
+summon_drawn panel vgs.network || fail "the scrim control's dropdown never drew a frame"
+net_reprompt "Scrim control" || return 0
+expect_poll "the scrim control's dialog shows" true net_dialog panel
+net_scrim_control="$(net_scrim_covers)" || net_scrim_control=unread
+expect "control: a scrim in the body leaves the header and footer undimmed" partial printf '%s\n' "${net_scrim_control%% *}"
+net_dropdown_click itemGeometry Switch "" || fail "the click on the scrim control's Wi-Fi switch failed"
+expect_poll "control: the Wi-Fi switch over a body scrim turns Wi-Fi off" False net_radio
+expect "the scrim control restores Wi-Fi" ok ipc vgs.network invoke action '{"kind":"radio"}'
+expect_poll "the scrim control's Wi-Fi is back on" True net_radio
+expect_poll "the scrim control lists the saved network again" True net_known
+expect "the scrim control closes" ok ipc shell hide panel vgs.network
 cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_copy/NetworkBody.qml"
 # These mutations make the production scanner and keyboard checks red.
 python3 - "$net_copy/Service.qml" "$net_copy/NetworkBody.qml" <<'PYCONTROL'
