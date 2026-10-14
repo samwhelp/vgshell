@@ -323,7 +323,6 @@ harnesses = [
 
 [skills.jarvis]
 source = "kendex"
-harnesses = ["codex"]
 
 [hooks.block-bare-cd]
 source = "kendex"
