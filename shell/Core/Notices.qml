@@ -30,8 +30,9 @@ import "PluginLogic.js" as Logic
 // packages; once its run ends, one rescan follows, and
 // a notice whose required commands that scan and its version read find, at
 // their floor, is closed, while one the run left as it was says so. A notice a
-// plugin's setup TUI raised in place of itself (TuiRunner.runFor) opens
-// that TUI once it closes so, so one press of Set up ends set up (D061).
+// plugin's own script request raised in place of itself (TuiRunner.run and
+// runFor) starts that script once it closes so, so one press of Set up ends
+// set up (D061).
 // The core never elevates: the package manager asks in the terminal (D034).
 Singleton {
     id: root
@@ -60,9 +61,11 @@ Singleton {
     // code 0, or what a run that ended with code 0 left as it was,
     // PluginLogic.noticeUnchanged's answer, of kind `unchanged`.
     property var failure: null
-    // Plugin id -> the name of its own TUI a press asked for while a
-    // command it needs was missing: opened once that plugin's notice
-    // closes with the commands found, dropped by Not now. Replaced whole.
+    // Plugin id -> the request for its own script, TuiRunner's held
+    // { name, args, ctx, done }, made while a command it needs was missing:
+    // started once that plugin's notice closes with the commands found,
+    // dropped by Not now or a later request, its `done` then ended as
+    // unstarted (TuiRunner.unstarted). Replaced whole.
     property var resumes: ({})
     property var screen: null
     // What the consent slot draws, or null: PluginLogic.consentSlotView,
@@ -122,8 +125,9 @@ Singleton {
 
     readonly property var current: queue.length > 0 ? queue[0] : null
     // Whether the restart notice waits: while a floating TUI run is live or
-    // a notice still owes a plugin's setup TUI (resumes), so it never comes
-    // up in the middle of a setup flow. The slots behind it wait with it.
+    // a notice still holds a plugin's script request (resumes), so it never
+    // comes up in the middle of a setup flow. The slots behind it wait with
+    // it.
     readonly property bool restartHeld: Capabilities.tuis.live || Object.keys(resumes).length > 0
     // The restart notice shows behind every requirement notice, the reset
     // question behind it, the "VGS was reset" notice behind that, and the
@@ -215,23 +219,39 @@ Singleton {
         resume();
     }
 
-    // Each TUI a press asked for whose plugin's notice has closed: opened
-    // when the scan finds every command it needs, so a notice closed with
-    // one still missing opens nothing.
+    // Each held request whose plugin's notice has closed: started when the
+    // scan finds every command it needs, so a notice closed with one still
+    // missing starts nothing and its request is dropped.
     function resume() {
         const due = Object.keys(resumes).filter(id => !queue.some(n => n.id === id));
         if (due.length === 0) return;
         const next = Object.assign({}, resumes);
         for (const id of due) delete next[id];
-        const names = due.map(id => resumes[id]);
+        const held = due.map(id => resumes[id]);
         resumes = next;
         due.forEach((id, i) => {
+            const request = held[i];
             const manifest = Registry.manifests[id];
-            if (manifest === undefined || !Logic.hasOwn(manifest.tui, names[i])) return;
-            if (Logic.tuiMissingRequirements(manifest, names[i], missingOf(id)).length > 0) return;
-            const answer = Capabilities.tuis.runFor(id, names[i]);
-            if (answer !== "ok") console.warn("notices: resume=" + id + "/" + names[i] + " " + answer);
+            if (manifest === undefined || !Logic.hasOwn(manifest.tui, request.name)
+                    || Logic.tuiMissingRequirements(manifest, request.name, missingOf(id)).length > 0) {
+                Capabilities.tuis.unstarted(request);
+                return;
+            }
+            const answer = Capabilities.tuis.resume(id, request);
+            if (answer !== "ok") console.warn("notices: resume=" + id + "/" + request.name + " " + answer);
         });
+    }
+
+    // Holds HELD for plugin ID's notice, or drops ID's held request when
+    // HELD is null. A request it replaces or drops never starts, so its
+    // `done` ends; resumes moves first, so that end sees the new hold.
+    function hold(id, held) {
+        const old = Logic.hasOwn(resumes, id) ? resumes[id] : null;
+        const next = Object.assign({}, resumes);
+        if (held === null) delete next[id];
+        else next[id] = held;
+        resumes = next;
+        if (old !== null) Capabilities.tuis.unstarted(old);
     }
 
     // Start one scan and call FN once a scan that started after this call
@@ -332,7 +352,7 @@ Singleton {
         if (tui !== undefined && (typeof tui !== "string" || !Logic.hasOwn(ctx.manifest.tui, tui)))
             return "refused: tui=" + Logic.tuiLabel(tui) + " reason=undeclared";
         const answer = raise(ctx.id, "offered", commands);
-        if (answer === "ok" && tui !== undefined) resumes = Object.assign({}, resumes, { [ctx.id]: tui });
+        if (answer === "ok" && tui !== undefined) hold(ctx.id, { name: tui, args: [], ctx: null, done: undefined });
         return answer;
     }
 
@@ -346,11 +366,12 @@ Singleton {
     // with every missing command, the Settings window's Install all missing.
     // A plugin missing nothing raises no notice, so `satisfied` answers
     // `refused: requirements=<id> reason=satisfied` for the page to show.
-    // TUI, when given, is the plugin's own TUI the press asked for, which
-    // the notice opens once it closes with its commands found (resume).
-    function requested(id, tui) {
+    // HELD, when given, is TuiRunner's request for the plugin's own script,
+    // which the notice starts once it closes with its commands found
+    // (resume).
+    function requested(id, held) {
         const answer = raise(id, "requested");
-        if (answer === "ok" && tui !== undefined) resumes = Object.assign({}, resumes, { [id]: tui });
+        if (answer === "ok" && held !== undefined) hold(id, held);
         return answer === "satisfied" ? "refused: requirements=" + id + " reason=satisfied" : answer;
     }
 
@@ -505,11 +526,7 @@ Singleton {
         for (const id of Object.keys(rest)) if (rest[id] > now) next[id] = rest[id];
         next[notice.id] = now + Logic.NOTICE_OFFER_REST_MS;
         rest = next;
-        if (Logic.hasOwn(resumes, notice.id)) {
-            const kept = Object.assign({}, resumes);
-            delete kept[notice.id];
-            resumes = kept;
-        }
+        if (Logic.hasOwn(resumes, notice.id)) hold(notice.id, null);
         queue = queue.slice(1);
     }
 
@@ -543,6 +560,8 @@ Singleton {
     // resting plugins, the screen and the managers, for the lending record.
     function record() {
         const now = Date.now();
+        const resumeNames = {};
+        for (const id of Object.keys(resumes)) resumeNames[id] = resumes[id].name;
         return {
             shown: current === null ? null : { plugin: current.id, commands: current.commands, required: current.required, installing: installing, failure: failure },
             restart: restart,
@@ -557,7 +576,7 @@ Singleton {
                 link: consent !== null && consent.welcome ? consent.link : null
             },
             waiting: queue.slice(1).map(n => n.id),
-            resumes: resumes,
+            resumes: resumeNames,
             resting: Object.keys(rest).filter(id => rest[id] > now).sort(),
             screen: screen === null ? null : screen.name,
             managers: managers,

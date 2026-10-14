@@ -71,40 +71,72 @@ Scope {
     // run: one of the calling plugin's own declared scripts, from the
     // snapshot of the revision its instance runs. `done`, when given,
     // receives { code, reason } once the run ends or its launcher fails.
+    // Judged by request, as runFor is, so a script that lacks a command it
+    // needs raises its requirement notice and starts, with ARGS and `done`,
+    // once the notice closes with its commands found (resume). Answers as
+    // start does: the caller maps a busy refusal itself.
     function run(ctx, name, args, done) {
         if (done !== undefined && typeof done !== "function")
             throw new Error("refused: tui=" + Logic.tuiLabel(name) + " done=not-a-function");
-        return start(Logic.tuiRun(ctx.manifest, Registry.isEnabled(ctx.id), Registry.sourceDir, runner(), name, args), ctx, done);
+        return request(ctx.id, ctx.manifest, { name: name, args: args, ctx: ctx, done: done });
     }
 
     // runFor: plugin ID's own declared script NAME, with no arguments and no
     // `done`, for the `manager` capability's step runner
     // (Capabilities.managerStep): its act on a status action (D061) and
     // its open of a listed setup screen, the Settings page's Setup button.
-    // Judged as the plugin's own run, so a disabled plugin's or an
-    // undeclared script is refused. A script that would run while the
-    // plugin lacks a required command raises its requirement notice
-    // instead (PluginLogic.tuiRunFor), for both steps, and the notice opens
-    // the script once its commands are found (Notices.resume). Answers `ok` when
-    // the request starts the TUI or focuses its live window, as
+    // Judged by request, as run is, so a disabled plugin's or an undeclared
+    // script is refused and one that lacks a required command raises its
+    // requirement notice, for both steps. Answers `ok` when the request
+    // starts the TUI or focuses its live window, as
     // PluginLogic.tuiShownAnswer decides. The plugin reads the run's end
     // from its `state`.
     function runFor(id, name) {
-        const request = Logic.tuiRunFor(Registry.manifests[id], Registry.isEnabled(id), Registry.sourceDir, runner(), name, Notices.missingOf(id));
-        if (request.kind === "install") return Notices.requested(id, name);
-        const answer = start(request, null, undefined);
-        return Logic.tuiShownAnswer(name, answer);
+        return Logic.tuiShownAnswer(name, request(id, Registry.manifests[id], { name: name, args: [], ctx: null, done: undefined }));
+    }
+
+    // The one judge of a plugin's own script request, run's and runFor's:
+    // PluginLogic.tuiRunFor against the plugin's missing commands. HELD is
+    // { name, args, ctx, done }, ctx null and done undefined for a request
+    // no instance made. A script that lacks a command it needs hands HELD
+    // to its requirement notice, which gives it back to resume.
+    function request(id, manifest, held) {
+        const launch = Logic.tuiRunFor(manifest, Registry.isEnabled(id), Registry.sourceDir, runner(), held.name, Notices.missingOf(id), held.args);
+        if (launch.kind === "install") return Notices.requested(id, held);
+        return start(launch, held.ctx, held.done);
+    }
+
+    // resume: plugin ID's HELD request, once its requirement notice closed
+    // with the commands found (Notices.resume). The asking instance's
+    // snapshot and `done` run while that instance lives; otherwise the
+    // registered manifest runs the script with no instance. A request that
+    // does not start ends its `done` with `unstarted`, judged on start's own
+    // answer: a busy key focuses a window, but starts no run to end.
+    function resume(id, held) {
+        const live = held.ctx !== null && held.ctx.active;
+        const answer = live
+            ? request(id, held.ctx.manifest, held)
+            : request(id, Registry.manifests[id], { name: held.name, args: held.args, ctx: null, done: undefined });
+        if (answer !== "ok") unstarted(held);
+        return Logic.tuiShownAnswer(held.name, answer);
+    }
+
+    // The end a held request's `done` receives when it never starts, so a
+    // `done` run answered `ok` always receives one while its instance lives.
+    function unstarted(held) {
+        if (held.done !== undefined && held.ctx !== null && held.ctx.active)
+            held.done({ code: null, reason: "unstarted" });
     }
 
     // open: any listed TUI by key, with no arguments; the `openTui` IPC
     // function answers `ok` when the request starts the TUI or focuses its
     // live window. A plugin script that lacks a command it needs raises
-    // its requirement notice instead, as runFor does, and the notice opens
-    // the script once its commands are found (Notices.resume).
+    // its requirement notice instead, as request does, and the notice opens
+    // the script once its commands are found (resume).
     function open(key) {
-        const request = Logic.tuiOpen(Registry.manifests, enabledIds(), Registry.sourceDir, coreBin, runner(), Logic.CORE_TUIS, Registry.ownerMissing, key);
-        if (request.kind === "install") return Notices.requested(request.id, request.name);
-        return Logic.tuiShownAnswer(key, start(request, null, undefined));
+        const launch = Logic.tuiOpen(Registry.manifests, enabledIds(), Registry.sourceDir, coreBin, runner(), Logic.CORE_TUIS, Registry.ownerMissing, key);
+        if (launch.kind === "install") return Notices.requested(launch.id, { name: launch.name, args: [], ctx: null, done: undefined });
+        return Logic.tuiShownAnswer(key, start(launch, null, undefined));
     }
 
     // openCore: the core's own TUI NAME, listed or not, with ARGS after its

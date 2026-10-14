@@ -11,8 +11,9 @@
 // file loads under node through bin/lib/qml-library.js,
 // as the shell loads it. The controls at the end edit a copy of the judge,
 // one rule at a time, and the suite must fail on every copy. TuiRunner.qml's
-// focus runs here too, on the windows of Hyprland's reply. Exit 1 when a
-// row or a control fails.
+// focus runs here too, on the windows of Hyprland's reply, and so does its
+// one judge of a plugin's own script request with the notice's resume. Exit 1
+// when a row or a control fails.
 "use strict";
 const fs = require("fs");
 const os = require("os");
@@ -659,6 +660,69 @@ runnerSuite(RUNNER, load(LOGIC), report);
         red += 1;
     }
     report("control: the focus rows fail when the runner reads Hyprland.toplevels", red > 0, true);
+}
+
+// TuiRunner's run and runFor share one judge, request, with the plugin's
+// missing commands: a script that lacks one raises its requirement notice
+// holding the request, and the notice's resume starts the same script with
+// the same arguments and `done`. run, request, resume and unstarted run as
+// TuiRunner.qml holds them, with the judge above, against stand-ins for
+// Registry, Notices and the launcher.
+function requestSuite(source, logic, check) {
+    const needing = Object.assign({ __revision: "r3" }, logic.validateManifest(Object.assign(manifestWith({
+        sync: { script: "tui/sync.sh", title: "Sync", requires: ["acme-sync"] },
+    }), { id: "acme.req", requirements: [{ command: "acme-sync", purpose: "Syncs" }] }), "/q").manifest);
+    const functions = ["run(ctx, name, args, done)", "request(id, manifest, held)", "resume(id, held)", "unstarted(held)"]
+        .map(header => runnerFunction(source, header)).join("");
+    const requested = (missing, busy, call) => {
+        const seen = { notices: [], started: [], ends: [] };
+        const done = result => seen.ends.push(result);
+        const ctx = { id: "acme.req", manifest: needing, active: true };
+        const answer = vm.runInNewContext(functions + call, {
+            Logic: logic, JSON: JSON, Error: Error, ctx: ctx, done: done,
+            Registry: { isEnabled: id => id === "acme.req", sourceDir: "/run/src", manifests: { "acme.req": needing } },
+            Notices: {
+                missingOf: id => Object.prototype.hasOwnProperty.call(missing, id) ? missing[id] : [],
+                requested: (id, held) => { seen.notices.push([id, held.name, held.args]); return "ok"; },
+            },
+            runner: () => ({ launcher: "present", busy: busy, run: "7-1" }),
+            start: (launch, startCtx, startDone) => {
+                if (!launch.ok) return launch.answer;
+                seen.started.push({ script: launch.argv.slice(-2), done: startDone === done });
+                return "ok";
+            },
+        });
+        return { answer: answer, notices: seen.notices, started: seen.started, ends: seen.ends };
+    };
+    const held = ctx => "{ name: \"sync\", args: [\"/file\"], ctx: " + ctx + ", done: done }";
+    const started = done => [{ script: ["tui/sync.sh", "/file"], done: done }];
+    // rows: [name, missing commands by owner, busy keys, the call, what it
+    // answers, hands the notice, starts and ends]
+    const rows = [
+        ["run of a script whose required command is missing raises its notice", { "acme.req": ["acme-sync"] }, [], "run(ctx, \"sync\", [\"/file\"], done)",
+            { answer: "ok", notices: [["acme.req", "sync", ["/file"]]], started: [], ends: [] }],
+        ["run of a script whose commands are present starts it", {}, [], "run(ctx, \"sync\", [\"/file\"], done)",
+            { answer: "ok", notices: [], started: started(true), ends: [] }],
+        ["resume of a live instance's request starts the same script, arguments and done", {}, [], "resume(\"acme.req\", " + held("ctx") + ")",
+            { answer: "ok", notices: [], started: started(true), ends: [] }],
+        ["resume of a gone instance's request starts the script without its done", {}, [], "resume(\"acme.req\", " + held("{ id: \"acme.req\", manifest: ctx.manifest, active: false }") + ")",
+            { answer: "ok", notices: [], started: started(false), ends: [] }],
+        ["resume whose start is refused ends its done as unstarted", {}, ["acme.req/sync"], "resume(\"acme.req\", " + held("ctx") + ")",
+            { answer: "ok", notices: [], started: [], ends: [{ code: null, reason: "unstarted" }] }],
+    ];
+    for (const [name, missing, busy, call, want] of rows) check("TuiRunner request: " + name, requested(missing, busy, call), want);
+}
+requestSuite(RUNNER, load(LOGIC), report);
+{
+    const judged = "Notices.missingOf(id)";
+    report("control: TuiRunner's request reads the missing commands once", RUNNER.split(judged).length - 1, 1);
+    let red = 0;
+    try {
+        requestSuite(RUNNER.replace(judged, () => "[]"), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the request rows fail when run skips the requirement judge", red > 0, true);
 }
 
 // Each control removes one rule from a copy of the judge and keeps the text

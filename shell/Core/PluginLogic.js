@@ -1483,10 +1483,12 @@ function tuiMissingRequirements(manifest, name, missing) {
     return needed.filter(function (name) { return missing.indexOf(name) !== -1; });
 }
 
-// The manager's setup request keeps tuiRun's refusal and focus rules. A valid
-// step with missing requirements goes to the existing requirement notice.
-function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing) {
-    var request = tuiRun(manifest, enabled, sourceDir, runner, name, []);
+// Every request for a plugin's own script, TuiRunner's run and runFor, keeps
+// tuiRun's refusal and focus rules, with ARGS after the script as tuiRun takes
+// them. A valid request whose script lacks a required command MISSING holds
+// goes to the requirement notice.
+function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
+    var request = tuiRun(manifest, enabled, sourceDir, runner, name, args);
     if (!request.ok && request.action === "none") return request;
     if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: "install" };
     return request;
