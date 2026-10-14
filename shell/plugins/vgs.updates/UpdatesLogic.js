@@ -138,11 +138,11 @@ function normalizeSelf(probe, checkedAt) {
     return sourceRow("vgs", error ? null : (behind ? 1 : 0), packages, checkedAt, error);
 }
 
-// An installed directory that is not its own git checkout (a copied or
-// hand-made plugin) has no upstream, and `vgshell plugin update` refuses it
+// An installed directory VGS does not manage (a copied, linked or
+// hand-made plugin) is refused by `vgshell plugin update`
 // the same way: it is not an update source, so its row is left out rather
 // than failing the whole source.
-var UNTRACKED_REFUSAL = /^not-a-checkout=/;
+var UNTRACKED_REFUSAL = /^(not-a-checkout|symlink)=/;
 
 // Plugins or themes from `vgshell plugin|theme outdated --json`: one update per
 // checkout that is behind, its commit count kept as `behind`. A checkout

@@ -9,6 +9,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -17,7 +18,6 @@ const commons = { "qs.Commons 1.0": { PageReference: load(path.join(__dirname, "
 // The shell's one wording of a past moment, which the widget and the window
 // hand the checked line.
 const Timestamp = load(path.join(__dirname, "..", "shell", "Commons", "Timestamp.js"));
-const scratch = path.join(__dirname, "..", "tmp", "test-updates-logic-" + process.pid);
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
 // The [Trigger] of CachyOS's reboot hook,
@@ -212,9 +212,19 @@ function verify(logic) {
   const pluginRow = failedPlugins.sources.find(s => s.source === "plugins");
   same([pluginRow.count, pluginRow.error], [1, "bad: fetch=bad"]);
   same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins failed", hint: "The update source could not be reached. Check your connection and select Refresh." });
-  const untracked = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error: "not-a-checkout=/home/u/.config/vgshell/plugins/local" }]), themes: probe([]) }, now);
-  const untrackedRow = untracked.sources.find(s => s.source === "plugins");
-  same([untrackedRow.count, untrackedRow.packages, untrackedRow.error], [0, [], null]);
+  // `plugin outdated` emits refusals from installed_dir and the checkout
+  // check. A refused unmanaged folder does not hide a real fetch failure.
+  for (const [error, expectedError, tone] of [
+    ["not-a-checkout=/home/u/.config/vgshell/plugins/local", null, "ok"],
+    ["symlink=/home/u/.config/vgshell/plugins/local", null, "ok"],
+    ["fetch=local", "local: fetch=local", "warning"]
+  ]) {
+    const checked = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error }]), themes: probe([]) }, now);
+    const row = checked.sources.find(s => s.source === "plugins");
+    same([row.count, row.packages, row.error], [0, [], expectedError], error);
+    assert.equal(logic.checkState(checked, false, now, 6 * 60 * 60 * 1000, "").tone, tone, error);
+    assert.equal(logic.windowRows(checked).find(s => s.source === "plugins").badgeTone, expectedError === null ? "neutral" : "warning", error);
+  }
   const noManager = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
   same(noManager.sources.map(s => s.source), ["vgs", "plugins", "themes"]);
   const failedPkg = logic.normalizeSnapshot({ pkg: probe("", 1, "vgshell: refused: lock=failed"), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
@@ -506,7 +516,8 @@ const controls = [
   ["TUI endedAt advances", "if (next.endedAt > prior.endedAt) return true;", "if (false) return true;"],
   ["a running record that goes ends no run", "if (next.endedAt > prior.endedAt) return true;", "if (next.endedAt > prior.endedAt || prior.running === true) return true;"],
   ["outdated error makes a source error", "if (!UNTRACKED_REFUSAL.test(String(row.error))) errors.push(row.id + \": \" + row.error);", "count += 0;"],
-  ["an untracked directory is not a source error", "var UNTRACKED_REFUSAL = /^not-a-checkout=/;", "var UNTRACKED_REFUSAL = /^$never/;"],
+  ["an untracked directory is not a source error", "var UNTRACKED_REFUSAL = /^(not-a-checkout|symlink)=/;", "var UNTRACKED_REFUSAL = /^$never/;"],
+  ["a hand-linked directory is not a source error", "var UNTRACKED_REFUSAL = /^(not-a-checkout|symlink)=/;", "var UNTRACKED_REFUSAL = /^not-a-checkout=/;"],
   ["one failing checkout keeps the others' count", "return sourceRow(source, count, packages, checkedAt, errors.length > 0 ? errors.join(\"; \") : null);", "return sourceRow(source, errors.length > 0 ? null : count, packages, checkedAt, errors.length > 0 ? errors.join(\"; \") : null);"],
   ["only a current widget hides", "hidden: hideWhenCurrent === true && state === \"current\"", "hidden: hideWhenCurrent === true && state !== \"checking\""],
   ["a warning or danger check draws attention", "case \"danger\": return \"attention\";", "case \"danger\": return \"current\";"],
@@ -577,8 +588,7 @@ const controls = [
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 
-fs.rmSync(scratch, { recursive: true, force: true });
-fs.mkdirSync(scratch, { recursive: true });
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-updates-logic-"));
 try {
   const source = fs.readFileSync(file, "utf8");
   for (const [label, needle, replacement] of controls) {
