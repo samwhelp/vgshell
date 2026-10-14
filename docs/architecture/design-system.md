@@ -60,6 +60,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Never read a `Theme` member other than `appearance` in such a plugin, and never name a path the look lacks. `theme-read` and `look-unknown` in `scripts/check-design-tokens.py` refuse both.
 - Do bind the look once through `Theme.appearance`, read every value as `look.<path>`, and draw nothing on a null look. Review holds it.
 - Never give a plugin-owned look a text size below the shell's smallest text role. `type-floor` in `scripts/check-design-tokens.py` refuses it.
+- Do keep launcher detail text at least 4.5:1 against its own fill and at least 1.25:1 apart from its resting title as drawn, so the detail remains secondary text in every theme.
 - Do draw a text shadow only to lift light ink off dark glass; dark ink on a light card draws none. Key the shadow to the ink in one token, never a per-theme copy, as the notifications' `text.lift` does. `scripts/test-notifications-logic.js` pins it.
 - Do hand every `qs.Ui` component a plugin-owned look draws with the look's own values; a component left on its defaults draws the shared tokens. `GlassSurface` takes only the look's fill, rounding and elevation, and while glass is off draws the standard surface. Gap: no check reads which values a plugin hands a component.
 

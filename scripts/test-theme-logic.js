@@ -1837,31 +1837,53 @@ try {
     console.log(`test-theme-logic: glass highlight smallest dE (highlight/pressed) ${shown.map(theme => `${theme.name}=${theme.smallest.map(value => value.toFixed(2)).join("/")}`).join(" ")}`);
 }
 
-// The launcher's detail text and a notice's link are text on the launcher
-// card under the cursor's plate: each reads at 4.5:1 or more as drawn
-// there, at the regular weight both draw in, over a black and a white
-// wallpaper, the darkest and lightest the card can lie over, in the
-// shipped theme and every catalog theme. The drawn fill is
-// composed here from the card fill and the plate, never read from the
-// look's own `card.nearInk`. Answers each [theme, role, wallpaper] short
-// of the floor.
-function launcherDetailShortfalls(judge, launcher) {
+// Each launcher text reads on its own fill. GlassSurface makes the menu
+// opaque and lifted over the card; with glass off it draws the theme's
+// raised surface. The title/detail step compares both drawn inks on the
+// same fill, by dividing their contrast ratios against that fill.
+function launcherMenuFills(judge, look, values) {
+    const glass = judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values);
+    assert.equal(glass.ok, true, glass.ok ? "" : judge.refusalLine(glass));
+    return [judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(look.card.fill), glass.values.glass.solidLift))),
+        judge.parseColor(values.surface.level.raised.background)];
+}
+function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills) {
     const out = [];
     for (const { name, values } of HIGHLIGHT_THEMES) {
         const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values);
         assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
         const look = result.values;
-        for (const wallpaper of ["#000000", "#ffffff"]) {
-            const fill = judge.overlay(judge.parseColor(look.highlight.plate), judge.overlay(judge.parseColor(look.card.fill), judge.parseColor(wallpaper)));
-            for (const [role, ink] of [["link", look.text.link], ["detail", look.text.detail.color]])
-                if (judge.drawnTextRatio(judge.overlay(judge.parseColor(ink), fill), fill, 400) < judge.READABILITY_FLOOR) out.push([name, role, wallpaper]);
+        const plate = fill => judge.overlay(judge.parseColor(look.highlight.plate), fill);
+        const ratio = (ink, fill, weight) => judge.drawnTextRatio(judge.overlay(judge.parseColor(ink), fill), fill, weight);
+        const grounds = ["#000000", "#ffffff"].map(w => judge.overlay(judge.parseColor(look.card.fill), judge.parseColor(w)));
+        const solid = launcherMenuFills(judge, look, values);
+        for (const [state, fill] of [...grounds, ...solid].entries()) {
+            const title = judge.formatColor({ ...judge.parseColor(look.text.foreground), a: look.text.label.rest });
+            out.push([name, "step", state, ratio(title, fill, look.text.label.weight) / ratio(look.text.detail.color, fill, 400)]);
+            out.push([name, "empty", state, ratio(look.text.detail.color, fill, 400)]);
         }
+        for (const [state, fill] of [...grounds, ...solid].map(plate).entries())
+            for (const [role, ink] of [["link", look.text.link], ["detail", look.text.detail.color]])
+                out.push([name, role, state, ratio(ink, fill, 400)]);
+        for (const [state, fill] of menuFills(judge, look, values).flatMap(fill => [fill, plate(fill)]).entries())
+            out.push([name, "menu", state, ratio(look.text.detail.color, fill, 400)]);
     }
     return out;
+}
+function launcherDetailShortfalls(judge, launcher) {
+    return launcherTextReadings(judge, launcher).filter(([, role, , ratio]) => role !== "step" && ratio < judge.READABILITY_FLOOR);
 }
 {
     const judge = load(judgeFile);
     assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "the launcher's detail text and link read at 4.5:1 on the card in every theme");
+    const readings = launcherTextReadings(judge, LAUNCHER);
+    const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio]) => role === "step" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
+    checkStep(readings);
+    // Independent menu reading: vgs's lifted #212121 under its plate,
+    // detail alpha 0.84 and regular stroke coverage, rounded as drawn.
+    const checkMenuFill = rows => assert.ok(rows.some(([name, role, state, ratio]) => name === "vgs" && role === "menu" && state === 1 && ratio > 7.31 && ratio < 7.33), "launcher menu detail is judged on its own lifted fill");
+    checkMenuFill(readings);
+    assert.throws(() => checkMenuFill(launcherTextReadings(judge, LAUNCHER, (j, look) => [j.overlay(j.parseColor(look.card.fill), j.parseColor("#ffffff"))])), { code: "ERR_ASSERTION" }, "control: the menu judged on the launcher card's fill fails");
     // Controls: the link in the theme's accent alone, as LinkText draws it
     // by default, the detail text at a 0.5 fade, and the link picked on
     // the card itself, which reads there by the colours' ratio and falls
@@ -1879,8 +1901,15 @@ function launcherDetailShortfalls(judge, launcher) {
             fs.writeFileSync(mutant, launcherSource.replace(needle, () => replacement));
             const short = launcherDetailShortfalls(judge, load(mutant));
             assert.ok(themes.every(theme => short.some(row => row[0] === theme && row[1] === role)), `launcher control "${role}": the planted colour is short in ${themes.join(" and ")}`);
-            assert.ok(short.every(row => row[1] === role), `launcher control "${role}": the other role still reads`);
+            assert.ok(short.every(row => role === "detail" ? ["detail", "empty", "menu"].includes(row[1]) : row[1] === role), `launcher control "${role}": the other role still reads`);
         }
+        const equalDetail = /color: color\("alpha\(\{text\.foreground\}, [0-9.]+\)"\) \},/g;
+        assert.equal((launcherSource.match(equalDetail) || []).length, 1, "equal-title control replaces one detail colour");
+        const mutant = path.join(launcherControlDir, "Appearance.js");
+        fs.writeFileSync(mutant, launcherSource.replace(equalDetail, 'color: color("alpha({text.foreground}, {text.label.rest})") },'));
+        const equalReadings = launcherTextReadings(judge, load(mutant));
+        assert.throws(() => checkStep(equalReadings), { code: "ERR_ASSERTION" }, "control: detail equal to title fails the measured step");
+        assert.ok(HIGHLIGHT_THEMES.every(({ name }) => equalReadings.some(([theme, role, , ratio]) => theme === name && role === "step" && ratio === 1)), "equal-title control reaches every theme");
     } finally {
         fs.rmSync(launcherControlDir, { recursive: true, force: true });
     }

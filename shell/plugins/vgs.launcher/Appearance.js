@@ -75,14 +75,14 @@ var TOKENS = {
         foreground: color("#e8e8e8"),
         shadow: color("alpha(#000000, 0.45)"),
         header: { size: length(18), letterSpacing: offset(-0.2), idle: share(0.38) },
-        label: { size: length(16), weight: weight(500), rest: share(0.86) },
+        label: { size: length(16), weight: weight(500), rest: share(1) },
         // A row's detail line and the empty list's message are reading
         // text, at the shell's 13 px floor; the flyout's entries and their
         // detail are chrome, at the 12 px floor
         // (shell/Commons/Tokens.js). Detail text and that message read
         // at 4.5:1 as drawn on the card over any wallpaper. The fade is the
         // colour's alpha, which leaves a link in it at full strength.
-        detail: { size: length(13), color: color("alpha({text.foreground}, 0.86)") },
+        detail: { size: length(13), color: color("alpha({text.foreground}, 0.84)") },
         // The fill a link's colour is picked on: the card nearest the ink,
         // moved toward it by the share of that fill a regular stroke lets
         // through, 1 - 0.966 (TEXT_STROKE_COVERAGE of
