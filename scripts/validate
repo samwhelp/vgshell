@@ -384,7 +384,7 @@ rows=(
   "cli|notifications open TUI|scripts/test-notifications-open.sh|shell/plugins/vgs.notifications/tui/open.sh bin/lib/tui.sh"
   "cli|agent warden TUIs|scripts/test-agent-warden-tui.sh|shell/plugins/vgs.agent-warden/tui/setup.sh shell/plugins/vgs.agent-warden/tui/vsys.sh bin/lib/tui.sh"
   "cli|cloud sync setup TUIs|scripts/test-cloud-sync-tui.sh|shell/plugins/vgs.cloud-sync/tui/* bin/lib/tui.sh"
-  "logic|Voice logic|node scripts/test-voice-logic.js|shell/plugins/vgs.voice/VoiceLogic.js shell/plugins/vgs.voice/manifest.json shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js bin/lib/qml-library.js"
+  "logic|Voice logic|node scripts/test-voice-logic.js|shell/plugins/vgs.voice/VoiceLogic.js shell/plugins/vgs.voice/Service.qml shell/plugins/vgs.voice/Widget.qml shell/plugins/vgs.voice/manifest.json shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js bin/lib/qml-library.js"
   "cli|dictation setup|scripts/test-vgshell-dictation.sh|bin/vgshell bin/vgshell-dictation bin/lib/* config/voxtype/* scripts/vgshell-rows.sh"
   "cli|dictation config|python3 scripts/test-dictation-config.py|config/voxtype/config.toml"
   "cli|Voice TUI|scripts/test-voice-tui.sh|shell/plugins/vgs.voice/tui/* bin/lib/tui.sh bin/lib/voxtype.sh"
