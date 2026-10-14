@@ -3,7 +3,7 @@
 // shell/Core/PluginLogic.js: the manifest's `tui` key and its normalized
 // shape, the core's own TUI table, the arguments a plugin's script takes,
 // the launch of a plugin's own script, of a listed TUI by key and of the
-// core's own TUI with arguments, a manager row's setup screens and the
+// core's own TUI with arguments, a manager row's listed screens and the
 // manager's open of one, the core answer for a TUI shown on screen,
 // the busy key and the launcher state among the refusals, the listed rows,
 // the log lines of a launcher's, a probe's and a reap's end, the exit records
@@ -91,8 +91,8 @@ function suite(ctx, check) {
         ["an entry icon outside the shipped set", { hello: Object.assign({ entry: { label: "L", icon: "no-such-icon", group: "System" } }, hello) }, undefined, "tui.hello.entry.icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got \"no-such-icon\""],
         ["an entry without an icon", { hello: Object.assign({ entry: { label: "L", group: "System" } }, hello) }, undefined, "tui.hello.entry.icon must name an icon of the shipped set"],
         ["an entry without a group", { hello: Object.assign({ entry: { label: "L", icon: "terminal" } }, hello) }, undefined, "tui.hello.entry.group must be one printable line of 1 to 60 characters"],
-        ["an entry marked as a setup screen", { hello: Object.assign({ entry: Object.assign({ setup: true }, listed.entry) }, hello) }, undefined, null],
-        ["an entry setup that is no boolean", { hello: Object.assign({ entry: Object.assign({ setup: "yes" }, listed.entry) }, hello) }, undefined, "tui.hello.entry.setup must be a boolean when present"],
+        ["an entry marked as a settings screen", { hello: Object.assign({ entry: Object.assign({ settings: true }, listed.entry) }, hello) }, undefined, null],
+        ["an entry settings that is no boolean", { hello: Object.assign({ entry: Object.assign({ settings: "yes" }, listed.entry) }, hello) }, undefined, "tui.hello.entry.settings must be a boolean when present"],
         ["an entry group with a tab", { hello: Object.assign({ entry: { label: "L", icon: "terminal", group: "a\tb" } }, hello) }, undefined, "tui.hello.entry.group must be one printable line"],
     ];
     for (const [name, tui, capabilities, want] of keyRows) {
@@ -292,13 +292,13 @@ function suite(ctx, check) {
     check("tuiEntries: a plugin enabled again lists its TUIs again", ctx.tuiEntries(manifests, ["acme.other", "acme.tui"], {}).map(e => e.key), ["acme.other/fix", "acme.tui/update"]);
     check("tuiEntries: an enabled id with no manifest lists nothing", ctx.tuiEntries(manifests, ["acme.gone"], {}), []);
 
-    // listedTuis: the manager row's setup screens, in manifest order.
-    const ordered = ctx.validateManifest(manifestWith({ zeta: listed, hello: hello, alpha: Object.assign({}, listed, { entry: { label: "First things", icon: "wrench", group: "Tools", setup: true } }) }), "/p").manifest;
-    check("listedTuis: each script with an entry, in manifest order, a setup screen marked", ctx.listedTuis(ordered), [
-        { name: "zeta", label: "Update the system", icon: "terminal", setup: false },
-        { name: "alpha", label: "First things", icon: "wrench", setup: true },
+    // listedTuis: the manager row's listed screens, in manifest order.
+    const ordered = ctx.validateManifest(manifestWith({ zeta: listed, hello: hello, alpha: Object.assign({}, listed, { entry: { label: "First things", icon: "wrench", group: "Tools", settings: true } }) }), "/p").manifest;
+    check("listedTuis: each script with an entry, in manifest order, a settings screen marked", ctx.listedTuis(ordered), [
+        { name: "zeta", label: "Update the system", icon: "terminal", setting: "", settings: false },
+        { name: "alpha", label: "First things", icon: "wrench", setting: "", settings: true },
     ]);
-    check("listedTuiRows: a row keeps its screen's setup mark", ctx.listedTuiRows(ordered, []).map(row => [row.name, row.setup]), [["zeta", false], ["alpha", true]]);
+    check("listedTuiRows: a row keeps its screen's settings mark", ctx.listedTuiRows(ordered, []).map(row => [row.name, row.settings]), [["zeta", false], ["alpha", true]]);
     check("listedTuis: a manifest with no tui key lists none", ctx.listedTuis(ctx.validateManifest(manifestWith(undefined), "/p").manifest), []);
     // listedTuiRequest: [name, manifest, id, TUI name, the request or the
     // manager's reply]. The request's run judges a disabled plugin, as the
@@ -687,9 +687,9 @@ const CONTROLS = [
     ["an entry has a label", "if (!tuiText(entry.label))", "if (false)"],
     ["an entry icon is shipped", "if (typeof entry.icon !== \"string\" || !hasOwn(Lucide.ICONS, entry.icon))", "if (false)"],
     ["an entry has a group", "if (!tuiText(entry.group))", "if (false)"],
-    ["an entry setup is a boolean", "if (entry.setup !== undefined && typeof entry.setup !== \"boolean\")", "if (false)"],
-    ["a listed screen carries its setup mark", "setup: manifest.tui[name].entry.setup === true };", "setup: false };"],
-    ["a manager row carries its screen's setup mark", "icon: tui.icon, setup: tui.setup, withheld:", "icon: tui.icon, setup: false, withheld:"],
+    ["an entry settings is a boolean", "if (entry.settings !== undefined && typeof entry.settings !== \"boolean\")", "if (false)"],
+    ["a listed screen carries its settings mark", "settings: manifest.tui[name].entry.settings === true };", "settings: false };"],
+    ["a manager row carries its screen's settings mark", "icon: tui.icon, setting: tui.setting, settings: tui.settings, withheld:", "icon: tui.icon, setting: tui.setting, settings: false, withheld:"],
     ["the tui judge runs the window judge", "        var windowError = tuiWindowError(at, row);\n        if (windowError !== \"\")\n            return windowError;\n", ""],
     ["the tui judge runs the entry judge", "        var entryError = tuiEntryError(at, row.entry);\n        if (entryError !== \"\")\n            return entryError;\n", ""],
     ["a core TUI name is a name", "if (!ConfigLogic.NAME_PATTERN.test(name))\n        return \"core TUI name ", "if (false)\n        return \"core TUI name "],

@@ -13,8 +13,8 @@
   "schema": { "device": { "type": "string", "label": "Device", "optionsFrom": "devices", "allowCustom": true } },
   "status": {
     "devices": { "type": "choices", "label": "Devices" },
-    "token": { "type": "presence", "label": "Token", "group": "Sync", "hint": "Needed for the fixture's sync", "action": { "label": "Set up token", "tui": "setup" } },
-    "check": { "type": "state", "label": "Check", "action": { "label": "Check again", "tui": "setup" } },
+    "token": { "type": "presence", "label": "Token", "setup": true, "group": "Sync", "hint": "Needed for the fixture's sync", "action": { "label": "Set up token", "tui": "setup" } },
+    "check": { "type": "state", "label": "Check", "setup": true, "action": { "label": "Check again", "tui": "setup" } },
     "pending": { "type": "count", "label": "Pending", "group": "Sync" },
     "lastCheck": { "type": "time", "label": "Last check" },
     "note": { "type": "text", "label": "Note" },

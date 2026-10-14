@@ -277,7 +277,7 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // `allow`, or "" for none. CONTEXT is { missing, state, service, operator }:
 // whether the `tailscale` command is absent, the snapshot's state and the
 // two system steps' states. A missing command offers no step: the page's
-// Requirements section installs it, and the requirement is optional, so
+// Settings field's tool action installs it, and the requirement is optional, so
 // the line reads info. A step Tailscale needs reads warning while its
 // action is offered; a state the user cannot change here reads info.
 var SERVICE_UNOFFERED = {
@@ -286,7 +286,7 @@ var SERVICE_UNOFFERED = {
 };
 function setupState(tone, text, hint, action) { return { tone: tone, text: text, hint: hint, action: action }; }
 function setup(context) {
-    if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Install it under [Requirements](page:vgs.vpn/Setup) to use it.", "");
+    if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Choose Review all missing or outdated tools beside [Tailscale in Settings](page:vgs.vpn/Settings) to use it.", "");
     if (context.state === "service-off") {
         if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
         var unoffered = Object.prototype.hasOwnProperty.call(SERVICE_UNOFFERED, context.service) ? SERVICE_UNOFFERED[context.service]
@@ -342,9 +342,9 @@ function unread() {
 // service is off, or the administrator holds Tailscale.
 function lockReason(vpn, step) {
     if (vpn.writable) return "";
-    if (vpn.state === "missing") return "Tailscale is not installed, so install it under [Requirements](page:vgs.vpn/Setup) to use it.";
+    if (vpn.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools beside [Tailscale in Settings](page:vgs.vpn/Settings) to use it.";
     var cause = vpn.state === "service-off" ? "The Tailscale service is off" : "The administrator holds Tailscale";
-    return step === "" ? cause + "." : cause + " until you choose " + step + ".";
+    return step === "" ? cause + "; review [Tailscale in Settings](page:vgs.vpn/Settings)." : cause + " until you choose " + step + " beside [Tailscale in Settings](page:vgs.vpn/Settings).";
 }
 
 // The bar icon for the published `vpn` value, null before the first

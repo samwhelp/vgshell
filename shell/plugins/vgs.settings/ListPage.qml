@@ -4,21 +4,7 @@ import qs.Commons
 import qs.Ui
 import "Steps.js" as Steps
 
-// The root page: every plugin the manager lists, filtered by the search
-// field, under a heading with the Add plugin and Reset VGS buttons. A row shows the plugin's icon, name, version and source, a danger
-// badge counting its errors, its enabled switch and a chevron; a click
-// opens its page. A plugin that is on shows what it still asks of its user
-// (Steps.setupNeeds), left of the switch: a Setup needed chip while a setup
-// step is open, and left of that a warning icon while an optional tool is
-// missing, whose tooltip counts them and whose click opens the page on
-// Setup, where the tool and its install action draw. A click on a row with
-// the chip opens its page on Setup, any other on Settings. With the search
-// field focused, Up and Down move the
-// highlighted row and Enter opens it; a hover moves it once the pointer
-// moves, and one ListCursor draws it and travels between rows. The heading,
-// the search field and the rows share the list's content edges. Each row
-// then owns its own icon inset, and the scroll bar sits in the window's
-// right inset.
+// Plugin rows use the shared required-step reading to open unfinished Setup.
 FocusScope {
     id: page
 
@@ -201,23 +187,6 @@ FocusScope {
                         text: String(entry.modelData.errors.length)
                         visible: entry.modelData.errors.length > 0
                         anchors.verticalCenter: parent.verticalCenter
-                    },
-                    // Built only for a row that misses an optional tool.
-                    Loader {
-                        active: entry.needs.optional > 0
-                        visible: active
-                        anchors.verticalCenter: parent.verticalCenter
-                        // keyboard-path: open the row and choose its Setup tab, which lists the missing tools
-                        sourceComponent: IconButton {
-                            iconName: "triangle-alert"
-                            size: "sm"
-                            tone: "warning"
-                            label: "Open setup"
-                            tooltip: entry.needs.optional === 1 ? "1 optional dependency not installed" : entry.needs.optional + " optional dependencies not installed"
-                            Accessible.description: tooltip
-                            focusPolicy: Qt.NoFocus
-                            onClicked: page.panel.openPlugin(entry.modelData.id, Qt.MouseFocusReason, "Setup")
-                        }
                     },
                     Badge {
                         tone: "warning"

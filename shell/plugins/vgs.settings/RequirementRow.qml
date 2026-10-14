@@ -11,7 +11,7 @@ import qs.Ui
 // the tool adds, or Outdated for a command below the version the plugin
 // needs, optional or not, since an installed tool the plugin calls fails
 // below that version. The row draws no step
-// of its own: the page's Install all missing or Update all outdated button,
+// of its own: the adjacent field's all-tools notice action,
 // shown while one requirement's step applies (Steps.js), installs what is
 // missing and updates what is outdated.
 Column {

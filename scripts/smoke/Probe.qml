@@ -421,6 +421,75 @@ Scope {
         return descendants(item).filter(child => typeName(child) === "Section" && child.visible && (child.title === "Status" || child.title === "Setup"));
     }
 
+    function choiceFieldKey(item, boundary) {
+        for (let parent = item.parent; parent !== null && parent !== boundary; parent = parent.parent)
+            if (typeName(parent) === "ChoiceField") return parent.key;
+        return "";
+    }
+
+    // Read only the real EntryRow fields of the currently shown tab.
+    function pageEntryRows(item, setup) {
+        const fields = descendants(item).filter(child => child.visible && child.setup === setup && child.entry !== undefined && child.entry !== null && child.action !== undefined);
+        return fields.map(field => {
+            const shown = descendants(field).filter(child => child.visible);
+            const value = shown.find(child => typeName(child) === "FormRow");
+            const inValue = value === undefined ? [] : descendants(value);
+            const step = field.action;
+            return {
+                key: field.entry.key,
+                setting: setup ? "" : field.entry.setting,
+                field: setup ? "" : choiceFieldKey(field, item),
+                label: field.label,
+                chips: shown.filter(child => typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
+                buttons: shown.filter(child => typeName(child) === "RowAction").map(button => {
+                    const action = field.asideAction !== null && button.text === field.asideLabel ? field.asideAction : step;
+                    return { text: button.text, tui: action === null ? "" : action.name, tone: button.tone, enabled: button.enabled };
+                }),
+                lines: shown.filter(child => typeName(child) === "Label" && child.text !== "" && inValue.indexOf(child) === -1).map(line => line.text)
+            };
+        });
+    }
+
+    property bool credentialRecordSaved: false
+    property var credentialOriginalRecord: null
+    property var credentialIdEditor: null
+    property string credentialIdDraft: "synthetic-client-id-draft"
+    property string credentialSecretDraft: "synthetic-client-secret-draft"
+
+    function credentialLines(item) {
+        if (item === null || item.shownPage !== "acme.status/Setup") return null;
+        const list = descendants(item).find(child => typeName(child) === "StatusRow" && visibleInTree(child)
+            && child.setup === true && child.entry !== null && child.entry.key === "credentials");
+        if (list === undefined) return null;
+        const lines = descendants(list).filter(child => typeName(child) === "StatusLine" && visibleInTree(child) && child.access !== "");
+        const id = lines.find(child => child.label === "Client ID");
+        const secret = lines.find(child => child.label === "Client secret");
+        return id === undefined || secret === undefined ? null : { id: id, secret: secret };
+    }
+    function credentialEditor(line) {
+        return descendants(line).find(child => child instanceof Ui.TextField && visibleInTree(child));
+    }
+
+    // status.set publishes one value at a time. This fixture needs one
+    // publication that changes and moves a key list. Judge every value
+    // through the production writer, then publish its record once.
+    function credentialPublish(values) {
+        const manifest = Registry.manifests["acme.status"];
+        if (!credentialRecordSaved || manifest === undefined || !Registry.isEnabled("acme.status")) return "fixture-unavailable";
+        const keys = Object.keys(values);
+        if (keys.length !== 3 || keys.some(key => ["connection", "credentials", "other"].indexOf(key) === -1)) return "fixture-values-refused";
+        let result = { values: PluginStatus.valuesOf("acme.status") };
+        for (const key of keys) {
+            result = PluginLogic.statusWrite(manifest, result.values, key, values[key]);
+            if (!result.ok) return result.error;
+        }
+        PluginStatus.serial += 1;
+        const next = Object.assign({}, PluginStatus.records);
+        next["acme.status"] = Object.freeze({ revision: manifest.__revision, serial: PluginStatus.serial, values: result.values, bytes: result.bytes });
+        PluginStatus.records = next;
+        return "ok";
+    }
+
     function titledPanes(item) {
         return item === null ? [] : descendants(item).filter(child => child instanceof Ui.Pane && child.hasTitle && visibleInTree(child));
     }
@@ -755,7 +824,7 @@ Scope {
     // A native Text query includes QML types that inherit Text, as the
     // scope's text reader above does. Declared component queries stay exact.
     function matchesType(item, type) {
-        return type === "QQuickText" ? item instanceof Text : typeName(item) === type;
+        return type === "QQuickText" ? item instanceof Text : type === "Field" ? item instanceof Ui.Field : typeName(item) === type;
     }
 
     // How many instances of plugin `id` the core records under `hostKey`.
@@ -1803,6 +1872,69 @@ Scope {
         }
         // A plugin's published status values, as each of its instances reads them.
         function statusValues(id: string): string { return JSON.stringify(PluginStatus.valuesOf(id)); }
+        function settingsCredentialBegin(): string {
+            if (root.credentialRecordSaved) return "already-held";
+            root.credentialOriginalRecord = PluginStatus.records["acme.status"] || null;
+            root.credentialRecordSaved = true;
+            root.credentialIdEditor = null;
+            return "ok";
+        }
+        function settingsCredentialPublish(values: string): string {
+            return root.credentialPublish(JSON.parse(values));
+        }
+        function settingsCredentialHold(hostKey: string, id: string): string {
+            const lines = root.credentialLines(root.instance(hostKey, id));
+            if (lines === null) return "absent";
+            const client = root.credentialEditor(lines.id), secret = root.credentialEditor(lines.secret);
+            if (client === undefined || secret === undefined || client.width <= 0 || client.height <= 0
+                || secret.width <= 0 || secret.height <= 0) return "editors-not-open";
+            client.text = root.credentialIdDraft;
+            secret.text = root.credentialSecretDraft;
+            root.credentialIdEditor = client;
+            return "held";
+        }
+        function settingsCredentialState(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id), lines = root.credentialLines(item);
+            if (lines === null) return "absent";
+            const client = root.credentialEditor(lines.id), secret = root.credentialEditor(lines.secret);
+            const chip = line => root.descendants(line).find(child => child instanceof Ui.Badge && root.visibleInTree(child));
+            const field = label => root.descendants(item).find(child => child instanceof Ui.Field && child.label === label && root.visibleInTree(child));
+            const labels = ["Connection", "Client ID", "Other step"];
+            if (labels.some(label => field(label) === undefined) || chip(lines.id) === undefined || chip(lines.secret) === undefined) return "incomplete";
+            const positions = labels.map(label => field(label).mapToItem(item, 0, 0).y);
+            if (positions.some((top, index) => positions.indexOf(top) !== index)) return "unsettled";
+            const order = labels.slice().sort((a, b) => field(a).mapToItem(item, 0, 0).y - field(b).mapToItem(item, 0, 0).y);
+            return root.json({
+                order: order,
+                chips: [chip(lines.id).text, chip(lines.secret).text],
+                secretActions: root.descendants(lines.secret).filter(child => child instanceof Ui.RowAction && root.visibleInTree(child)).map(child => child.text),
+                idEditorOpen: client !== undefined && client.width > 0 && client.height > 0,
+                secretEditorClosed: secret === undefined,
+                sameEditor: client !== undefined && client === root.credentialIdEditor,
+                sameDraft: client !== undefined && client.text === root.credentialIdDraft
+            });
+        }
+        function settingsCredentialRestore(): string {
+            if (!root.credentialRecordSaved) return "not-held";
+            const next = Object.assign({}, PluginStatus.records), saved = root.credentialOriginalRecord;
+            if (saved === null) delete next["acme.status"];
+            else {
+                const manifest = Registry.manifests["acme.status"];
+                if (manifest === undefined) return "fixture-unavailable";
+                let result = { values: {} };
+                for (const key of Object.keys(saved.values)) {
+                    result = PluginLogic.statusWrite(manifest, result.values, key, saved.values[key]);
+                    if (!result.ok) return result.error;
+                }
+                PluginStatus.serial += 1;
+                next["acme.status"] = Object.freeze({ revision: manifest.__revision, serial: PluginStatus.serial, values: result.values, bytes: result.bytes });
+            }
+            PluginStatus.records = next;
+            root.credentialIdEditor = null;
+            root.credentialOriginalRecord = null;
+            root.credentialRecordSaved = false;
+            return "ok";
+        }
         // Sandbox-only scanner and masked-field observations. Never read a PSK.
         function networkScan(): string {
             const service = root.instance("service", "vgs.network");
@@ -2189,7 +2321,10 @@ Scope {
             const counts = {};
             for (const row of item.plugins) counts[row.id] = 0;
             for (const field of root.descendants(item))
-                if (typeof field.apply === "function" && field.pluginId !== undefined) counts[field.pluginId] += 1;
+                // ChoiceField forwards apply and pluginId. Count only its
+                // drawn SettingField editor, not that attachment wrapper.
+                if (root.typeName(field) === "SettingField" && root.visibleInTree(field)
+                    && typeof field.apply === "function" && field.pluginId !== undefined) counts[field.pluginId] += 1;
             return root.json(counts);
         }
         function childIndex(hostKey: string, id: string): int {
@@ -2504,37 +2639,30 @@ Scope {
                 })
             });
         }
-        // A plugin page's shown Status and Setup sections by row, as
-        // [{ key, label, chips, buttons, lines }]: each shown step row of the
-        // sections, a Field drawn for one row of Steps.setupSections, the
-        // key of that row's entry, which the Loader that builds the Field
-        // holds, its label, its Badges as [text, tone], its actions as { tui,
-        // tone, enabled }, tui the screen the row's step opens (its
-        // Steps.setupSections button) and tone "primary" for the page's
-        // primary Button, and the shown lines of text the Field draws under
-        // its value, each in tree order; "absent" while neither section
-        // shows.
+        // Required rows drawn in Setup: their production entry ids, chips,
+        // offered screen links and explanation lines. This reads the page's
+        // EntryRow fields, without a test property on the shipped page.
         function setupRows(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const sections = root.setupSections(item);
             if (sections.length === 0) return "absent";
-            const fields = [].concat(...sections.map(section => root.descendants(section))).filter(child => root.typeName(child) === "Field" && child.visible && child.button !== undefined);
-            return root.json(fields.map(field => {
-                const shown = root.descendants(field).filter(child => child.visible);
-                const value = shown.find(child => root.typeName(child) === "FormRow");
-                const inValue = value === undefined ? [] : root.descendants(value);
-                const under = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && inValue.indexOf(child) === -1);
-                const step = field.button;
-                return {
-                    key: field.parent.modelData.key,
-                    label: field.label,
-                    chips: shown.filter(child => root.typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
-                    buttons: shown.filter(child => root.typeName(child) === "RowAction" || root.typeName(child) === "Button").map(button => ({
-                        tui: step === null ? "" : step.name, tone: root.typeName(button) === "Button" ? "primary" : button.tone, enabled: button.enabled })),
-                    lines: under.map(line => line.text)
-                };
-            }));
+            return root.json(root.pageEntryRows(item, true));
+        }
+        function settingRows(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            return item === null ? "absent" : root.json(root.pageEntryRows(item, false));
+        }
+        // The rendered key list's real ChoiceField ancestor, not its
+        // declared destination. A list moved to Details has no such field.
+        function settingKeyRows(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const rows = root.descendants(item).filter(child => root.typeName(child) === "StatusRow"
+                && root.visibleInTree(child) && child.width > 0 && child.height > 0
+                && child.entry !== null && child.entry.type === "presenceList");
+            return root.json(rows.map(row => ({ key: row.entry.key, setting: row.entry.setting,
+                field: root.choiceFieldKey(row, item) })));
         }
         // Every shown Text item named TYPE under an instance, in tree order,
         // as { text, ink: [x, y, width, height] }: its glyphs' ink box in

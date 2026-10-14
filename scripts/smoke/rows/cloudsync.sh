@@ -371,7 +371,7 @@ SH
   expect "Cloud Sync starts disabled" '[null, false]' cs_lent
   expect "enabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync true
   expect "placing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync true
-  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "keys", "pairs", "schedule", "sync"], true]' cs_lent
+  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "connection", "firstPair", "keys", "pairs", "schedule", "sync"], true]' cs_lent
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
   expect_poll "with no unit the hourly sync offers Set up" '["warning", "Not set up", true]' cs_schedule
   expect_poll "with no folder pair the pairs offer Add" '["warning", "None", "add"]' cs_pairs

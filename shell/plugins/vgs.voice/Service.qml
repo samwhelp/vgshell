@@ -156,13 +156,17 @@ Item {
         publish("model", value);
     }
 
-    // The published value names the manifest's action that applies, and
-    // none once set up; a hidden one keeps the entry off the page.
+    // The required step stays visible. The other service's Stop action
+    // belongs beside its Settings field.
     function publishSetup() {
-        const value = setupValue.hidden ? { hidden: true } : { tone: setupValue.tone, text: setupValue.text };
+        const value = setupValue.hidden ? { tone: "warning", text: "Dictation tool missing" } : { tone: setupValue.tone, text: setupValue.text };
         if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;
-        if (setupValue.action !== "") value.action = setupValue.action;
+        value.action = setupValue.action === "setup";
+        if (setupValue.action === "stop") value.hint = "Stop the other dictation service in [Voice settings](page:vgs.voice/Settings)";
         publish("setup", value);
+        publish("otherService", setupValue.action === "stop"
+            ? { tone: "warning", text: "Another voxtype runs", action: true }
+            : { tone: "ok", text: "No other service to stop", action: false });
         publishModel();
     }
 

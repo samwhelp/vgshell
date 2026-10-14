@@ -14,7 +14,7 @@
 # answer that follows until a probe finds one again, the launchers the core
 # holds, a run's `done` and state from its exit records, a second run of a
 # live key refused busy with its window focused, a destroyed instance's
-# `done` dropped while its run ends, the plugin page's Setup buttons,
+# `done` dropped while its run ends, the plugin page's Settings links,
 # which open a listed script through the manager and take no press while
 # the plugin is disabled, a live run that fails harness.sh's
 # expect_run_end at its ceiling, a run that ends past the ceiling and fails
@@ -96,17 +96,17 @@ expect_poll "the capability's open reaches the terminal" \
   "$(hello_words)" recorded
 expect_run_end "the hello run ends before the next request" acme.tui/hello
 
-# The Setup tab's Setup section: one button per listed script the manifest
-# marks as a setup screen and no status entry declares, under the More
-# setup label, none for the listed Update, which carries no mark, nor for
+# The Settings tab: one link per listed script the manifest
+# marks as a settings screen and no status entry declares, under the More
+# settings label, none for the listed Update, which carries no mark, nor for
 # a script with no entry, and a press opens the script through the
 # manager's openTui, the route a status step's TUI takes, so the terminal
 # is handed what the plugin's own run hands it. The control: the manager
 # refuses a script the manifest does not list and reaches no terminal.
-# setup_drawn: the texts the page's Setup section draws. setup_button TEXT:
+# setup_drawn: the texts the page's Settings page draws. setup_button TEXT:
 # whether it draws the RowAction TEXT, then whether that action takes a
 # press.
-setup_drawn() { ipc smoke itemTexts window vgs.settings Section | py_reply 'import json,sys; r=[s for s in json.load(sys.stdin) if s and s[0] == "Setup"]; print(json.dumps(r[0] if len(r) == 1 else "sections=%d" % len(r)))'; }
+setup_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[s for s in json.load(sys.stdin) if s and s[0] == "More settings"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 setup_button() {
   local any on
   any="$(ipc smoke shownWindowGeometry window vgs.settings RowAction "$1")" || return
@@ -116,14 +116,14 @@ setup_button() {
   printf '%s %s\n' "$any" "$on"
 }
 settings_page_open acme.tui
-settings_setup
-expect_poll "the Setup tab draws one Setup button per listed setup screen" '["Setup", "More setup", "Say hello"]' setup_drawn
-expect "an enabled plugin's Setup button takes a press" "drawn enabled" setup_button "Say hello"
+settings_tab_click Settings || fail "the click on Settings for More settings failed"
+expect_poll "the Settings tab draws one Settings link per listed setup screen" '["More settings", "Say hello"]' setup_drawn
+expect "an enabled plugin's Settings link takes a press" "drawn enabled" setup_button "Say hello"
 forget_record
-settings_press --type RowAction "Say hello" || fail "the click on the Setup section's Say hello failed"
-expect_poll "the Setup button hands the terminal the plugin's script and no argument" \
+settings_press --type RowAction "Say hello" || fail "the click on the Settings page's Say hello failed"
+expect_poll "the Settings link hands the terminal the plugin's script and no argument" \
   "$(hello_words)" recorded
-expect_run_end "the Setup button's hello run ends" acme.tui/hello
+expect_run_end "the Settings link's hello run ends" acme.tui/hello
 forget_record
 expected_errors+=('settings: acme\.tui/tui:wait refused: tui=wait reason=undeclared')
 expect "the manager refuses to open a script the manifest does not list" "refused: tui=wait reason=undeclared" settings_open_tui acme.tui wait
@@ -326,15 +326,15 @@ expect "disabling the tui fixture is allowed" ok ipc shell setPluginEnabled acme
 expect_poll "a disabled plugin's TUIs leave the list" "[$core_listed]" respaced ipc shell listTuis
 expect "openTui refuses a disabled plugin's key" "refused: tui=acme.tui/hello reason=disabled" ipc shell openTui acme.tui/hello
 expect_poll "a disabled plugin holds no tui capability" False tui_held
-# Its Setup buttons stay drawn and take no press, the manager refuses the
+# Its Settings links stay drawn and take no press, the manager refuses the
 # open, and the refusal reads under the buttons.
 settings_page_open acme.tui
-settings_setup
-expect_poll "a disabled plugin's page draws its Setup buttons" '["Setup", "More setup", "Say hello"]' setup_drawn
-expect "a disabled plugin's Setup button takes no press" "drawn absent" setup_button "Say hello"
+settings_tab_click Settings || fail "the click on Settings for More settings failed"
+expect_poll "a disabled plugin's page draws its Settings links" '["More settings", "Say hello"]' setup_drawn
+expect "a disabled plugin's Settings link takes no press" "drawn absent" setup_button "Say hello"
 forget_record
 expected_errors+=('settings: acme\.tui/tui:hello refused: tui=hello reason=disabled')
 expect "the manager refuses to open a disabled plugin's script" "refused: tui=hello reason=disabled" settings_open_tui acme.tui hello
 expect "the refused open of a disabled plugin's script reaches no terminal" absent recorded
-expect_poll "the refusal reads under the Setup buttons" '["Setup", "More setup", "Say hello", "Turn on this plugin before you change it."]' setup_drawn
+expect_poll "the refusal reads under the Settings links" '["More settings", "Say hello", "Turn on this plugin before you change it."]' setup_drawn
 settings_page_close acme.tui

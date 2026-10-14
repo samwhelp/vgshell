@@ -480,12 +480,20 @@ function statusValues(record, presence, problem, now) {
         values.sync = syncValue(cloud, now);
         values.schedule = scheduleValue(record.units);
         values.pairs = pairsValue(cloud);
+        values.firstPair = pairListValid(cloud) && cloud.pairs.length > 0
+            ? { tone: "ok", text: "A folder pair is ready", action: false }
+            : { tone: "warning", text: "Add your first folder pair", action: pairListValid(cloud) };
+        if (!pairListValid(cloud)) values.firstPair.hint = "Reset the folder pair list in [Cloud Sync settings](page:vgs.cloud-sync/Settings)";
         values.cloud = cloud;
         values.lastSync = cloud.lastSuccess;
     }
     if (presence !== null) {
         values.keys = keyItems(presence);
         values.account = signInValue(presence, record);
+        values.connection = Object.assign({}, values.account, { action: values.account.action === "signIn" || values.account.action === "reconnect" });
+        // Connecting belongs to the required step. This row keeps account
+        // maintenance beside its Settings field.
+        if (values.account.action === "signIn") delete values.account.action;
     }
     return values;
 }
@@ -637,7 +645,7 @@ function notification(record) {
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Cloud Sync kept files for review", message: reviewLine(record.conflicts.length) + ". Open Cloud Sync to see them.", tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
-        return { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "warning" };
+        return { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Settings](page:vgs.cloud-sync/Settings).", tone: "warning" };
     return null;
 }
 

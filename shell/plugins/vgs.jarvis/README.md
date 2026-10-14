@@ -89,7 +89,7 @@ You can change the keys under Keys on the Jarvis page.
 
 ## Setup
 
-The Setup tab of the Jarvis page shows Ready or Not ready, and the reason. Its steps are Sign in, AI model, Voice, Local voice, Browser, Desktop input and Cloned voice. The AI model and Voice steps show Done or To do. Sign in is optional. Browser and Desktop input are optional: until they are done, they show their state in the optional tone. Local voice is required while it hears you, under Local and ElevenLabs; under Realtime or Gemini Live it is optional. While the Voice step offers Set up local voice, Local voice only shows its state, and the Voice step's button sets it up. Cloned voice is optional too: it shows Not set up, Ready, or why it cannot be set up yet. A step that has an action shows its button.
+The Setup tab of the Jarvis page lists the required Home folder, AI model, Voice and Tools steps. Each reads Done or To do and keeps its row after completion. A pending step explains what to change and offers its action as a text link. Settings holds sign-in and provider keys beside Account, local voice model choices, Browser, Desktop input, Agent fleet and Cloned voice. Details holds overall readiness and Memory search.
 
 The buttons are also rows in the launcher's Jarvis group. Each opens a floating terminal.
 
@@ -97,9 +97,9 @@ The buttons are also rows in the launcher's Jarvis group. Each opens a floating 
 - Remove key deletes an API key you stored with Add key from your desktop keyring. Choose the key from the list, then confirm once. If the key was the Voice key, Jarvis clears that choice. A conversation that is open uses the key until it ends. A key that another app saved stays in your keyring; Jarvis only stops using it.
 - Sign in opens the app's own sign-in: Claude Code, Codex, GitHub Copilot or Pi. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and makes it if needed. After sign-in, select the account under AI model. The app keeps its own login.
 - Set up local voice downloads the local voice model that runs best on your computer. It checks free space, downloads the models and a private runtime, and says Ready only after it checks the download and a test clip passes. To use another model, choose it under Local voice model.
-- Set up cloned voice, on the Cloned voice step of the Setup tab and not in the launcher, shows Resemble AI's use text and asks two questions: whether you read it, and whether the voice is yours or you have the speaker's permission. Any answer but two yeses downloads and stores nothing. It then downloads the model and a private runtime, records 10 seconds while you read a sentence aloud, and says Ready after a test sentence in that voice is made on your computer, with nothing played. It needs the Large local voice model ready. Remove recording deletes the recording and turns off Cloned voice when its terminal closes; the model stays for a later setup.
-- Set up dictation makes voxtype ready for the local voice and downloads its speech model. Install all missing on the Setup tab installs voxtype while it is missing.
-- Set up browser checks a browser that is installed, on a blank page, or offers a private download. Install all missing on the Setup tab installs agent-browser while it is missing.
+- Set up cloned voice, beside Cloned voice in Settings and not in the launcher, shows Resemble AI's use text and asks two questions: whether you read it, and whether the voice is yours or you have the speaker's permission. Any answer but two yeses downloads and stores nothing. It then downloads the model and a private runtime, records 10 seconds while you read a sentence aloud, and says Ready after a test sentence in that voice is made on your computer, with nothing played. It needs the Large local voice model ready. Remove recording deletes the recording and turns off Cloned voice when its terminal closes; the model stays for a later setup.
+- Set up dictation makes voxtype ready for the local voice and downloads its speech model. Review all missing or outdated tools beside Voice provider in Settings opens the notice to install voxtype while it is missing.
+- Set up browser checks a browser that is installed, on a blank page, or offers a private download. Review all missing or outdated tools beside Browser in Settings opens the notice to install agent-browser while it is missing.
 - Accounts adds an account folder, chooses a keyring item by its label, or shows login hints. It finds the account folders of your other tools in your home, config and data folders. It can use a key that another tool stored, without a copy of the key. A login hint does not prove that the AI answers.
 - Verify sends one small request to an account, after you agree, because a real request can cost money.
 - Check input checks the desktop input tools.
@@ -145,7 +145,7 @@ Mute closes only the microphone. Show in bar puts the bar icon back after Hide.
 
 Start Jarvis at boot, under [Settings](#settings), states when the session starts and what it runs. The app is the Account you chose under AI model. A restart of VGS does not start a second session. [Turn Jarvis on](#turn-jarvis-on) states what the Enabled switch does to the session.
 
-The Jarvis package in the home folder starts and owns the session. The Jarvis session row on Details shows what the package reports: for example Running, Starting, Off or Cannot start, with a sentence that tells you what to do. Start shows while no session runs. Retry shows after a start failed. While tmux is missing, Install all missing on the Setup tab installs it.
+The Jarvis package in the home folder starts and owns the session. The Jarvis session row beside Start Jarvis at boot in Settings shows what the package reports: for example Running, Starting, Off or Cannot start, with a sentence that tells you what to do. Start shows while no session runs. Retry shows after a start failed. While tmux is missing, select Review all missing or outdated tools beside Start Jarvis at boot in Settings.
 
 - No session can start with an API key or a local model as the Account. Under AI model, choose an app as the Account.
 - When you change the home folder or the Account, Jarvis checks the new choice, then restarts the session.
@@ -161,7 +161,7 @@ VGS starts and stops the session with `.agents/skills/jarvis/scripts/jarvis-sess
 
 - Window, workspace and application tools check each change in Hyprland before they report it done.
 - File tools list, read, search, write, move and delete files in your home folder. They refuse password and key stores, account folders and VGS's own files. They never follow a link out of your home folder.
-- Commands run inside a sandbox that the Linux kernel enforces. The Jarvis page shows whether the sandbox is ready, and Install all missing on its Setup tab installs Bubblewrap when it is missing.
+- Commands run inside a sandbox that the Linux kernel enforces. The Jarvis page shows whether the sandbox is ready, and Review all missing or outdated tools on the Tools step of Setup opens the notice to install Bubblewrap when it is missing.
 - Desktop tools read and copy clipboard text, play, pause and skip media, set and mute the speaker volume, and show a notification. Jarvis does not read a clipboard copy that a password manager marks as secret.
 - Screen tools read the screen, a monitor, a window, a region or an area you draw, at most four times for each request. Jarvis paints the windows of password managers and private browsing black before a screenshot leaves Jarvis.
 - The private browser comes from Set up browser. Jarvis asks you before it clicks or types on each site, and before each submit. You type passwords yourself.

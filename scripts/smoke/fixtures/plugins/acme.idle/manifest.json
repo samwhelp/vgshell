@@ -1,5 +1,5 @@
 { "schemaVersion": 1, "id": "acme.idle", "name": "Idle", "version": "0.1.0", "author": "acme", "description": "smoke fixture nothing enables",
   "kinds": ["service"], "entryPoints": { "service": "Service.qml" },
   "requirements": [
-    { "command": "vgs-smoke-absent", "optional": true, "purpose": "A command no sandbox has, so the page has a Setup tab" }
+    { "command": "vgs-smoke-absent", "optional": false, "purpose": "A missing required tool keeps Setup available for page-link navigation" }
   ] }

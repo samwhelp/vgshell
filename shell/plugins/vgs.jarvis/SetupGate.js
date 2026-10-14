@@ -108,17 +108,17 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // the step gives, since its action already says to set it up.
 var TODO = {
     "brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
-    "brain=account-unavailable": "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model",
+    "brain=account-unavailable": "The selected account or its key is unavailable: [add a provider key or sign in beside Account](page:vgs.jarvis/Settings)",
     "brain=model-required": "Choose a model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
     "brain=models-reading": "Jarvis is reading the local server model list",
     "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
     "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
     "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [update it under Requirements](page:vgs.jarvis/Setup), or choose another app under AI model",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools](page:vgs.jarvis/Settings), or choose another app under AI model",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "[Add a cloud voice key under Setup](page:vgs.jarvis/Setup): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
-    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts on Setup](page:vgs.jarvis/Setup) to check it",
-    "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key on Setup stores a new key",
+    "speech=live-account-unselected": "[Add a provider key beside Account](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
+    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account](page:vgs.jarvis/Settings) to check it",
+    "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside Account stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Local voice did not start. Set it up again.",
     "speech=local-ready-timeout": "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
@@ -143,8 +143,8 @@ var CAUTION = {
 var DICTATION = {
     "speech=dictation-absent": { tone: "warning", text: "To do", hint: "The local voice hears your words through dictation. Set up dictation gets it ready.", action: "dictation" },
     "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },
-    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)" },
-    "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Setup)" }
+    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Other dictation service in Settings > Voice](page:vgs.voice/Settings)" },
+    "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Settings)" }
 };
 // Causes whose step the voice setup action cannot complete: the user
 // changes a setting, adds a key or fixes the ElevenLabs key instead.
@@ -152,8 +152,8 @@ function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
 }
 var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model" };
-// The home folder step shows only while the daemon refuses the folder the
-// user chose, with what to change, by its cause; any other cause of the
+// The required home step stays visible. A daemon refusal states what to
+// change, by its cause; any other cause of the
 // folder or its text takes HOME_STEP_TODO. Its entry declares no action:
 // the user changes the folder or the setting. A changed setting reaches
 // the daemon at once; a change inside the folder does at the next request
@@ -167,7 +167,8 @@ var HOME_TODO = {
     "guidance=home-memory-too-large": "memory/MEMORY.md in the home folder is too long. Make it shorter than 4 KB." + HOME_AGAIN
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk";
-var HOME_READY = { hidden: true };
+var HOME_READY = { tone: "ok", text: "Done" };
+var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };
 var DONE = { tone: "ok", text: "Done", action: false };
 // Voice setup uses Session's check result, which only the local wake detector
 // supplies. A step that names its own action, such as Set up dictation, keeps it.
@@ -302,14 +303,14 @@ function modelStep(value, keys, access) {
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
-        return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
+        return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
     case "stopped":
         return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },
-            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
+            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "problem":
         var problem = startCause(answer.cause);
         return { setup: { tone: "danger", text: problem.title, hint: answer.action || problem.action },
-            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
+            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
         // The summary says only its state and hint: each step words its own
         // causes, and a caution's hint is its words.
@@ -594,7 +595,7 @@ var SESSION_ROWS = {
     "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record" },
     "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
     "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked" },
-    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux. Install all missing installs it." },
+    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux: [review all missing or outdated tools beside Start Jarvis at boot](page:vgs.jarvis/Settings)" },
     "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed" },
     "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
     "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }
@@ -639,8 +640,8 @@ function sessionStart(wanted, result) {
 // ready, but a Ready summary names a session the user must fix: the page
 // gives one judgement.
 var SESSION_FAULTS = {
-    warning: "The Jarvis session cannot start: see [Jarvis session under Home](page:vgs.jarvis/Setup)",
-    danger: "The Jarvis session did not start: see [Jarvis session under Home](page:vgs.jarvis/Setup)"
+    warning: "The Jarvis session cannot start: see [Jarvis session under Home](page:vgs.jarvis/Settings)",
+    danger: "The Jarvis session did not start: see [Jarvis session under Home](page:vgs.jarvis/Settings)"
 };
 function sessionSummary(setup, session) {
     if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;

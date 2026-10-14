@@ -38,9 +38,9 @@ function suite(ctx, check) {
         status: {
             devices: { type: "choices", label: "Devices" },
             catalog: { type: "launcherRows", label: "Catalog" },
-            token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", tui: "setup" } },
+            token: { type: "presence", label: "Token", setup: true, group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", tui: "setup" } },
             tokens: { type: "presenceList", label: "Tokens", group: "Keys", hint: "One per workspace" },
-            check: { type: "state", label: "Check", hint: "Check information", action: { label: "Allow sync", system: "i2c-dev" } },
+            check: { type: "state", label: "Check", setup: true, hint: "Check information", action: { label: "Allow sync", system: "i2c-dev" } },
             note: { type: "text", label: "Note" },
             pending: { type: "count", label: "Pending" },
             lastCheck: { type: "time", label: "Last check" },
@@ -52,6 +52,7 @@ function suite(ctx, check) {
     const judged = ctx.validateManifest(raw, "/p");
     if (!judged.ok) throw new Error("the fixture manifest is refused: " + judged.error);
     const m = judged.manifest;
+    check("a required step cannot publish a hidden value", ctx.statusWrite(m, {}, "check", { hidden: true }).ok, false);
     // The same plugin without `secrets`, whose items cannot name an account.
     const bare = JSON.parse(JSON.stringify(raw));
     delete bare.secrets;
@@ -376,7 +377,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -391,7 +392,7 @@ function suite(ctx, check) {
     const withheldHint = ctx.statusRows(guidedTui, guidance, ["acme-sync"]).find(r => r.key === "check").hint;
     check("statusRows: missing TUI requirements name their command", withheldHint.includes("acme-sync"), true);
     check("statusRows: missing TUI requirements override state guidance", withheldHint.includes("Try again."), false);
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, aside: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: false, setting: "", step: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, aside: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
@@ -572,11 +573,11 @@ function suite(ctx, check) {
     for (const [name, manifest, enabled, values, key, want] of actRows)
         check("statusActionRequest: " + name, ctx.statusActionRequest(manifest, "acme.gone", enabled, values, key), want);
     // A system step's action opens the core TUI with `apply` and its step (D081).
-    const mSystem = ctx.validateManifest({ schemaVersion: 1, id: "acme.displays", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["apple-displays"], status: { apple: { type: "state", label: "Apple displays", action: { label: "Allow", system: "apple-displays" } } } }, "/p").manifest;
+    const mSystem = ctx.validateManifest({ schemaVersion: 1, id: "acme.displays", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["apple-displays"], status: { apple: { type: "state", label: "Apple displays", setup: true, action: { label: "Allow", system: "apple-displays" } } } }, "/p").manifest;
     const allow = ctx.statusWrite(mSystem, {}, "apple", { tone: "warning", text: "Brightness needs access", action: true }).values;
     check("statusActionRequest: an offered system step applies it in the core TUI", ctx.statusActionRequest(mSystem, "acme.displays", true, allow, "apple"), { ok: true, kind: "system", args: ["apply", "apple-displays"] });
     // An `undo` action opens the same core TUI with `undo` and its step.
-    const mUndo = ctx.validateManifest({ schemaVersion: 1, id: "acme.notice", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["reboot-notice"], status: { notice: { type: "state", label: "Reboot notice", actions: { off: { label: "Turn off", system: "reboot-notice" }, on: { label: "Turn on", undo: "reboot-notice" } } } } }, "/p").manifest;
+    const mUndo = ctx.validateManifest({ schemaVersion: 1, id: "acme.notice", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["reboot-notice"], status: { notice: { type: "state", label: "Reboot notice", setup: true, actions: { off: { label: "Turn off", system: "reboot-notice" }, on: { label: "Turn on", undo: "reboot-notice" } } } } }, "/p").manifest;
     const noticeValues = name => ctx.statusWrite(mUndo, {}, "notice", { tone: "info", text: "t", action: name }).values;
     check("statusActionRequest: an offered undo undoes its step in the core TUI", ctx.statusActionRequest(mUndo, "acme.notice", true, noticeValues("on"), "notice"), { ok: true, kind: "system", args: ["undo", "reboot-notice"] });
     check("statusActionRequest: the step's apply beside its undo applies it", ctx.statusActionRequest(mUndo, "acme.notice", true, noticeValues("off"), "notice"), { ok: true, kind: "system", args: ["apply", "reboot-notice"] });
@@ -585,7 +586,7 @@ function suite(ctx, check) {
     // A state entry with named actions: its value names the one that
     // applies, and may carry further lines.
     const mNamed = ctx.validateManifest({ schemaVersion: 1, id: "acme.agent", name: "A", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui", "system"], tui: { remove: { script: "tui/remove.sh", title: "Remove" } }, systemSteps: ["i2c-dev"],
-        status: { agent: { type: "state", label: "Agent", actions: { remove: { label: "Uninstall", tui: "remove" }, get: { label: "Allow", system: "i2c-dev" } } }, plain: { type: "state", label: "Plain", action: { label: "Go", tui: "remove" } } } }, "/p").manifest;
+        status: { agent: { type: "state", label: "Agent", setup: true, actions: { remove: { label: "Uninstall", tui: "remove" }, get: { label: "Allow", system: "i2c-dev" } } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Go", tui: "remove" } } } }, "/p").manifest;
     const named = (key, value) => { const r = ctx.statusWrite(mNamed, {}, key, value); return r.ok ? "ok" : r.error; };
     check("statusWrite: null clears a non-data value", ctx.statusWrite(mNamed, ctx.statusWrite(mNamed, {}, "plain", { tone: "ok", text: "Ready" }).values, "plain", null).values, {});
     const refusedAgent = "refused: status=agent reason=type";
@@ -610,7 +611,7 @@ function suite(ctx, check) {
     // A danger action carries its tone to the row, offered or not, but
     // while withheld, when it takes no press.
     const mTone = ctx.validateManifest({ schemaVersion: 1, id: "acme.drive", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"], tui: { connect: { script: "tui/connect.sh", title: "Sign in" }, out: { script: "tui/out.sh", title: "Sign out" } }, requirements: [{ command: "acme-sync", purpose: "p" }],
-        status: { drive: { type: "state", label: "Sign-in", actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }, plain: { type: "state", label: "Plain", action: { label: "Sign out", tui: "out", tone: "danger" } } } }, "/p").manifest;
+        status: { drive: { type: "state", label: "Sign-in", setup: true, actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Sign out", tui: "out", tone: "danger" } } } }, "/p").manifest;
     const toneOf = (key, value, missing) => ctx.statusRows(mTone, ctx.statusWrite(mTone, {}, key, value).values, missing)[key === "drive" ? 0 : 1].action.tone;
     check("statusRows: a danger action carries its tone, a plain one none, a withheld one none",
         [toneOf("drive", { tone: "ok", text: "t", action: "signOut" }, []), toneOf("drive", { tone: "warning", text: "t", action: "signIn" }, []), toneOf("plain", { tone: "ok", text: "t" }, []), toneOf("drive", { tone: "ok", text: "t", action: "signOut" }, ["acme-sync"])],
@@ -620,7 +621,7 @@ function suite(ctx, check) {
     const mAside = ctx.validateManifest({ schemaVersion: 1, id: "acme.keys", name: "K", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"],
         requirements: [{ command: "acme-sync", purpose: "p" }, { command: "acme-vault", purpose: "p" }],
         tui: { add: { script: "tui/add.sh", title: "Add", requires: ["acme-sync"] }, remove: { script: "tui/remove.sh", title: "Remove", requires: ["acme-vault"], entry: { label: "Remove key", icon: "trash", group: "Acme" } } },
-        status: { keys: { type: "state", label: "Keys", action: { label: "Add key", tui: "add" }, aside: { label: "Remove key", tui: "remove", tone: "danger" } }, plain: { type: "state", label: "Plain", action: { label: "Add key", tui: "add" } } } }, "/p").manifest;
+        status: { keys: { type: "state", label: "Keys", setup: true, action: { label: "Add key", tui: "add" }, aside: { label: "Remove key", tui: "remove", tone: "danger" } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Add key", tui: "add" } } } }, "/p").manifest;
     const asideWrite = (key, value) => { const r = ctx.statusWrite(mAside, {}, key, value); return r.ok ? "ok" : r.error; };
     for (const [name, key, value, want] of [
         ["an aside the entry declares", "keys", { tone: "ok", text: "t", action: true, aside: true }, "ok"],
@@ -709,6 +710,7 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
+    ["required steps cannot hide", 'if (entry.setup === true && statusStateHidden(value)) return false;', 'if (false) return false;'],
     ["a status row drops its link", "link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },", "link: null,"],
     ["a status row drops its declared TUI names", "declaredTuis: statusDeclaredTuis(entry),", "declaredTuis: [],"],
     ["a setup ignores optional commands", "return !row.optional;\n    }).map", "return true;\n    }).map"],

@@ -35,9 +35,10 @@ function verifyRefreshSetup(logic, source) {
     const published = [];
     const world = { VoiceLogic: logic, voxtypePresent: true, dictationState: null, daemon: "", setupValue: initial };
     world.publish = (key, value) => {
-      assert.equal(key, "setup", label + ": the setup status is published");
+      assert.ok(["setup", "otherService"].includes(key), label + ": only the declared setup and service statuses are published");
       assert.equal(pluginLogic.statusValueFits("state", value), true, label + ": the real status judge accepts the published value");
-      published.push(value);
+      if (key === "setup") published.push(value);
+      else same(value, { tone: "ok", text: "No other service to stop", action: false }, label + ": pending and ready setup offer no Settings stop action");
     };
     world.publishModel = () => {};
     vm.runInNewContext(found[0] + "\n" + publisher[0], world);
@@ -49,7 +50,7 @@ function verifyRefreshSetup(logic, source) {
       assert.equal(published.length, before + 1, label + ": the new core state is published");
       same([world.setupValue.tone, world.setupValue.action], [tone, action], label + ": current setup replaces the prior value");
       const value = published[published.length - 1];
-      same([value.tone, value.text, value.action || ""], [tone, world.setupValue.text, action], label + ": the current setup reaches the status record");
+      same([value.tone, value.text, value.action], [tone, world.setupValue.text, action === "setup"], label + ": the current setup reaches the status record");
       if (world.setupValue.lines.length === 0) assert.equal(Object.hasOwn(value, "lines"), false, label + ": pending setup omits empty lines");
       else same(value.lines, Array.from(world.setupValue.lines), label + ": the status keeps the setup detail lines");
     }
@@ -102,8 +103,8 @@ function verify(logic) {
     const state = logic.setupState(Object.assign({}, readsReady, missing), "absent");
     same([state.tone, state.action], ["warning", "setup"], "an absent daemon keeps setup offered for each missing prerequisite");
   }
-  // Without voxtype the entry is hidden, offers no step and names no line:
-  // the Requirements section states voxtype missing, once.
+  // Without voxtype the reading offers no setup action. The publisher
+  // keeps the required step pending, and the Tools step offers installation.
   for (const daemon of ["failed", ""])
     same(logic.setupState({ present: false }, daemon), { hidden: true, lines: [], action: "", engine: "parakeet", model: "parakeet-tdt-0.6b-v3" }, `setupState: voxtype not found, daemon ${JSON.stringify(daemon)}, hides the entry`);
   // Each daemon word that is not ready has a line of its own.
@@ -299,6 +300,18 @@ try {
 // requirement notice in place of the script, which then opens the screen
 // once it is found. Only Stop the other voxtype needs systemctl: the core
 // runs voxtype, and no user unit does.
+const publishSetupSource = serviceSource.match(/^    function publishSetup\(\) \{[\s\S]*?^    \}/m);
+assert.ok(publishSetupSource, "the service declares its status publication");
+function publishedSetup(state) {
+  const values = {};
+  const publish = vm.runInNewContext("(" + publishSetupSource[0] + ")", {
+    setupValue: state,
+    publish: (key, value) => { values[key] = value; },
+    publishModel: () => {}
+  });
+  publish();
+  return values;
+}
 const manifestFile = path.join(repo, "shell", "plugins", "vgs.voice", "manifest.json");
 const logic = load(file);
 // The screens that run voxtype.
@@ -317,27 +330,26 @@ function verifyRequirements(raw) {
     same(pluginLogic.tuiMissingRequirements(judged.manifest, name, []), [], `${name} with voxtype present runs its script`);
     same(pluginLogic.tuiRunFor(judged.manifest, true, "/src", runner, name, missing).kind, "install", `the ${name} press raises the requirement notice`);
   }
-  // Set up's state names the manifest's action that applies: none without
-  // voxtype, which the page's Requirements section installs, the core's
-  // dictation setup while a line stands, and none once ready.
-  const act = (reads, daemon) => {
+  // The required step offers the core's dictation setup while needed.
+  // Tools supplies missing voxtype; the ready step offers no action.
+  const act = (reads, daemon, key = "setup") => {
     const state = logic.setupState(reads, daemon);
-    const values = { setup: state.hidden ? { hidden: true } : Object.assign({ tone: state.tone, text: state.text, lines: state.lines }, state.action === "" ? {} : { action: state.action }) };
-    return pluginLogic.statusActionRequest(judged.manifest, "vgs.voice", true, values, "setup");
+    const values = publishedSetup(state);
+    return pluginLogic.statusActionRequest(judged.manifest, "vgs.voice", true, values, key);
   };
   same(act({ present: false }, "failed"), { ok: false, answer: "refused: action=setup reason=not-offered" }, "without voxtype the setup entry offers no step");
   same(act(readsMissing, "ready"), { ok: true, kind: "core", name: "dictation-setup" }, "Set up opens the core's dictation setup");
   same(act(readsReady, "ready").ok, false, "a ready Voice offers no step");
-  same(act(readsReady, "elsewhere"), { ok: true, kind: "tui", name: "stop-other" }, "another voxtype running opens Stop the other voxtype");
+  same(act(readsReady, "elsewhere", "otherService"), { ok: true, kind: "tui", name: "stop-other" }, "another voxtype running opens Stop the other voxtype");
   same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", missing), ["voxtype"], "Stop the other voxtype without voxtype asks for it before its script");
   same(pluginLogic.tuiMissingRequirements(judged.manifest, "stop-other", ["systemctl"]), ["systemctl"], "Stop the other voxtype without systemctl asks for it before its script");
-  // voxtype's missing state reads once, in its Requirements row on Setup:
-  // the page draws no status row of it. The rows are the core's own over
-  // the values Voice publishes without voxtype.
+  // Missing voxtype leaves the required step pending beside Tools.
+  // The rows use the values the service publishes without voxtype.
   const absent = logic.setupState({ present: false }, "failed");
-  const published = { setup: { hidden: true }, model: logic.modelData(lent("failed", "idle", ""), absent), dictation: { tone: "ok", text: "idle" } };
+  const published = publishedSetup(absent);
   same(pluginLogic.requirementRows(judged.manifest, missing, {}).filter(row => row.name === "voxtype").map(row => row.state), ["missing"], "voxtype is one requirement, missing");
-  same(pluginLogic.statusRows(judged.manifest, published, missing).map(row => row.key), [], "without voxtype the page draws no status row of voxtype or of setup");
+  same(pluginLogic.statusRows(judged.manifest, published, missing).map(row => row.key), ["setup", "otherService"], "the page has no duplicate dictation-tool presence row");
+  same(pluginLogic.statusRows(judged.manifest, published, missing).filter(row => row.setup).map(row => [row.key, row.tone, row.action.offered]), [["setup", "warning", false]], "without voxtype the required step stays visible and pending");
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);
@@ -349,8 +361,8 @@ for (const name of VOXTYPE_TUIS) {
 }
 const manifestControls = [
   ["a manifest copy whose Configure needs systemctl", raw => { raw.tui.configure.requires.push("systemctl"); }],
-  ["a manifest copy whose elsewhere step is Set up", raw => { raw.status.setup.actions.stop = { label: "Stop the other voxtype", dictation: "setup" }; }],
-  ["a manifest copy that keeps its own Set up screen", raw => { raw.tui.setup = JSON.parse(JSON.stringify(raw.tui.model)); raw.status.setup.actions.setup = { label: "Set up", tui: "setup" }; }],
+  ["a manifest copy whose elsewhere step is Set up", raw => { raw.status.otherService.action = { label: "Stop the other voxtype", dictation: "setup" }; }],
+  ["a manifest copy that keeps its own Set up screen", raw => { raw.tui.setup = JSON.parse(JSON.stringify(raw.tui.model)); raw.status.setup.action = { label: "Set up", tui: "setup" }; }],
   ["a manifest copy whose Details states voxtype's presence", raw => { raw.status = Object.assign({ voxtype: { type: "state", label: "voxtype" } }, raw.status); }],
 ];
 for (const [label, edit] of manifestControls) {

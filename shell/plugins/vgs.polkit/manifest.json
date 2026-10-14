@@ -31,14 +31,6 @@
     "stop": { "script": "tui/stop.sh", "title": "Stop password prompt app" }
   },
   "status": {
-    "agent": {
-      "type": "state",
-      "label": "Password prompts",
-      "hint": "Only one app at a time can show password prompts",
-      "actions": {
-        "uninstall": { "label": "Uninstall", "tui": "uninstall" },
-        "stop": { "label": "Stop", "tui": "stop" }
-      }
-    }
+    "agent": {"type": "state", "label": "Password prompts", "hint": "Only one app at a time can show password prompts", "actions": {"uninstall": {"label": "Uninstall", "tui": "uninstall"}, "stop": {"label": "Stop", "tui": "stop"}}, "setup": true}
   }
 }

@@ -178,7 +178,7 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
         const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptyProfiles())[1][1];
         assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
     }
-    assert.equal(logic.setup({ missing: true }).hint, "Tailscale is optional. Install it under [Requirements](page:vgs.vpn/Setup) to use it.");
+    assert.equal(logic.setup({ missing: true }).hint, "Tailscale is optional. Choose Review all missing or outdated tools beside [Tailscale in Settings](page:vgs.vpn/Settings) to use it.");
     const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
@@ -208,20 +208,21 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
         [plain(logic.published(false, running, denied, live)), steps.allow.label]
     ];
     assert.equal(logic.lockReason(shown, steps.allow.label), "", "a writable value gives no reason");
-    assert.equal(logic.lockReason({ writable: false, state: "missing" }, ""), "Tailscale is not installed, so install it under [Requirements](page:vgs.vpn/Setup) to use it.");
+    assert.equal(logic.lockReason({ writable: false, state: "missing" }, ""), "Tailscale is not installed, so choose Review all missing or outdated tools beside [Tailscale in Settings](page:vgs.vpn/Settings) to use it.");
     for (const [vpn, step] of locked) {
         const reason = logic.lockReason(vpn, step);
         assert.equal(vpn.writable, false, vpn.state);
         assert.ok(/^[A-Z][^.!?]*\.$/.test(PageReference.plain(reason)), "one sentence: " + JSON.stringify(reason));
         assert.ok(!/\btailscale |sudo|vgshell|systemctl/.test(reason), "no command: " + JSON.stringify(reason));
         assert.ok(step === "" || reason.includes(step), "names the step: " + JSON.stringify(reason));
+        assert.deepEqual([PageReference.parse(reason).page, PageReference.parse(reason).tab], [manifest.id, "Settings"], "each locked control opens the Tailscale Settings field");
     }
     // The item requires one cause wording in the reason, Setup and README.
     const cause = "The administrator holds Tailscale";
-    assert.equal(logic.lockReason(locked[2][0], ""), cause + ".");
+    assert.equal(logic.lockReason(locked[2][0], ""), cause + "; review [Tailscale in Settings](page:vgs.vpn/Settings).");
     assert.equal(denied.hint.split(".")[0], cause);
     assert.equal(readme.split("\n").find(row => row.startsWith("| " + steps.allow.label + " | ")).split("|")[2].trim(), cause);
-    assert.equal(logic.lockReason(locked[2][0], steps.allow.label), "The administrator holds Tailscale until you choose Let my login control Tailscale.");
+    assert.equal(logic.lockReason(locked[2][0], steps.allow.label), "The administrator holds Tailscale until you choose Let my login control Tailscale beside [Tailscale in Settings](page:vgs.vpn/Settings).");
     const causes = locked.map(([vpn]) => logic.lockReason(vpn, ""));
     assert.equal(new Set(causes).size, causes.length, "each cause says its own why");
     assert.equal(plain(logic.unread()).state, "checking");
@@ -427,7 +428,8 @@ try {
         ["a missing command takes no change", 'writable: !missing && setupLine.action === "",', 'writable: setupLine.action === "",'],
         ["a writable value gives no reason", 'if (vpn.writable) return "";', ''],
         ["a service that is off is told apart", 'vpn.state === "service-off" ? "The', 'false ? "The'],
-        ["the reason names the step", 'step === "" ? cause + "." :', 'true ? cause + "." :'],
+        ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],
+        ["a blocked service opens its Settings field", 'cause + "; review [Tailscale in Settings](page:vgs.vpn/Settings)."', 'cause + "; review [Tailscale in Setup](page:vgs.vpn/Setup)."'],
         ["VPN profiles exclude other types", 'fields[1] !== "vpn" && fields[1] !== "wireguard"', 'false'],
         ["profile argv names id", '"down", "id", row.id]', '"down", row.id]'],
         ["profile lists are bounded", 'const retained = rows.slice(0, PROFILE_MAX);', 'const retained = rows.slice(0);'],

@@ -36,6 +36,7 @@ GroupList {
     required property string pluginId
     // The plugin's `secrets` label, which a line's masked field asks for.
     property string secretLabel: ""
+    property bool setup: false
 
     signal openLink(var link)
     signal openPage(string page, string tab)
@@ -76,10 +77,10 @@ GroupList {
         }
         StatusLine {
             required property var modelData
-            readonly property var presence: Steps.itemView(modelData)
+            readonly property var presence: Steps.itemView(modelData, row.setup)
             width: row.width
             label: modelData.label
-            hint: modelData.hint
+            hint: row.setup && presence.reason !== "" ? presence.reason + (modelData.hint === "" ? "" : ": " + modelData.hint) : modelData.hint
             onHintPageActivated: (page, tab) => row.openPage(page, tab)
             tone: presence.tone
             text: presence.text

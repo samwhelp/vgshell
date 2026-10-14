@@ -11,7 +11,7 @@ Dev Tools installs, updates, pins and removes developer tools: coding agents, ap
 - Update all updates unpinned tools only.
 - A Dev Tools launcher category lists catalog rows and installs a missing tool before it starts it.
 - A tool that something outside VGS provides shows Managed outside VGS and still starts from `PATH`.
-- mise manages the tools. While it is missing, Install all missing on the Setup tab installs it.
+- mise manages the tools. While it is missing, select Review all missing or outdated tools on the Tools step of the Setup tab.
 
 <details><summary>Show command</summary>
 

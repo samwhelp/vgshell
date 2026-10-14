@@ -86,8 +86,8 @@
     "shown": { "type": "data", "label": "Shown pads" }
   },
   "requirements": [
-    { "command": "sh", "packages": { "pacman": "bash", "apt": "dash", "dnf": "bash", "nix": "bash" }, "optional": false, "purpose": "Starts the app of each pad" },
-    { "command": "xdg-terminal-exec", "packages": { "pacman": "xdg-terminal-exec", "apt": "xdg-terminal-exec", "dnf": "xdg-terminal-exec", "nix": "xdg-terminal-exec" }, "optional": true, "purpose": "Opens the terminal of the Terminal app choice" }
+    {"command": "sh", "packages": {"pacman": "bash", "apt": "dash", "dnf": "bash", "nix": "bash"}, "optional": false, "purpose": "Starts the app of each pad"},
+    {"command": "xdg-terminal-exec", "packages": {"pacman": "xdg-terminal-exec", "apt": "xdg-terminal-exec", "dnf": "xdg-terminal-exec", "nix": "xdg-terminal-exec"}, "optional": true, "purpose": "Opens the terminal of the Terminal app choice", "setting": "pads"}
   ],
   "hyprland": {
     "pads": "pads"

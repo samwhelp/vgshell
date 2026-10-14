@@ -23,6 +23,7 @@ T.TabBar {
     id: root
 
     property var model: []
+    property var warningTabs: []
     property color foreground: Theme.tabs.foreground
     property color hover: Theme.tabs.hover
     property color active: Theme.tabs.active
@@ -91,6 +92,7 @@ T.TabBar {
             readonly property color active: root.active
             readonly property color indicatorColor: root.indicatorColor
             readonly property bool hoverMark: root.hoverMark
+            readonly property bool warning: root.warningTabs.indexOf(String(modelData)) !== -1
             text: String(modelData)
             implicitWidth: implicitContentWidth + leftPadding + rightPadding
             implicitHeight: Theme.tabs.height
@@ -99,18 +101,33 @@ T.TabBar {
             hoverEnabled: true
             focusPolicy: Qt.NoFocus
             PointerCursor {}
-            Accessible.name: text
+            Accessible.name: warning ? text + ": setup needed" : text
             // A selection callback can open a dialog. Give this press
             // its pointer focus before the template changes the index.
             onPressed: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; }
 
-            contentItem: Label {
-                role: "button"
-                text: tab.text
-                color: tab.checked ? tab.active : tab.hovered || tab.down ? tab.hover : tab.foreground
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+            contentItem: Row {
+                spacing: Theme.stack.inline
+                // Qt Row omits invisible children from its width, so the
+                // warning leaves no empty space once Setup is done.
+                // https://doc.qt.io/qt-6/qml-qtquick-row.html
+                Label {
+                    role: "button"
+                    text: tab.text
+                    horizontalAlignment: Text.AlignHCenter
+                    color: tab.checked ? tab.active : tab.hovered || tab.down ? tab.hover : tab.foreground
+                    verticalAlignment: Text.AlignVCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+                }
+                Icon {
+                    objectName: "tabWarning"
+                    name: "triangle-alert"
+                    color: Theme.color.warning
+                    size: Theme.icon.size.sm
+                    visible: tab.warning
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
 
             background: Rectangle {

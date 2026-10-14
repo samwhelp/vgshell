@@ -102,7 +102,7 @@ const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgshell/.SRCINF
 const fedora = [...fs.readFileSync(path.join(root, "packaging/fedora/vgshell.spec"), "utf8").matchAll(/^Requires:\s+(\S+)/gm)]
     .map(match => match[1])
     .filter(name => !systemOnly.has(name));
-if (hard.length < 6 || fedora.length < 6 || !hard.includes("tesseract-data-eng") || !hard.includes("agent-browser-bin") || !fedora.includes("qrencode")) throw Error("package group extractor is broken");
+if (hard.length < 6 || fedora.length < 6 || !hard.includes("tesseract-data-eng") || !hard.includes("vsys") || !hard.includes("greetd") || !fedora.includes("qrencode")) throw Error("package group extractor is broken");
 process.stdout.write(JSON.stringify({ pacman: hard.filter(name => !aur.has(name)), aur: hard.filter(name => aur.has(name)), dnf: fedora }));
 JS
 installer_source_tree() {
@@ -447,10 +447,10 @@ packages_row() { # BIN: required packages use the existing floating presenter
   : >"$install_log"
   run "$1" --version 0.1.0
   [[ $status == 0 ]] || return 1
-  for arg in launch --record core/requirements-install --manager pacman aur tesseract-data-eng agent-browser-bin wlrctl vsys; do
+  for arg in launch --record core/requirements-install --manager pacman aur tesseract-data-eng greetd glibc vsys; do
     grep -qxF -- "$arg" "$install_log" || return 1
   done
-  ! grep -qxE 'ddcutil|nvidia-utils|timeshift|cronie|greetd|tmux' "$install_log"
+  ! grep -qxE 'ddcutil|nvidia-utils|timeshift|cronie|tmux|chromium|uv|agent-browser-bin|wlrctl' "$install_log"
 }
 # A missing launcher refuses before fetch. The real presenter also refuses
 # before setsid; its isolated PATH has no launcher or live-session program.

@@ -60,32 +60,11 @@
     { "command": "notify-send", "packages": { "pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify" }, "optional": false, "purpose": "Sends Agent Warden alerts" }
   ],
   "status": {
-    "warden": {
-      "type": "state",
-      "label": "Warden",
-      "hint": "Checks whether AI agents stay within their memory and process limits",
-      "info": "Shows whether the vsys warden is set up, checking agents and reporting problems."
-    },
-    "setup": {
-      "type": "state",
-      "label": "Warden setup",
-      "hint": "Set up starts the Agent Warden checks in a floating terminal",
-      "action": { "label": "Set up", "tui": "setup" }
-    },
-    "agents": {
-      "type": "count",
-      "label": "Agents running",
-      "info": "Counts agent lanes that vsys reports as running. It shows Not reported until vsys reports a count."
-    },
-    "lastCheck": {
-      "type": "time",
-      "label": "Last check",
-      "info": "The time comes from the last status that vsys wrote. If it stops changing, Agent Warden reports stopped checking."
-    },
-    "detail": {
-      "type": "data",
-      "label": "Detail"
-    }
+    "warden": {"type": "state", "label": "Warden", "hint": "Checks whether AI agents stay within their memory and process limits", "info": "Shows whether the vsys warden is set up, checking agents and reporting problems."},
+    "setup": {"type": "state", "label": "Warden setup", "hint": "Set up starts the Agent Warden checks in a floating terminal", "action": {"label": "Set up", "tui": "setup"}, "setup": true},
+    "agents": {"type": "count", "label": "Agents running", "info": "Counts agent lanes that vsys reports as running. It shows Not reported until vsys reports a count."},
+    "lastCheck": {"type": "time", "label": "Last check", "info": "The time comes from the last status that vsys wrote. If it stops changing, Agent Warden reports stopped checking."},
+    "detail": {"type": "data", "label": "Detail"}
   },
   "hyprland": {
     "binds": [

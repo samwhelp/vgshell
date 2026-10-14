@@ -298,14 +298,15 @@ expect_poll "the terminal is handed the linger TUI" "$(words vgs.automations/lin
 expect_run_end "the linger IPC's run ends" vgs.automations/linger
 
 # Enable while logged out, D061: while lingering reads off, the Settings
-# page offers the manifest's action as its Setup tab's one step, the page's
-# primary Button, and its press opens the linger TUI.
+# page offers the declared action beside While logged out on Settings.
+# Its text link opens the linger TUI.
 # The run's end lists again, whoever opened it, and a loginctl that now
 # answers yes withdraws the action. The control: the manager refuses the
 # act once lingering is on, and starts nothing.
 expected_errors+=('settings: vgs\.automations/linger refused: action=linger reason=not-offered')
 settings_page_open vgs.automations
-settings_setup
+automation_linger_location() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([[row["key"], row["setting"]] for row in json.load(sys.stdin) if row["key"]=="linger"]))'; }
+expect_poll "the linger action is beside While logged out on Settings" '[["linger", "whileLoggedOut"]]' automation_linger_location
 expect_poll "lingering off offers Enable while logged out" '[["linger", "Enable while logged out", true]]' offered_actions vgs.automations
 forget_record
 # The stand-in terminal runs no linger TUI, so the row itself turns
@@ -315,7 +316,7 @@ forget_record
 # comes back after.
 printf '#!/usr/bin/env bash\nif [[ ${1:-} == show-user ]]; then echo yes; exit 0; fi\nprintf "%%s\\n" "loginctl $*" >>%q\nexit 1\n' "$auth_log" | sentinel_stand_over "$shim/loginctl"
 expect "loginctl resolves to the row's stand-in on the shell's PATH" "$shim/loginctl" shell_resolves loginctl
-settings_press "Enable while logged out" || fail "the click on Enable while logged out failed"
+settings_press --type RowAction "Enable while logged out" || fail "the click on Enable while logged out failed"
 expect_poll "Enable while logged out hands the terminal the linger TUI" "$(words vgs.automations/linger tui/linger.sh)" recorded_tail
 expect_run_end "the button's linger run ends" vgs.automations/linger
 expect_poll "the run's end lists again and lingering reads on" ok auto_status_tone linger

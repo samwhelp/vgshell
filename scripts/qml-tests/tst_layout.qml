@@ -85,12 +85,12 @@ Item {
             const tab = tabs.itemAt(1);
             compare(tab.leftPadding, Theme.tabs.paddingX);
             compare(tab.rightPadding, Theme.tabs.paddingX);
-            compare(tab.contentItem.horizontalAlignment, Text.AlignHCenter);
+            compare(tab.contentItem.children[0].horizontalAlignment, Text.AlignHCenter);
             compare(tab.contentItem.x, Theme.tabs.paddingX);
             compare(tab.contentItem.width, tab.width - 2 * Theme.tabs.paddingX);
             tabs.currentIndex = 0;
             mouseMove(tab, tab.width / 2, tab.height / 2);
-            tryCompare(tab.contentItem, "color", Qt.color(Theme.tabs.hover));
+            tryCompare(tab.contentItem.children[0], "color", Qt.color(Theme.tabs.hover));
             verify(String(Qt.color(Theme.tabs.hover)) !== String(Qt.color(Theme.tabs.active)), "hover differs from the open tab");
             mousePress(tab, tab.width / 2, tab.height / 2);
             tryCompare(tab.background, "color", Qt.color(Theme.tabs.pressed));
@@ -104,8 +104,8 @@ Item {
         // A row handed label colours draws its closed and open tabs in them.
         function test_tabs_draw_handed_colours() {
             handedTabs.currentIndex = 0;
-            compare(handedTabs.itemAt(0).contentItem.color, Qt.color("#6080a0"));
-            tryCompare(handedTabs.itemAt(1).contentItem, "color", Qt.color("#204060"));
+            compare(handedTabs.itemAt(0).contentItem.children[0].color, Qt.color("#6080a0"));
+            tryCompare(handedTabs.itemAt(1).contentItem.children[0], "color", Qt.color("#204060"));
         }
 
         // A row with `hoverMark` draws the mark under a closed tab while

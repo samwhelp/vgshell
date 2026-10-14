@@ -317,7 +317,7 @@ settings_self_listing() { row_of vgs.settings icon source capabilities binds err
 expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["plug", "bundled", ["compositor", "ipc", "manager", "run", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "keys": ["SUPER+M"], "default": "SUPER+M"}], []]' settings_self_listing
 expect "an installed fixture is listed as installed with its manifest icon" '["Probe", "flask-conical", "installed", "acme"]' row_of acme.probe name icon source author
 expect "a plugin without a manifest icon is listed with the package icon" '["package"]' row_of acme.bare icon
-expect "a manager row carries each requirement with its state" '[[{"name": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "floor": null, "onRequest": false, "state": "present", "badge": {"text": "Present", "tone": "success"}}, {"name": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "floor": null, "onRequest": false, "state": "missing", "badge": {"text": "Optional", "tone": "info"}}]]' row_of acme.bare requirements
+expect "a manager row carries each requirement with its state and placement" '[[{"name": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "floor": null, "onRequest": false, "setting": "", "state": "present", "badge": {"text": "Present", "tone": "success"}}, {"name": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "floor": null, "onRequest": false, "setting": "", "state": "missing", "badge": {"text": "Optional", "tone": "info"}}]]' row_of acme.bare requirements
 
 # The cursor over the list: the hand over each control that takes a click,
 # the Add plugin button, a row, the switch in it and its chevron, which
@@ -869,16 +869,50 @@ release_runs
 expect_run_end "the add's run ends" core/plugin-add
 expect_poll "the add's terminal closes" 0 tui_windows
 
-# Requirements: one row per requirement with its state from the scan and
-# its purpose, and its install action, while one is missing, shows the core's
-# requirement notice for the plugin with every missing command, the
-# optional one included, over the window, which stays open; Escape closes
-# the notice. The fixture misses only its optional tool, so its page draws
-# them on its Setup tab with Install optional tools, a RowAction, and no
-# Install all missing Button.
+# Required tools share one Setup step. An optional tool without a field
+# reference remains a Details fact and supplies no Setup action. A
+# temporary manifest makes that tool required and adds two required
+# actionless steps. The real rows supply the spacing proof and controls.
+# The Tools link opens the existing requirement notice over Settings.
 settings_show acme.bare
 settings_setup
-# The Requirements section's rows are groups (GroupList): two shown groups
+# The required shell command is complete. The missing optional command
+# gives Setup neither another row nor an install action.
+manager_tools() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row and row[0] == "Tools"]))'; }
+manager_tool_links() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row and "tools" in row[0].lower()]))'; }
+expect_poll "Setup combines the present required tool into one Done step" '[["Tools", "Done", "Every required tool is available"]]' manager_tools
+expect "the missing optional tool gives Setup no tool action" '[]' manager_tool_links
+settings_details
+expect_poll "Details draws the optional tool's purpose" drawn settings_label "A command no sandbox has"
+manager_required_manifest="$bare/manifest.json"
+manager_required_saved="$sandbox/manager-required-manifest.json"
+cp -- "$manager_required_manifest" "$manager_required_saved"
+python3 - "$manager_required_manifest" <<'PYREQUIRED'
+import json,sys
+from pathlib import Path
+path=Path(sys.argv[1])
+assert not path.is_symlink()
+manifest=json.loads(path.read_text())
+requirement=next(row for row in manifest["requirements"] if row["command"] == "vgs-smoke-absent")
+assert requirement["optional"] is True
+requirement["optional"] = False
+assert "status" not in manifest
+assert manifest.get("capabilities", []) == []
+manifest["capabilities"] = ["status"]
+manifest["status"] = {
+    "first": {"type":"state", "label":"First step", "setup":True},
+    "second": {"type":"state", "label":"Second step", "setup":True}}
+path.write_text(json.dumps(manifest))
+PYREQUIRED
+rescan "a rescan loads the fixture's required steps and required missing tool"
+expect_poll "the temporary fixture declares the capability its status entries need" '[["status"]]' row_of acme.bare capabilities
+manager_required_status() { settings_rows | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["id"] == "acme.bare"]; print(json.dumps([[entry["key"], entry["setup"], entry["report"]] for entry in rows[0]["status"]]) if len(rows) == 1 else "fixture-absent")'; }
+expect_poll "the current manager row holds both required unreported steps" '[["first", true, "unreported"], ["second", true, "unreported"]]' manager_required_status
+settings_show acme.bare
+settings_setup
+expect_poll "the missing required tool is one To do step" '[["Tools", "To do", "Review all missing or outdated tools", "vgs-smoke-absent (missing)"]]' manager_tools
+expect "the aggregate Tools step has one text link" '[["Review all missing or outdated tools"]]' manager_tool_links
+# The Setup section's required rows are groups (GroupList): two shown groups
 # of a list sit `groupList.gap` apart, within a pixel, with one Divider in
 # the gap. Where in the gap it sits follows the groups' drawn pixels, which
 # tst_grouplist.qml reads from an image. One control plants a copy of the
@@ -932,40 +966,22 @@ if checked == 0 and not out: out.append("gaps=0")
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the Requirements rows are groups a gap apart with a hairline in it" '[]' group_geometry
+geometry expect_poll "required Setup rows are groups a gap apart with a hairline in it" '[]' group_geometry
 group_planted() { group_geometry "$1" | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(sys.argv[1] in e for e in o))' "$2"; }
 expect "control: a second group 8 px lower is refused" True group_planted gap .gap1=
 expect "control: a missing hairline is refused" True group_planted line .hairlines=
 expect "control: a hairline inside the next group is refused" True group_planted low .hairline1=
-click_install() {
-  local area bx by
-  for _ in $(seq 1 6); do
-    if install_visible; then settings_click RowAction "Install optional tools" && return 0; fi
-    area="$(page_scroll)" || return 1
-    [[ $area == \{* ]] || return 1
-    [[ $(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["barVisible"])' "$area") == True ]] || return 1
-    read -r bx by < <(at_centre window:Plugins "$(python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=a["bar"]; t=a["thumb"]; y=t[1]+t[3]; print(json.dumps([b[0], y, b[2], max(1, b[1]+b[3]-y)]))' "$area")")
-    click "$bx" "$by" || return 1
-    sleep 0.2
-  done
-  return 1
-}
-install_visible() {
-  local area rect
-  area="$(page_scroll)" || return 1
-  rect="$(ipc smoke windowGeometry window vgs.settings RowAction "Install optional tools")" || return 1
-  [[ $area == \{* && $rect == \[* ]] || return 1
-  python3 -c 'import json,sys
-a=json.loads(sys.argv[1]); x,y,w,h=json.loads(sys.argv[2]); top=a["bar"][1]; bottom=top+a["height"]; print(top <= y and y+h <= bottom)' "$area" "$rect" | grep -Fx True >/dev/null
-}
-install_buttons() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
-expect "an optional tool alone draws no Install all missing Button" 0 install_buttons
-click_install || fail "the click on Install optional tools failed"
-expect_poll "Install optional tools shows the requirement notice with the optional command" '["acme.bare", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
-expect "Install optional tools leaves the Settings window open under the notice" 1 window_count Plugins
+settings_press --type RowAction "Review all missing or outdated tools" || fail "the click on the Tools text link failed"
+expect_poll "the Tools link shows the requirement notice with the required command" '["acme.bare", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
+expect "the Tools link leaves the Settings window open under the notice" 1 window_count Plugins
 expect_poll "the Settings request's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the notice failed"
 expect_poll "Escape closes the Settings request's notice" null notice_shown
+cp -- "$manager_required_saved" "$manager_required_manifest"
+rm -- "$manager_required_saved"
+rescan "a rescan restores the original required and optional tools fixture"
+expect_poll "the restored fixture has no temporary status capability" '[[]]' row_of acme.bare capabilities
+expect_poll "the restored fixture has no temporary required status steps" '[]' manager_required_status
 settings_show ""
 expect "a row opens its page by name" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page is open again" '"acme.probe"' settings_page

@@ -38,7 +38,7 @@ VGS uses a summoned panel to give the list keyboard focus.
 | Slack photos | Whether sender photos load from connected Slack workspaces. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 
-The key is under Keys on the plugin's Settings page. The Requirements section lists the tools that open notification files and prepare Slack icons and emoji, with Install all missing.
+The shortcut is under Keys on the plugin's Settings page. The Tools step on Setup lists required tools. Optional tools and their review action sit beside the Settings feature they serve.
 
 ## Slack photos
 
@@ -46,7 +46,7 @@ Turn on Slack photos in Settings to add sender photos, workspace icons and custo
 
 Select Set up Slack photos in Settings. VGS opens Slack app creation with the app details filled. Sign in to Slack if asked. Select your workspace. Review the permissions, then select Create. Under OAuth & Permissions, install the app to the workspace and allow access. Copy the User OAuth Token.
 
-Sign in to the workspace in the Slack desktop app. Return to Settings and, under Setup, select Add key beside the workspace. Paste the token into the masked field. VGS stores it in your keyring. Replace beside a stored token replaces it, and Remove removes it. The photos load after each token change. If your workspace requires app approval, ask its administrator to approve the app.
+Sign in to the workspace in the Slack desktop app. Return to Settings and, beside Slack photos, select Add key for the workspace. Paste the token into the masked field. VGS stores it in your keyring. Replace beside a stored token replaces it, and Remove removes it. The photos load after each token change. If your workspace requires app approval, ask its administrator to approve the app.
 
 Show details in the setup window displays the app text. The app requests only the permissions needed for photos, workspace icons and custom emoji. It does not read messages or channels.
 

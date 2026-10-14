@@ -731,7 +731,7 @@ Item {
             const field = findChild(storedKey, TextField);
             verify(field.password, "the field masks what is typed");
             compare(field.text, "", "the field opens empty");
-            compare(actionsOf(storedKey), [], "the steps hide while the field is open");
+            compare(actionsOf(storedKey).length, 2, "the masked editor keeps its two links while the key actions hide");
             field.text = "typed-key";
             field.accepted();
             compare(stores.count, 1);

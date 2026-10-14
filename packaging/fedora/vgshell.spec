@@ -18,6 +18,8 @@ BuildRequires:  coreutils
 BuildRequires:  python3
 
 # begin runtime dependencies
+Requires:       greetd
+Requires:       glibc-common
 Requires:       quickshell >= 0.3.1
 Requires:       hyprland >= 0.56
 Requires:       nodejs >= 1:18
@@ -29,7 +31,6 @@ Requires:       ImageMagick
 Requires:       NetworkManager
 Requires:       bash
 Requires:       bubblewrap
-Requires:       chromium
 Requires:       coreutils
 Requires:       curl
 Requires:       dbus-tools
@@ -60,23 +61,22 @@ Requires:       tesseract
 Requires:       tesseract-langpack-eng
 Requires:       util-linux
 Requires:       util-linux-core
-Requires:       uv
 Requires:       wireplumber
 Requires:       wl-clipboard
-Requires:       wlrctl
 Requires:       wtype
 Requires:       xdg-desktop-portal-gnome
 Requires:       xdg-desktop-portal-gtk
 Requires:       xdg-desktop-portal-hyprland
 Requires:       xdg-terminal-exec
 Requires:       xdg-utils
+Recommends:     uv
+Recommends:     chromium
+Recommends:     wlrctl
 Recommends:     btop
 Recommends:     bluez
 Recommends:     brightnessctl
 Recommends:     cronie
 Recommends:     ddcutil
-Recommends:     glibc-common
-Recommends:     greetd
 Recommends:     libcap
 Recommends:     polkit
 Recommends:     tailscale

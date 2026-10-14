@@ -35,12 +35,16 @@ Column {
     property string tone: ""
     property string text: ""
     property var lines: []
+    property bool plainLines: false
     property bool muted: false
     property string actionLabel: ""
     property bool actionOffered: false
     // "" or "danger", the declared action's tone (PluginLogic.statusRowAction).
     property string actionTone: ""
     property string access: ""
+    property string asideLabel: ""
+    property bool asideOffered: false
+    property string asideTone: ""
     property bool busy: false
     property string error: ""
     // What the masked field asks for: the plugin's `secrets` label.
@@ -50,9 +54,10 @@ Column {
     // What the line offers for its secret: Add key, or Replace and Remove.
     readonly property bool adds: access === "connect"
     readonly property bool stored: access === "disconnect"
-    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || adds || stored
+    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || asideOffered || adds || stored
 
     signal act()
+    signal aside()
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal storeSecret(string value)
@@ -88,6 +93,7 @@ Column {
         onHintLinkActivated: line.hintLinkActivated()
         onHintPageActivated: (page, tab) => line.hintPageActivated(page, tab)
         error: line.error
+        lines: line.plainLines ? line.lines : []
         // The step stands right after the value, centred on the value's
         // first line, its chip or its text, while the two fit the value
         // column; past that, as for a long chip, the step goes under the
@@ -161,6 +167,13 @@ Column {
                         onClicked: line.act()
                     }
                     RowAction {
+                        visible: line.asideOffered
+                        enabled: !line.busy
+                        text: line.asideLabel
+                        tone: line.asideTone === "danger" ? "danger" : "accent"
+                        onClicked: line.aside()
+                    }
+                    RowAction {
                         visible: line.adds
                         enabled: !line.busy
                         text: "Add key"
@@ -210,18 +223,16 @@ Column {
                     event.accepted = true;
                 }
             }
-            Button {
+            RowAction {
                 id: save
                 enabled: secret.text !== "" && !line.busy
                 text: "Save"
-                variant: "primary"
                 anchors.verticalCenter: parent.verticalCenter
                 onClicked: line.saveSecret(secret.text)
             }
-            Button {
+            RowAction {
                 id: cancel
                 text: "Cancel"
-                variant: "ghost"
                 anchors.verticalCenter: parent.verticalCenter
                 onClicked: line.cancelEntry()
             }
@@ -238,7 +249,7 @@ Column {
             // beside the step already puts the step under it.
             Badge { width: Math.min(implicitWidth, valueRow.width); text: line.text; tone: line.tone }
             Repeater {
-                model: line.lines
+                model: line.plainLines ? [] : line.lines
                 Badge {
                     required property string modelData
                     width: Math.min(implicitWidth, valueRow.width)

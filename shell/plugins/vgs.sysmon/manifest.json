@@ -26,25 +26,8 @@
   ],
   "defaultSection": "right",
   "requirements": [
-    {
-      "command": "btop",
-      "packages": {
-        "pacman": "btop",
-        "apt": "btop",
-        "dnf": "btop",
-        "nix": "btop"
-      },
-      "optional": true,
-      "purpose": "Shows all processes and system readings"
-    },
-    {
-      "command": "nvidia-smi",
-      "packages": {
-        "pacman": "nvidia-utils"
-      },
-      "optional": true,
-      "purpose": "Reads NVIDIA graphics card use and temperature"
-    }
+    {"command": "btop", "packages": {"pacman": "btop", "apt": "btop", "dnf": "btop", "nix": "btop"}, "optional": true, "purpose": "Shows all processes and system readings", "setting": "allProcesses"},
+    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "purpose": "Reads NVIDIA graphics card use and temperature", "setting": "showGpu"}
   ],
   "settings": {
     "layout": "Stacked",
@@ -62,126 +45,41 @@
     "gpu": ""
   },
   "status": {
-    "readings": {
-      "type": "data",
-      "label": "Readings"
-    },
-    "gpus": {
-      "type": "choices",
-      "label": "Graphics cards"
-    },
-    "graphics": {
-      "type": "state",
-      "label": "Graphics card",
-      "group": "GPU"
-    },
-    "cpuSensors": {
-      "type": "choices",
-      "label": "CPU temperature sensors"
-    }
+    "readings": {"type": "data", "label": "Readings"},
+    "gpus": {"type": "choices", "label": "Graphics cards"},
+    "graphics": {"type": "state", "label": "Graphics card", "group": "GPU"},
+    "cpuSensors": {"type": "choices", "label": "CPU temperature sensors"}
   },
   "schema": {
-    "layout": {
-      "type": "enum",
-      "label": "Layout",
-      "options": [
-        { "value": "Stacked", "label": "Stacked" },
-        { "value": "One line", "label": "One line" }
-      ],
-      "description": "Stacked shows two readings on two short lines",
-      "group": "Readings"
-    },
-    "labelStyle": {
-      "type": "enum",
-      "label": "Labels",
-      "options": [
-        { "value": "icons", "label": "Icons" },
-        { "value": "text", "label": "Text" }
-      ],
-      "description": "Shows an icon or a short name before each reading",
-      "group": "Readings"
-    },
-    "refreshSeconds": {
-      "type": "number",
-      "label": "Refresh interval",
-      "min": 1,
-      "max": 10,
-      "step": 1,
-      "unit": "seconds",
-      "group": "Readings"
-    },
-    "temperatureUnit": {
-      "type": "enum",
-      "label": "Temperature unit",
-      "options": [
-        { "value": "Celsius", "label": "Celsius" },
-        { "value": "Fahrenheit", "label": "Fahrenheit" }
-      ],
-      "description": "Sets the unit for CPU and GPU temperatures",
-      "group": "Readings"
-    },
-    "showCpu": {
-      "type": "boolean",
-      "label": "CPU",
-      "group": "CPU"
-    },
-    "cpuTemperature": {
-      "type": "boolean",
-      "label": "CPU temperature",
-      "group": "CPU"
-    },
-    "cpuSensor": {
-      "type": "string",
-      "label": "CPU temperature sensor",
-      "optionsFrom": "cpuSensors",
-      "description": "Automatic keeps the CPU sensor selected by the system",
-      "group": "CPU"
-    },
-    "showMemory": {
-      "type": "boolean",
-      "label": "Memory",
-      "group": "Memory"
-    },
-    "showSwap": {
-      "type": "boolean",
-      "label": "Swap use",
-      "group": "Memory"
-    },
-    "memoryUnit": {
-      "type": "enum",
-      "label": "Memory unit",
-      "group": "Memory",
-      "options": [
-        { "value": "percent", "label": "Percent" },
-        { "value": "used", "label": "Used" }
-      ]
-    },
-    "showGpu": {
-      "type": "boolean",
-      "label": "GPU",
-      "group": "GPU",
-      "hintFrom": "graphics"
-    },
-    "gpuTemperature": {
-      "type": "boolean",
-      "label": "GPU temperature",
-      "group": "GPU"
-    },
-    "gpu": {
-      "type": "string",
-      "label": "Graphics card",
-      "optionsFrom": "gpus",
-      "group": "GPU"
-    }
+    "layout": {"type": "enum", "label": "Layout", "options": [{"value": "Stacked", "label": "Stacked"}, {"value": "One line", "label": "One line"}], "description": "Stacked shows two readings on two short lines", "group": "Readings"},
+    "labelStyle": {"type": "enum", "label": "Labels", "options": [{"value": "icons", "label": "Icons"}, {"value": "text", "label": "Text"}], "description": "Shows an icon or a short name before each reading", "group": "Readings"},
+    "refreshSeconds": {"type": "number", "label": "Refresh interval", "min": 1, "max": 10, "step": 1, "unit": "seconds", "group": "Readings"},
+    "temperatureUnit": {"type": "enum", "label": "Temperature unit", "options": [{"value": "Celsius", "label": "Celsius"}, {"value": "Fahrenheit", "label": "Fahrenheit"}], "description": "Sets the unit for CPU and GPU temperatures", "group": "Readings"},
+    "showCpu": {"type": "boolean", "label": "CPU", "group": "CPU"},
+    "cpuTemperature": {"type": "boolean", "label": "CPU temperature", "group": "CPU"},
+    "cpuSensor": {"type": "string", "label": "CPU temperature sensor", "optionsFrom": "cpuSensors", "description": "Automatic keeps the CPU sensor selected by the system", "group": "CPU"},
+    "showMemory": {"type": "boolean", "label": "Memory", "group": "Memory"},
+    "showSwap": {"type": "boolean", "label": "Swap use", "group": "Memory"},
+    "memoryUnit": {"type": "enum", "label": "Memory unit", "group": "Memory", "options": [{"value": "percent", "label": "Percent"}, {"value": "used", "label": "Used"}]},
+    "showGpu": {"type": "boolean", "label": "GPU", "group": "GPU", "hintFrom": "graphics"},
+    "gpuTemperature": {"type": "boolean", "label": "GPU temperature", "group": "GPU"},
+    "gpu": {"type": "string", "label": "Graphics card", "optionsFrom": "gpus", "group": "GPU"},
+    "allProcesses": {"type": "action", "label": "All processes", "description": "See every process and system reading in the process list", "group": "Processes"}
   },
   "tui": {
-    "btop": {
-      "script": "tui/btop.sh",
-      "title": "System Monitor",
-      "size": "wide",
-      "requires": [
-        "btop"
-      ]
+  "btop": {
+    "script": "tui/btop.sh",
+    "title": "System Monitor",
+    "size": "wide",
+    "requires": [
+      "btop"
+    ],
+    "entry": {
+      "label": "See all",
+      "icon": "list",
+      "group": "System Monitor",
+      "setting": "allProcesses"
     }
   }
+}
 }

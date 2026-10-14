@@ -656,7 +656,8 @@ jarvis_home_current() {
 status=json.load(sys.stdin)["status"]
 rows=status.get("homeRows", [])
 chosen=[row["label"] for row in rows if row["icon"]=="folder-check"]
-print(chosen[0] if len(chosen)==1 and status.get("setupHome")=={"hidden":True} else "pending")'
+home=status.get("setupHome", {})
+print(chosen[0] if len(chosen)==1 and home.get("tone")=="ok" and home.get("hidden") is not True else "pending")'
 }
 jarvis_home_rows() {
   ipc smoke invokeInstance service vgs.jarvis fixtureHomeRows "" | py_reply 'import hashlib,json,sys

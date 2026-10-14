@@ -7,7 +7,7 @@
     "smoke-provider": { "label": "Smoke provider", "icon": "blocks", "shortcut": "open", "provider": "launcher" }
   },
   "tui": {
-    "hello": { "script": "tui/hello.sh", "title": "Hello", "size": "wide", "presentation": "full", "entry": { "label": "Say hello", "icon": "terminal", "group": "Smoke", "setup": true } },
+    "hello": { "script": "tui/hello.sh", "title": "Hello", "size": "wide", "presentation": "full", "entry": { "label": "Say hello", "icon": "terminal", "group": "Smoke", "settings": true } },
     "wait": { "script": "tui/wait.sh", "title": "Wait" },
     "update": { "script": "tui/update.sh", "title": "Update", "entry": { "label": "Update", "icon": "refresh-cw", "group": "Update" } }
   } }

@@ -55,7 +55,7 @@ if devices_ready greeter; then
   expect_poll "the greeter service is built" True record_exists vgs.greeter
   expect_poll "vgs.greeter holds the system capability" '["vgs.greeter"]' greeter_holders
   expect_poll "the capability lends the greeter step alone" '{"greeter": {"reason": "greetd-missing", "state": "absent"}}' greeter_lent
-  expect_poll "the service publishes the step's reading" '["info", "Unavailable", false, "Needs greetd. Install it under [Requirements](page:vgs.greeter/Setup) to use the login screen."]' greeter_status
+  expect_poll "the service publishes the step's reading" '["info", "Unavailable", false, "Needs greetd. Choose Review all missing or outdated tools on the [Tools step](page:vgs.greeter/Setup) to use the login screen."]' greeter_status
   expect_poll "the lending record holds the plugin's status keys" '["greeter", "theme"]' greeter_record
   # Control: the status follows the step's reading.
   device_reply systemctl 0 masked show --property=LoadState --value greetd.service

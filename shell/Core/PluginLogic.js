@@ -56,7 +56,7 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // page; `tooltip` is the few words a label that is not plain needs, shown
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
-var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
+var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];
 var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "tooltip", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
@@ -125,7 +125,7 @@ var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "descri
 // saying what it is for, for a command the `floor`, the lowest version
 // the plugin works with, and `install`, how the package recipes carry its
 // package. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor", "install"];
+var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor", "install", "setting"];
 // The one `install` value: the requirement stays required, and its package
 // is an optional dependency of every recipe, which its plugin's
 // Requirements section installs (scripts/check-packaging.js).
@@ -151,7 +151,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // Settings window draws every other type unless the entry is `hidden`;
 // `choices` feeds a setting's Select instead of a Status row.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -339,6 +339,7 @@ function settingError(entry, value) {
     if (entry.type === "boolean") return typeof value === "boolean" ? "" : "want=boolean";
     if (entry.type === "enum") return optionValues(entry).indexOf(value) !== -1 ? "" : "want=one-of:" + optionValues(entry).join("|");
     if (entry.type === "list") return Pads.listValueError(entry, value, settingError, ConfigLogic.NAME_PATTERN);
+    if (entry.type === "action") return "want=action-no-value";
     throw new Error("settingError: schema entry type " + JSON.stringify(entry.type) + " passed validation but has no rule");
 }
 
@@ -525,6 +526,10 @@ function schemaError(schema, settings, status) {
             return at + ".step must be positive";
         if (entry.group !== undefined && (typeof entry.group !== "string" || entry.group.length === 0))
             return at + ".group must be a non-empty string when present";
+        if (entry.type === "action") {
+            if (hasOwn(settings, key)) return at + " is an action field and stores no value";
+            continue;
+        }
         if (!hasOwn(settings, key))
             return at + " has no default in settings";
         var bad = settingError(entry, settings[key]);
@@ -1222,6 +1227,7 @@ function statusWrite(manifest, values, key, value) {
 // `secrets`.
 function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
+        if (entry.setup === true && statusStateHidden(value)) return false;
         if (value.aside !== undefined && entry.aside === undefined) return false;
         if (value.action === undefined) return true;
         if (typeof value.action === "string") return entry.actions !== undefined && hasOwn(entry.actions, value.action);
@@ -1370,17 +1376,17 @@ function statusActionLacking(manifest, entry, value, missing) {
     return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];
 }
 
-// The name of the Requirements section's action that installs every
-// missing requirement, which a withheld step points to.
-var REQUIREMENTS_INSTALL_LABEL = "Install all missing";
+// The page action that opens the existing notice for all missing or
+// outdated tools, which a withheld action points to.
+var REQUIREMENTS_REVIEW_LABEL = "Review all missing or outdated tools";
 
 // The hint of a Status row whose action is withheld for the requirements
-// LACKING: what is missing and that the Requirements section's action
-// installs it, in place of the entry's hint and its state's text, which
+// LACKING: what is missing and the action that opens the tool notice,
+// in place of the entry's hint and its state's text, which
 // name the withheld action.
 function statusWithheldHint(lacking) {
     var one = lacking.length === 1;
-    return requirementNames(lacking) + (one ? " is" : " are") + " missing. " + REQUIREMENTS_INSTALL_LABEL + " installs " + (one ? "it." : "them.");
+    return requirementNames(lacking) + (one ? " is" : " are") + " missing. " + REQUIREMENTS_REVIEW_LABEL + " opens the tool notice.";
 }
 
 // The requirement names NAMES as a person reads a list: `a`, `a and b`,
@@ -1393,7 +1399,7 @@ function requirementNames(names) {
 // LACKING, which its press could only install: one line naming them and the
 // Requirements section's action that installs them.
 function tuiWithheldReason(lacking) {
-    return "Needs " + requirementNames(lacking) + ". " + REQUIREMENTS_INSTALL_LABEL + " first.";
+    return "Needs " + requirementNames(lacking) + ". " + REQUIREMENTS_REVIEW_LABEL + " first.";
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry
@@ -1434,6 +1440,9 @@ function statusRows(manifest, values, missing) {
             type: entry.type,
             label: entry.label,
             group: entry.group === undefined ? "" : entry.group,
+            setup: entry.setup === true,
+            setting: entry.setting === undefined ? "" : entry.setting,
+            step: entry.step === undefined ? "" : entry.step,
             hint: hint,
             info: entry.info === undefined ? "" : entry.info,
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
@@ -1994,11 +2003,11 @@ function requirementsError(requirements) {
 }
 
 // A `requirements` list requirementsError accepted, each entry with every
-// key: `name`, `bus`, `packages` {}, `optional` false, `floor` null and
-// `onRequest` false when absent.
+// key: `name`, `bus`, `packages` {}, `optional` false, `floor` null,
+// `onRequest` false and `setting` "" when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST };
+        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, setting: entry.setting === undefined ? "" : entry.setting };
     });
 }
 
@@ -2549,11 +2558,10 @@ function welcomeStep(welcomeState, event) {
 // hidden. The sizes are the size classes of HyprlandLayer.TUI_WINDOWS, the
 // table the layer's window rules and the launcher's app-ids come from, and
 // the presentations are bin/vgshell-tui's. A title, a label and a group are one
-// printable line of at most TUI_TEXT_MAX characters. An entry's `setup: true`
-// marks its screen as one a user sets the plugin up with, which the plugin's
-// page draws on its Setup tab.
+// printable line of at most TUI_TEXT_MAX characters. A `setting` names the
+// field beside a screen; `settings` marks a bottom More settings link.
 var TUI_KEYS = ["script", "title", "size", "presentation", "entry", "requires"];
-var TUI_ENTRY_KEYS = ["label", "icon", "group", "setup"];
+var TUI_ENTRY_KEYS = ["label", "icon", "group", "setting", "settings"];
 var TUI_SIZES = Object.keys(HyprlandLayer.TUI_WINDOWS);
 var TUI_PRESENTATIONS = ["full", "plain"];
 var TUI_TEXT_MAX = 60;
@@ -2846,8 +2854,8 @@ function tuiEntryError(at, entry) {
         return at + ".entry.icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(entry.icon);
     if (!tuiText(entry.group))
         return at + ".entry.group must be one printable line of 1 to " + TUI_TEXT_MAX + " characters";
-    if (entry.setup !== undefined && typeof entry.setup !== "boolean")
-        return at + ".entry.setup must be a boolean when present";
+    if (entry.settings !== undefined && typeof entry.settings !== "boolean")
+        return at + ".entry.settings must be a boolean when present";
     return "";
 }
 
@@ -3124,11 +3132,11 @@ function tuiEntries(manifests, enabledIds, core) {
 }
 
 // The listed screens of plugin MANIFEST, for its manager row: each `tui`
-// script with an `entry`, in manifest order, as { name, label, icon, setup },
-// `setup` whether the entry marks it as a setup screen.
+// script with an `entry`, in manifest order, as { name, label, icon, setting, settings }.
+// Its declared field or bottom Settings link owns configuration screens.
 function listedTuis(manifest) {
     return Object.keys(manifest.tui).filter(function (name) { return manifest.tui[name].entry !== null; }).map(function (name) {
-        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon, setup: manifest.tui[name].entry.setup === true };
+        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon, setting: manifest.tui[name].entry.setting || "", settings: manifest.tui[name].entry.settings === true };
     });
 }
 
@@ -3141,7 +3149,7 @@ function listedTuis(manifest) {
 function listedTuiRows(manifest, missing) {
     return listedTuis(manifest).map(function (tui) {
         var lacking = tuiMissingRequirements(manifest, tui.name, missing);
-        return { name: tui.name, label: tui.label, icon: tui.icon, setup: tui.setup, withheld: lacking.length === 0 ? "" : tuiWithheldReason(lacking) };
+        return { name: tui.name, label: tui.label, icon: tui.icon, setting: tui.setting, settings: tui.settings, withheld: lacking.length === 0 ? "" : tuiWithheldReason(lacking) };
     });
 }
 
@@ -3876,6 +3884,8 @@ function validateManifest(raw, sourceDir) {
     } else if (capabilities.indexOf("sounds") !== -1) {
         return { ok: false, error: "capability sounds needs a sounds declaration" };
     }
+    var badPlacement = pagePlacementError(raw.status || {}, requirements, raw.tui || {}, schema);
+    if (badPlacement !== "") return { ok: false, error: badPlacement };
     var manifest = clone(raw);
     manifest.capabilities = capabilities.slice();
     manifest.requirements = normalRequirements(requirements);
@@ -5007,5 +5017,48 @@ function idleWatchRefusal(seconds, onChange) {
     if (typeof seconds !== "number" || !Number.isInteger(seconds) || seconds < 1 || seconds > IDLE_WATCH_MAX_SECONDS)
         return "refused: idle-timeout=" + JSON.stringify(seconds) + " want=1.." + IDLE_WATCH_MAX_SECONDS;
     if (typeof onChange !== "function") return "refused: idle-handler=not-a-function";
+    return "";
+}
+
+// Page references stay inside the declaring plugin. Setup names required
+// state/presence steps; optional work names the field beside it on Settings.
+function pagePlacementError(status, requirements, tui, schema) {
+    function field(value, at) {
+        if (typeof value !== "string" || !hasOwn(schema, value)) return at + " must name a schema field";
+        return "";
+    }
+    var keys = Object.keys(status);
+    for (var i = 0; i < keys.length; i++) {
+        var entry = status[keys[i]], at = "status." + keys[i];
+        if (entry.setup !== undefined && typeof entry.setup !== "boolean") return at + ".setup must be a boolean";
+        if (entry.setup === true && (entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1)) return at + ".setup needs a displayed state or presence";
+        if (entry.setting !== undefined) {
+            var badField = field(entry.setting, at + ".setting");
+            if (badField !== "") return badField;
+            if (entry.hidden === true || ["data", "choices", "launcherRows"].indexOf(entry.type) !== -1) return at + ".setting needs a displayed status";
+        }
+        if (entry.step !== undefined) {
+            if (typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true) return at + ".step must name a required Setup step";
+            if (entry.type !== "presenceList") return at + ".step needs a key list";
+        }
+        if ((entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1) return at + " declares more than one page placement";
+        if (entry.hidden !== true && (entry.action !== undefined || entry.actions !== undefined) && entry.setup !== true && entry.setting === undefined) return at + " action needs a Setup step or Settings field";
+    }
+    for (var r = 0; r < requirements.length; r++) {
+        if (requirements[r].setting === undefined) continue;
+        var badRequirement = field(requirements[r].setting, "requirements." + r + ".setting");
+        if (badRequirement !== "") return badRequirement;
+        if (requirements[r].optional !== true) return "requirements." + r + ".setting needs an optional tool";
+    }
+    var names = Object.keys(tui);
+    for (var t = 0; t < names.length; t++) {
+        var screen = tui[names[t]].entry;
+        if (screen === undefined) continue;
+        if (screen.setting !== undefined) {
+            var badScreen = field(screen.setting, "tui." + names[t] + ".entry.setting");
+            if (badScreen !== "") return badScreen;
+            if (screen.settings === true) return "tui." + names[t] + ".entry declares two Settings placements";
+        }
+    }
     return "";
 }

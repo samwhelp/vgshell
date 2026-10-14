@@ -7,10 +7,9 @@
 # end, as the harness started it. A plugin's page opens on Settings, and its tab strip shows
 # Details and returns by the pointer and by the keyboard; a copy that opens
 # on Details is the control. A plugin with something to set up has a Setup
-# tab between them, which holds its setup screens and its Requirements; a
-# plugin with none draws its Requirements on Details. The list marks a
-# plugin that asks for a setup step with Setup needed and one that misses
-# an optional tool with a warning icon; a row with the chip opens on Setup,
+# tab between them, which holds required steps and one Tools step.
+# Optional actions stay beside Settings choices; facts stay in Details.
+# The list marks required work with Setup needed; a row with the chip opens on Setup,
 # and a page the manager opens by its id opens on Settings. A summonable plugin's page draws Open, which
 # opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. The
@@ -386,16 +385,14 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # The window follows the shown page (VGS-1156): once it shows, a page or a
 # tab change resizes its Hyprland client to the page's height, at its width
 # and its top-left corner, and the window's content takes the client's
-# height, so no part of it is blank. VPN's Details is taller than its
-# Settings: the window grows on Details, as tall as Details up to the
-# screen's room, the window host's map rule (the window's mapHeight), and
+# height, so no part of it is blank. VPN's window takes each tab's height
+# up to the screen's room, the window host's map rule (the window's mapHeight), and
 # returns on Settings. Then every plugin the manager lists is judged on
 # Details by one judge: its last row ends inside the window, or the scroll
-# area's bottom edge cue shows. Launcher's Details runs past the room and
-# reads the cue, and Windows' fits without it, so the cue reads both
-# ways. The control hands the judge VPN's
-# Details reading with the window at its Settings height and no cue, as
-# with neither the resize nor the cue: the judge reads it cut.
+# area's bottom edge cue shows. The shared scroll fixture's description
+# deliberately exceeds the room. Windows fits without a cue, so the cue reads both
+# ways. The control gives the judge a client one pixel shorter than its
+# measured last row, without a cue: the judge reads it cut.
 # fit_state: the Plugins client as [x, y, w, h], its height target, the
 # window's mapHeight within its work_area, and where the shown page ends
 # (Probe paneEnd), as one object; a state word while one is absent.
@@ -430,9 +427,9 @@ cue=d["end"]["cueBelow"] if len(sys.argv) < 3 else sys.argv[2] == "true"
 print("fits" if d["end"]["lastRowBottom"] <= height else "cued" if cue else "cut")' "${@:2}"
 }
 fit_field() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d[sys.argv[1]][sys.argv[2]] if sys.argv[1] == "end" else d["client"][int(sys.argv[2])]))' "$2" "$3"; }
-# fit_change BEFORE AFTER: [same top-left, same width, taller] from BEFORE's
-# client to AFTER's.
-fit_change() { printf '%s\n' "$2" | py_reply 'import json,sys; a=json.loads(sys.argv[1])["client"]; b=json.load(sys.stdin)["client"]; print(json.dumps([a[:2] == b[:2], a[2] == b[2], b[3] > a[3]]))' "$1"; }
+# fit_change BEFORE AFTER: [same top-left, same width, target height] from
+# BEFORE's client to AFTER's, independent of which tab is taller.
+fit_change() { printf '%s\n' "$2" | py_reply 'import json,sys; a=json.loads(sys.argv[1])["client"]; d=json.load(sys.stdin); b=d["client"]; print(json.dumps([a[:2] == b[:2], a[2] == b[2], abs(b[3] - d["target"]) <= 1]))' "$1"; }
 fit_client() { fit_state | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))'; }
 expect "the window opens the VPN page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.vpn
 expect_poll "the VPN page opens on Settings" 0 settings_tab
@@ -443,23 +440,24 @@ settings_details
 expect_poll "the window takes the VPN Details height" settled fit_settled
 vpn_details="$(fit_state)" || vpn_details=unread
 [[ $vpn_details == \{* ]] || fail "the window's VPN Details reading: got $vpn_details"
-expect "VPN Details grows the window at its top-left and width" '[true, true, true]' fit_change "$vpn_settings" "$vpn_details"
-expect "control: VPN Details at the Settings height without the cue is cut" cut fit_judge "$vpn_details" "$(fit_field "$vpn_settings" client 3)" false
+expect "VPN Details takes its target height at the same top-left and width" '[true, true, true]' fit_change "$vpn_settings" "$vpn_details"
+vpn_cut_height="$(printf '%s\n' "$vpn_details" | py_reply 'import json,sys; print(json.load(sys.stdin)["end"]["lastRowBottom"] - 1)')" || vpn_cut_height=unread
+expect "control: VPN Details in a client shorter than its last row without a cue is cut" cut fit_judge "$vpn_details" "$vpn_cut_height" false
 settings_tab_click Settings || fail "the click on VPN's Settings tab failed"
 expect_poll "VPN's Settings tab shows again" 0 settings_tab
 expect_poll "the window takes the VPN Settings height again" settled fit_settled
 vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))')" || vpn_settings_box=unread
 expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
 fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
-[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" vgs.launcher "* ]] || fail "the manager lists Windows and Launcher for the Details judge: got $fit_ids"
-launcher_details=unread
+[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" acme.settings-scroll "* ]] || fail "the manager lists Windows and the deliberate scroll fixture for the Details judge: got $fit_ids"
+overflow_details=unread
 windows_details=unread
 for fit_id in $fit_ids; do
   expect "the window opens $fit_id's page for the Details judge" ok ipc smoke invokeInstance window vgs.settings openPlugin "$fit_id"
   settings_details
   expect_poll "the window takes $fit_id's Details height" settled fit_settled
   fit_reading="$(fit_state)" || fit_reading=unread
-  [[ $fit_id == vgs.launcher ]] && launcher_details="$fit_reading"
+  [[ $fit_id == acme.settings-scroll ]] && overflow_details="$fit_reading"
   [[ $fit_id == vgs.windows ]] && windows_details="$fit_reading"
   fit_verdict="$(fit_judge "$fit_reading")" || fit_verdict=unread
   case $fit_verdict in
@@ -467,10 +465,12 @@ for fit_id in $fit_ids; do
     *) fail "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict reading=$fit_reading" ;;
   esac
 done
-expect "Launcher Details runs past the window and shows the bottom cue" cued fit_judge "$launcher_details"
-launcher_past_cap() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["client"][3] > d["end"]["implicitHeight"])'; }
-expect "the window takes Launcher's Details past the cap, to the room" True launcher_past_cap "$launcher_details"
-expect "Launcher Details shows the bottom cue" true fit_field "$launcher_details" end cueBelow
+expect "the deliberate scroll fixture's Details exceed the window and show the bottom cue" cued fit_judge "$overflow_details"
+overflow_past_cap() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["client"][3] > d["end"]["implicitHeight"])'; }
+expect "the window takes the deliberate fixture's Details past the cap, to the room" True overflow_past_cap "$overflow_details"
+expect "the deliberate scroll fixture's Details show the bottom cue" true fit_field "$overflow_details" end cueBelow
+overflow_cut_height="$(fit_field "$overflow_details" client 3)" || overflow_cut_height=unread
+expect "control: the same overflowing fixture without its bottom cue is cut" cut fit_judge "$overflow_details" "$overflow_cut_height" false
 expect "Windows' Details ends inside the window" fits fit_judge "$windows_details"
 expect "Windows' Details that fits shows no bottom cue" false fit_field "$windows_details" end cueBelow
 
@@ -605,58 +605,51 @@ expect_poll "the status fixture's ungrouped setting has no section heading" '[]'
 settings_details
 expect_poll "the manager row lists each drawn entry in manifest order, with its value and tone" "$(python3 -c 'import json,sys; print(json.dumps([["Token", "reported", "present", "success"], ["Check", "reported", {"tone": "warning", "text": "Two sources failed"}, "warning"], ["Pending", "reported", 3, ""], ["Last check", "reported", int(sys.argv[1]), ""], ["Note", "unreported", None, ""]]))' "$fixture_time")" status_of acme.status
 expect_poll "Details draws the ungrouped entries that declare no action, then each group's, read-only" '[["Last check", "time"], ["Note", "Not reported"], ["Pending", "3"]]' drawn_status_timeless
-expect_poll "Details head the status sections and no Requirements beside a Setup tab" '["Status", "Sync"]' section_names
-# The fixture misses its optional tool, so its page has a Setup tab, which
-# holds the Requirements; the probe fixture, which misses none, has no
-# such tab and draws nothing to set up.
+expect_poll "Details holds the facts and optional tool" '["Status", "Sync", "Tools"]' section_names
+# Explicit required status entries give this fixture Setup. Its optional
+# tool remains a Details fact.
 # page_tabs: the texts of the shown page's tab strip, in order.
 page_tabs() { ipc smoke readDescendant window vgs.settings TabPages model | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 expect "a plugin that misses a tool has a Setup tab between Settings and Details" '["Settings", "Setup", "Details"]' page_tabs
 settings_setup
-expect_poll "Setup heads the step of no group, the Sync group's step and the Requirements" '["Setup", "Sync", "Requirements"]' section_names
-expect_poll "Setup draws the Check as a step with no action" '["Check", "Two sources failed"]' step_drawn Check
+expect_poll "Setup holds the required steps in one section" '["Setup"]' section_names
+expect_poll "Setup draws the Check as a step with no action" '["Check", "To do", "Two sources failed"]' step_drawn Check
 expect "Setup shows no Status row: the rows of Details draw nothing while Setup shows" '[[], [], []]' drawn_status
 settings_details
 expect "Details draws no step: a click on its tab leaves no Check row" '"rows=0"' step_drawn Check
 expect "no Status row takes an edit" '[[],[],[]]' ipc smoke statusRowInputs window vgs.settings
-expect "the page draws the choices setting only" '[1, 0]' page_fields_of acme.status
+expect "Details draws no Settings editor" '[0, 0]' page_fields_of acme.status
+settings_tab_click Settings || fail "the click on the status fixture's Settings tab failed"
+expect_poll "the status fixture shows Settings for its field count" Settings settings_tab_text
+expect_poll "Settings draws the choices setting only" '[1, 0]' page_fields_of acme.status
 
-# Status actions, D061: an entry's action is offered while its published
-# value calls for it, a presence while absent and a state while it says so,
-# and its button, on the Setup tab, runs the step through the manager: the
-# fixture's own TUI in a floating terminal. No step installs a
-# requirement: the Requirements section's Install all missing is the
-# page's one install.
-# The control comes first: a value that does not call for the action draws
-# no button, and the manager refuses the act and starts nothing. The
-# presses after it succeed, which clears each refusal from its line. The
-# Check, a step of no group that offers no action, is no open step, so the
-# Token's action draws as the page's primary Button; the Check's own
-# action, once offered, takes the primary as the first open step.
+# Required status actions are links beside their step. The control values
+# withhold the action. The manager refuses them and starts no terminal.
+# Offered values then launch the fixture TUI and clear the refusal.
 expected_errors+=('settings: acme\.status/(token|check) refused: action=(token|check) reason=not-offered')
 terminal_stand_in
 terminal_ready "the status actions"
 settings_setup
 expect_poll "values that do not call for them offer no action" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
-expect_poll "the Token row draws no button and no command" '["Token", "Present", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "the Token row draws no button and no command" '["Token", "Done", "Needed for the fixture'"'"'s sync"]' token_drawn
 forget_record
 expect "the manager refuses an act the token does not call for" "refused: action=token reason=not-offered" settings_act acme.status token
 expect "the manager refuses an act the check does not call for" "refused: action=check reason=not-offered" settings_act acme.status check
 expect "the refused acts started no terminal" absent recorded
 expect "the refused acts raised no notice" null notice_shown
-expect_poll "the refusal reads under the Token line" '["Token", "Present", "This setup step is not needed now."]' token_drawn
+expect_poll "the refusal reads under the Token line" '["Token", "Done", "This setup step is not needed now."]' token_drawn
 expect "the fixture publishes its token absent" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "an absent token offers Set up token and the check offers nothing" '[["token", "Set up token", true], ["check", "Check again", false]]' offered_actions acme.status
-expect_poll "the Token row draws its Set up token action" '["Token", "Absent", "Set up token", "This setup step is not needed now."]' token_drawn
-settings_press "Set up token" || fail "the click on Set up token failed"
+expect_poll "the Token row draws its Set up token action" '["Token", "To do", "Set up token", "This setup step is not needed now."]' token_drawn
+settings_press --type RowAction "Set up token" || fail "the click on Set up token failed"
 expect_poll "Set up token hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
-expect_poll "the step that ran clears the Token line's refusal" '["Token", "Absent", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "the step that ran clears the Token line's refusal" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
 expect_run_end "the setup TUI's run ends" acme.status/setup
 expect_poll "the setup TUI's terminal closes" 0 tui_windows
 expect "the check publishes that it can run again" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Check failed","action":true}'
 expect_poll "the check offers Check again" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
 forget_record
-settings_press "Check again" || fail "the click on Check again failed"
+settings_press --type RowAction "Check again" || fail "the click on Check again failed"
 expect_poll "Check again hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
 expect_run_end "the check's TUI run ends" acme.status/setup
 expect_poll "the check's TUI terminal closes" 0 tui_windows
@@ -664,9 +657,8 @@ expect_poll "the check's TUI terminal closes" 0 tui_windows
 
 # A status step whose screen lacks a required command is withheld: its row
 # offers no button, and Install all missing on the Setup tab, the page's
-# one install, raises the requirement notice for the command. The copy
-# also lists the setup script, so the page draws its Setup button for the
-# read after the controls.
+# one Tools link raises the requirement notice for the command. The copy
+# also lists the setup script as a Settings screen for the later control.
 status_manifest="$status_dir/manifest.json"
 cp -- "$status_manifest" "$sandbox/status-action-manifest"
 python3 - "$status_manifest" <<'PYTHON'
@@ -680,20 +672,20 @@ assert requirement["optional"] is True
 requirement["optional"]=False
 setup=manifest["tui"]["setup"]
 assert "entry" not in setup
-setup["entry"]={"label":"Token setup","icon":"key-round","group":"Smoke","setup":True}
+setup["entry"]={"label":"Token setup","icon":"key-round","group":"Smoke","settings":True}
 path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture now declares its missing command required"
 expect "the fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "Settings withholds the steps whose screen lacks the required command" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
-expect_poll "the withheld Token line draws no button and names the missing command" '["Token", "Absent", "vgs-smoke-absent is missing. Install all missing installs it."]' token_drawn
+expect_poll "the withheld Token line draws no button and names the missing command" '["Token", "To do", "vgs-smoke-absent is missing. Review all missing or outdated tools opens the tool notice."]' token_drawn
 # settings_install_drawn: how many buttons of the page read Install all
 # missing.
-settings_install_drawn() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Install all missing"]))'; }
+settings_install_drawn() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Review all missing or outdated tools"]))'; }
 settings_setup
 expect_poll "the page draws Install all missing once, its one install" 1 settings_install_drawn
 forget_record
-settings_press "Install all missing" || fail "the click on Install all missing failed"
+settings_press --type RowAction "Review all missing or outdated tools" || fail "the click on Install all missing failed"
 expect_poll "Install all missing opens the requirement notice" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
 expect "a missing requirement starts no setup terminal" absent recorded
 # No install button is pressed. Escape dismisses the requirement notice.
@@ -727,7 +719,7 @@ rescan "the status fixture carries Jarvis's full required list as absent stand-i
 expect "the large-list fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "the large-list fixture withholds the setup steps" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
 forget_record
-settings_press "Install all missing" || fail "the large-list Install all missing could not be pressed"
+settings_press --type RowAction "Review all missing or outdated tools" || fail "the large-list Install all missing could not be pressed"
 expect_poll "Install all missing opens the notice for the full missing list" "$large_notice" notice_shown
 expect "the full missing list starts no setup terminal" absent recorded
 expect_poll "the full-list notice holds the keyboard" true ipc smoke noticeFocused
@@ -799,9 +791,9 @@ rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install
 # enabled, whether its tooltip names NAME].
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_setup
-expect_poll "the Setup section draws no action for the token's withheld screen" '[]' setup_buttons vgs-smoke-absent
+expect_poll "only the Tools link remains while the token screen is withheld" '[["Review all missing or outdated tools", "accent", true, false]]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes a present token, which offers no step" ok ipc acme.status invoke set 'token="present"'
-expect_poll "the Setup section draws no action for the token's screen with no step offered" '[]' setup_buttons vgs-smoke-absent
+expect_poll "only the Tools link remains while the token action is not offered" '[["Review all missing or outdated tools", "accent", true, false]]' setup_buttons vgs-smoke-absent
 python3 - "$status_manifest" <<'PYTHON'
 from pathlib import Path
 import json, sys
@@ -813,7 +805,10 @@ for key in ("token", "check"):
 path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture's token and check declare no screen"
-expect_poll "a screen no entry declares draws disabled with a reason naming the missing command" '[["Token setup", "accent", false, true]]' setup_buttons vgs-smoke-absent
+settings_tab_click Settings || fail "the click on Settings for the unclaimed screen failed"
+settings_unclaimed_screen() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r and r[0] == "More settings"]; print(json.dumps([len(rows) == 1, len(rows) == 1 and "Token setup" in rows[0], len(rows) == 1 and any("vgs-smoke-absent" in text for text in rows[0])]))'; }
+expect_poll "an unclaimed settings screen keeps its Settings path and names its missing tool" '[true, true, true]' settings_unclaimed_screen
+settings_setup
 expect "the fixture republishes the absent token" ok ipc acme.status invoke set 'token="absent"'
 expect_poll "a withheld or undeclared screen leaves Install all missing the page's one install" 1 settings_install_drawn
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
@@ -986,51 +981,30 @@ for control in ChoicesGood ChoicesNoModel ChoicesWriteLabel ChoicesNoBinding; do
   rm -- "$choice_controls/$control.qml" || fail "removing the $control source copy failed"
 done
 expect "dropping the controls restores the Settings source revision" "$choice_revision_before" choice_source_revision
-# The Setup tab and the list's setup marks. A page has a Setup tab only
-# while its plugin has something to set up: Jarvis, Cloud Sync and Voice
-# declare setup steps, and the bare fixture has the tab only while it
-# misses a tool, with its Requirements there. The fixture's row of the list
-# draws the warning icon while its optional tool is missing, Setup needed
-# once the copy of its manifest requires that tool, and neither once a
-# stand-in supplies it. A click on the row opens Setup only under the
-# chip, a click on the icon opens Setup, a Setup tab that leaves while it
-# shows hands on to Details, and the deep link a widget's Settings entry
-# sends opens Settings. Each state is the control of the others.
+# Required work alone marks the list. Required tools retain their Setup
+# step after installation. Optional tools give the list no warning icon.
 for setup_id in vgs.jarvis vgs.cloud-sync vgs.voice; do
   expect "the window opens $setup_id's page for its tabs" ok ipc smoke invokeInstance window vgs.settings openPlugin "$setup_id"
-  expect_poll "$setup_id's page has a Setup tab between Settings and Details" '["Settings", "Setup", "Details"]' page_tabs
+  expect_poll "$setup_id has its required Setup tab" '["Settings", "Setup", "Details"]' page_tabs
 done
 bare_mark() { ipc smoke scopedWindowGeometry window vgs.settings ListItem Bare "$1" "$2" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
-# bare_marks: whether the Bare row draws Setup needed, then its warning icon.
 bare_marks() { printf '%s %s\n' "$(bare_mark Badge "Setup needed")" "$(bare_mark IconButton "Open setup")"; }
 bare_requirement() { settings_rows | py_reply 'import json,sys; r=[q["state"] for p in json.load(sys.stdin) if p["id"] == "acme.bare" for q in p["requirements"] if q["name"] == "vgs-smoke-absent"]; print(r[0] if r else "unlisted")'; }
 bare_list() {
-  expect "the window shows its list for the fixture's row" '' ipc smoke invokeInstance window vgs.settings showList ''
-  expect_poll "the list is shown for the fixture's row" '""' settings_page
+  expect "the window shows its list for the fixture" '' ipc smoke invokeInstance window vgs.settings showList ''
+  expect_poll "the list shows" '""' settings_page
 }
 bare_manifest="$home/.config/vgshell/plugins/acme.bare/manifest.json"
-[[ -f $bare_manifest ]] || fail "the bare fixture's manifest is not at $bare_manifest"
+[[ -f $bare_manifest ]] || fail "the bare fixture's manifest is absent"
 bare_list
-expect_poll "a row that misses an optional tool draws the warning icon and no Setup needed" "absent drawn" bare_marks
-settings_click ListItem Bare || fail "the click on the fixture's row failed"
-expect_poll "the row's click opens the fixture's page" '"acme.bare"' settings_page
-expect_poll "a row without Setup needed opens on Settings" Settings settings_tab_text
-expect "a page whose plugin misses a tool has a Setup tab" '["Settings", "Setup", "Details"]' page_tabs
-bare_list
-click_item scoped:Plugins window vgs.settings ListItem Bare IconButton "Open setup" || fail "the click on the fixture's warning icon failed"
-expect_poll "the warning icon's click opens the fixture's page" '"acme.bare"' settings_page
-expect_poll "the warning icon opens the page on Setup" Setup settings_tab_text
-expect_poll "Setup heads the fixture's Requirements" '["Requirements"]' section_names
-printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent"
-chmod 755 "$shim/vgs-smoke-absent"
-rescan "a rescan with the bare fixture's tool stood in starts"
-expect_poll "the scan finds the bare fixture's tool present" present bare_requirement
-expect_poll "a plugin whose tools are all installed has no Setup tab" '["Settings", "Details"]' page_tabs
-expect_poll "a Setup tab that leaves while it shows hands on to Details" Details settings_tab_text
-expect_poll "Details then head the fixture's Requirements" '["Requirements"]' section_names
-bare_list
-expect_poll "a row that misses nothing draws neither mark" "absent absent" bare_marks
-rm -f -- "${shim:?}/vgs-smoke-absent"
+expect_poll "a missing optional tool draws no list mark" "absent absent" bare_marks
+settings_click ListItem Bare || fail "the click on the fixture failed"
+expect_poll "the row opens the fixture" '"acme.bare"' settings_page
+expect_poll "no required work opens Settings" Settings settings_tab_text
+expect "the present required shell tool keeps Setup" '["Settings", "Setup", "Details"]' page_tabs
+settings_setup
+expect_poll "required tools have one Setup section" '["Setup"]' section_names
+expect_poll "present required tools read Done" '["Tools", "Done", "Every required tool is available"]' step_drawn Tools
 cp -- "$bare_manifest" "$sandbox/bare-setup-manifest"
 python3 - "$bare_manifest" <<'PYTHON'
 from pathlib import Path
@@ -1043,38 +1017,45 @@ assert requirement["optional"] is True
 requirement["optional"]=False
 path.write_text(json.dumps(manifest))
 PYTHON
-rescan "the bare fixture now requires its missing tool"
-expect_poll "the scan finds the bare fixture's required tool missing" missing bare_requirement
-expect_poll "a row that misses a required tool draws Setup needed and no warning icon" "drawn absent" bare_marks
-settings_click ListItem Bare || fail "the click on the fixture's row under Setup needed failed"
-expect_poll "the row's click under Setup needed opens the fixture's page" '"acme.bare"' settings_page
-expect_poll "a row with Setup needed opens on Setup" Setup settings_tab_text
-expect "the deep link a widget's Settings entry sends is accepted" ok ipc shell summon window vgs.settings '{"plugin":"acme.bare"}'
-expect_poll "the deep link opens the page on Settings" Settings settings_tab_text
-cp -- "$sandbox/bare-setup-manifest" "$bare_manifest"
-rescan "the bare fixture restores its optional tool"
-expect_poll "the scan finds the restored fixture's optional tool missing" missing bare_requirement
+rescan "the fixture now requires its missing tool"
+expect_poll "the required tool is missing" missing bare_requirement
 bare_list
-expect_poll "the restored row draws the warning icon alone again" "absent drawn" bare_marks
+expect_poll "required work draws Setup needed with no optional icon" "drawn absent" bare_marks
+settings_click ListItem Bare || fail "the click on required work failed"
+expect_poll "required work opens Setup" Setup settings_tab_text
+expect_poll "the Setup tab has its required warning" '["Setup"]' ipc smoke readDescendant window vgs.settings TabPages warningTabs
+printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent"
+chmod 755 "$shim/vgs-smoke-absent"
+rescan "the required tool is supplied"
+expect_poll "the scan finds the required tool present" present bare_requirement
+expect "completed tools keep their Setup tab" '["Settings", "Setup", "Details"]' page_tabs
+expect_poll "complete Setup removes its warning" '[]' ipc smoke readDescendant window vgs.settings TabPages warningTabs
+expect "a deep link opens Settings" ok ipc shell summon window vgs.settings '{"plugin":"acme.bare"}'
+expect_poll "the deep link shows Settings" Settings settings_tab_text
+rm -f -- "${shim:?}/vgs-smoke-absent"
+cp -- "$sandbox/bare-setup-manifest" "$bare_manifest"
+rescan "the fixture restores its optional tool"
+expect_poll "the restored optional tool is missing" missing bare_requirement
+bare_list
+expect_poll "the restored optional tool marks nothing" "absent absent" bare_marks
 expect "the window opens the status fixture's page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstance window vgs.settings toggle acme.status
 expect_poll "a disabled plugin's dynamic Select is read-only and has no offered choices" '[-1, "", "", false]' device_state
 settings_details
 expect_poll "a disabled plugin's rows all read not reported" '[["Last check", "Not reported"], ["Note", "Not reported"], ["Pending", "Not reported"]]' drawn_status
 settings_setup
-expect_poll "a disabled plugin's step reads not reported and draws no action" '["Token", "Not reported", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "a disabled plugin's step reads not reported and draws no action" '["Token", "To do", "Needed for the fixture'"'"'s sync"]' token_drawn
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
-settings_setup
 slack_tokens_hint="Connect each workspace to show sender photos"
-# The Slack token rows stay in the Setup section when photos are off.
+# Slack token rows stay beside their Settings choice when photos are off.
 # A disabled plugin reports no account state and offers no token edit.
 expect_poll "with Slack photos off the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
-expect_poll "Setup draws the Slack tokens row with its hint while photos are off" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
+expect_poll "Settings draws the Slack tokens row with its hint while photos are off" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
 # Changing the photos setting keeps the same supported connection path.
 set_slack_photos on
 expect_poll "the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
-expect_poll "Setup draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
+expect_poll "Settings draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
 expect "no Slack tokens row takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
 set_slack_photos absent
 expect_poll "turning photos off again keeps the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
@@ -1329,6 +1310,130 @@ rm -rf -- "${page_copy:?}"
 rm -rf -- "${page_link_fixture:?}"
 rm -rf -- "${scroll_fixture:?}"
 rescan "a rescan drops the page control and scroll fixture"
+
+# Real Quickshell ScriptModel keeps an unchanged credential editor while
+# its required connection and key list change and move together. The unit
+# model rebuilds delegates, so this proof uses the running sandbox shell.
+# The fixture publishes fake presence only. Replace opens the masked
+# editor; this proof never saves a key or calls a secret service.
+credential_manifest="$status_dir/manifest.json"
+credential_saved_manifest="$sandbox/settings-credentials-manifest.json"
+credential_saved_config="$sandbox/settings-credentials-config.json"
+credential_enabled="$(ipc shell listPlugins | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin)["plugins"] if r["id"] == "acme.status"]; assert len(rows) == 1 and type(rows[0]["enabled"]) is bool; print(str(rows[0]["enabled"]).lower())')" || { fail "the credential fixture's enabled state is unreadable"; return 1; }
+[[ $credential_enabled == true || $credential_enabled == false ]] || { fail "the credential fixture's enabled state is not boolean"; return 1; }
+cp -- "$home/.config/vgshell/shell.json" "$credential_saved_config"
+credential_original_widgets="$(bar_widget_ids)" || { fail "the credential fixture's original bar widgets are unreadable"; return 1; }
+[[ $credential_original_widgets == \[* ]] || { fail "the credential fixture's original bar widgets are not listed"; return 1; }
+expect "the probe saves the fixture's status record" ok ipc smoke settingsCredentialBegin
+cp -- "$credential_manifest" "$credential_saved_manifest"
+python3 - "$credential_manifest" <<'PYCREDENTIAL'
+import json, sys
+from pathlib import Path
+path=Path(sys.argv[1])
+assert not path.is_symlink()
+manifest=json.loads(path.read_text())
+assert "secrets" not in manifest and "secrets" not in manifest["capabilities"]
+manifest["capabilities"].append("secrets")
+manifest["secrets"]={"service":"acme-status-keys","label":"Fixture key"}
+for key in ("connection","credentials","other"):
+    assert key not in manifest["status"]
+manifest["status"].update({
+    "connection":{"type":"state","label":"Connection","setup":True},
+    "credentials":{"type":"presenceList","label":"Credentials","step":"connection"},
+    "other":{"type":"state","label":"Other step","setup":True}})
+path.write_text(json.dumps(manifest))
+PYCREDENTIAL
+rescan "a rescan adds the fixture's required connection and credentials"
+expect "the credential fixture is enabled" ok ipc shell setPluginEnabled acme.status true
+expect_poll "the fixture's service has its status capability" '"ok"' ipc smoke readInstance service acme.status startReply
+expect "the unrelated fixture check is complete" ok ipc acme.status invoke set 'check={"tone":"ok","text":"Ready"}'
+expect "secret-tool remains behind the sandbox stand-in" "$shim/secret-tool" shell_resolves secret-tool
+credential_initial='{"connection":{"tone":"ok","text":"Connected"},"credentials":[{"label":"Client ID","value":"present","secret":"acme:id"},{"label":"Client secret","value":"present","secret":"acme:secret"}],"other":{"tone":"warning","text":"Another step is pending"}}'
+credential_changed='{"connection":{"tone":"warning","text":"Connection needs credentials"},"credentials":[{"label":"Client ID","value":"present","secret":"acme:id"},{"label":"Client secret","value":"absent","secret":"acme:secret"}],"other":{"tone":"warning","text":"Another step is pending"}}'
+credential_state() { ipc smoke settingsCredentialState window vgs.settings; }
+credential_initial_state() { credential_state | py_reply 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else None; print(t.strip() if d is None else json.dumps([d["order"],d["chips"],d["idEditorOpen"],d["secretEditorClosed"]]))'; }
+credential_id_editor() { credential_state | py_reply 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else None; print(t.strip() if d is None else json.dumps(d["idEditorOpen"]))'; }
+credential_edit_state() { credential_state | py_reply 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else None; print(t.strip() if d is None else json.dumps([d["order"],d["chips"],d["idEditorOpen"],d["secretEditorClosed"],d["sameEditor"],d["sameDraft"]]))'; }
+credential_result() { credential_state | py_reply 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else None; print(t.strip() if d is None else json.dumps([d["order"],d["chips"],d["secretActions"],d["secretEditorClosed"],d["sameEditor"],d["sameDraft"]]))'; }
+credential_stale() { credential_state | py_reply 'import json,sys; t=sys.stdin.read(); d=json.loads(t) if t.startswith("{") else None; print(t.strip() if d is None else "stale" if d["order"] == ["Connection","Client ID","Other step"] and d["chips"] == ["Done","Done"] and d["secretActions"] == ["Save","Cancel"] and not d["secretEditorClosed"] and d["sameEditor"] and d["sameDraft"] else "different-state")'; }
+credential_press() {
+  local shown box area reading previous=""
+  # An editor grows its row within the current window. Reveal again after
+  # that layout changes, until the exact action and its scroll area agree
+  # on two readings. A transient editor does not resize the window.
+  smoke_poll_tries 100 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    shown="$(ipc smoke revealScopedText window vgs.settings StatusLine "$1" RowAction Replace)" || return 1
+    [[ $shown =~ ^[0-9.]+$ ]] || { echo "credential_press: no Replace in $1 to reveal: $shown" >&2; return 1; }
+    box="$(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "$1" RowAction Replace)" || return 1
+    area="$(page_scroll)" || return 1
+    [[ $box == \[* && $area == \{* ]] || { echo "credential_press: no action box or scroll area in $1" >&2; return 1; }
+    reading="$box/$area"
+    if [[ $reading == "$previous" ]]; then
+      click_item scoped:Plugins window vgs.settings StatusLine "$1" RowAction Replace
+      return
+    fi
+    previous="$reading"
+    sleep 0.1
+  done
+  echo "credential_press: the action and scroll layout in $1 did not settle" >&2
+  return 1
+}
+credential_case() {
+  local label="$1" failed_before="$failures"
+  expect "$label: initial fixture values publish in one record" ok ipc smoke settingsCredentialPublish "$credential_initial"
+  settings_page_open acme.status
+  settings_setup
+  expect_poll "$label: the pending step precedes the complete connection and its keys with both editors closed" '[["Other step", "Connection", "Client ID"], ["Done", "Done"], false, true]' credential_initial_state
+  [[ $failures -eq $failed_before ]] || return 1
+  credential_press "Client ID" || { fail "$label: Client ID Replace did not open"; return 1; }
+  expect_poll "$label: the real Client ID masked editor is laid out" true credential_id_editor
+  [[ $failures -eq $failed_before ]] || return 1
+  credential_press "Client secret" || { fail "$label: Client secret Replace did not open"; return 1; }
+  expect_poll "$label: both real masked editors hold synthetic drafts" held ipc smoke settingsCredentialHold window vgs.settings
+  expect_poll "$label: the complete connection and both drafts pass before the changed publication" '[["Other step", "Connection", "Client ID"], ["Done", "Done"], true, false, true, true]' credential_edit_state
+  # A failed baseline cannot publish the fault's input or count as a
+  # successful must-fail control. The existing failure remains recorded.
+  [[ $failures -eq $failed_before ]] || return 1
+  expect "$label: changed presence and connection publish together" ok ipc smoke settingsCredentialPublish "$credential_changed"
+  [[ $failures -eq $failed_before ]]
+}
+if credential_case "required credentials"; then
+  expect_poll "the changed key updates, its editor closes, and the unchanged key keeps its actual editor and draft after the move" '[["Connection", "Client ID", "Other step"], ["Done", "To do"], ["Add key"], true, true, true]' credential_result
+fi
+settings_page_close acme.status
+expect "the fixture resets before the old-binding control loads" ok ipc smoke settingsCredentialPublish "$credential_initial"
+[[ ! -e $page_copy ]] || fail "the credential source-control directory already exists"
+cp -R -- "$repo/shell/plugins/vgs.settings" "$page_copy"
+python3 - "$page_copy/PluginPage.qml" <<'PYCREDENTIAL'
+import sys
+from pathlib import Path
+path=Path(sys.argv[1])
+assert not path.is_symlink()
+source=path.read_text()
+old="entry: page.statusEntry(requiredEntry.modelData.key)"
+new="entry: requiredEntry.modelData.entry"
+assert source.count(old) == 1
+mutant=source.replace(old,new)
+assert mutant != source
+path.write_text(mutant)
+PYCREDENTIAL
+rescan "a rescan loads the existing source-copy control with the old key binding"
+if credential_case "control: retained key entry"; then
+  expect_poll "control: the old binding keeps the removed credential Done with its old editor on the moved row" stale credential_stale
+fi
+settings_page_close acme.status
+rm -rf -- "${page_copy:?}"
+cp -- "$credential_saved_manifest" "$credential_manifest"
+rescan "a rescan restores the shipped Settings source and the original status fixture"
+expect "the fixture's enabled state is restored" ok ipc shell setPluginEnabled acme.status "$credential_enabled"
+cp -- "$credential_saved_config" "$home/.config/vgshell/shell.json.next"
+mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+credential_config_restored() { if cmp -s "$credential_saved_config" "$home/.config/vgshell/shell.json"; then echo unchanged; else echo changed; fi; }
+expect "the credential fixture restores the exact original user config" unchanged credential_config_restored
+expect_poll "the credential fixture restores the original mounted bar widgets" "$credential_original_widgets" bar_widget_ids
+expect "the probe restores the original fixture record and drops its editor references" ok ipc smoke settingsCredentialRestore
+rm -- "$credential_saved_manifest" "$credential_saved_config"
 
 # The dispatch queue, driven through the fixture's compositor capability.
 # Every queue row ends on workspace 2 and is reset to workspace 1 without

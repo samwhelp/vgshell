@@ -20,6 +20,7 @@ FocusScope {
     id: root
 
     property alias model: strip.model
+    property alias warningTabs: strip.warningTabs
     property alias currentIndex: strip.currentIndex
     default property alias pages: stack.data
     property real spacing: Theme.stack.page

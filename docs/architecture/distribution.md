@@ -24,7 +24,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 - Do raise a `preflight_floor` in `bin/vgshell` and every recipe together, and state no runtime floor in the README; `vgshell run` checks the floor, and `scripts/check-packaging.js` refuses a recipe that differs.
 - Do print `bin/lib/post-install.txt` from a scriptlet on a first install only; a scriptlet holds no text of its own. `scripts/check-packaging.js` pins it.
 - Never add a required plugin command without a package on every channel or a row in `packaging/channel-gaps.json`. `scripts/check-packaging.js` pins it.
-- Do mark a required command `"install": "on-request"` only when its package must stay an optional dependency of every recipe; its plugin's Requirements section installs it. `scripts/check-packaging.js` pins it.
+- Do mark a required command `"install": "on-request"` only when its package must stay an optional dependency of every recipe; its plugin's Tools step on Setup opens the existing all-tools notice to install it. `scripts/check-packaging.js` pins it.
 - Never give a recipe `conflicts`, `replaces` or `provides`; the two packages own the same files. `scripts/check-packaging.js` pins it.
 - Do set `SYSCONFDIR` only in a system package; it installs the browser-policy sudoers rule, the autostart entry and the Hyprland portal preference, which the flake and the curl installer must not ship. `scripts/test-install-tree.sh` pins it.
 - Do name the autostart entry's `Exec` by absolute path, keep `OnlyShowIn=Hyprland;`, and never write a user entry from the installer. `scripts/test-install-tree.sh` runs the host generator.

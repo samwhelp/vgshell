@@ -184,7 +184,7 @@ Column {
         Loader {
             id: loader
             width: parent.width
-            sourceComponent: root.spec.type === "boolean" ? toggle
+            sourceComponent: root.spec.type === "action" ? null : root.spec.type === "boolean" ? toggle
                 : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
                 : root.hasPresets ? presetChoice

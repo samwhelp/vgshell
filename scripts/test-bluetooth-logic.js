@@ -666,10 +666,10 @@ function verifyPlacement(logic, source) {
         ["ready with no adapter", "ready", 0, "no-adapter", false, false],
         ["needed with no adapter", "needed", 0, "service-needed", true, true],
         ["nixos with no adapter", "nixos", 0, "service-needed", true, true],
-        ["absent with no adapter", "absent", 0, "no-adapter", false, false],
-        ["denied with no adapter", "denied", 0, "no-adapter", false, false],
-        ["unknown with no adapter", "unknown", 0, "no-adapter", false, false],
-        ["empty with no adapter", "", 0, "no-adapter", false, false],
+        ["absent with no adapter", "absent", 0, "no-adapter", false, true],
+        ["denied with no adapter", "denied", 0, "no-adapter", false, true],
+        ["unknown with no adapter", "unknown", 0, "no-adapter", false, true],
+        ["empty with no adapter", "", 0, "no-adapter", false, true],
         ["adapter listed", "needed", 1, "on", false, false],
     ];
     for (const [label, step, adapters, powerKey, buttonOpen, needsOpen] of rows) {

@@ -18,8 +18,8 @@
 # plain note and no warning, then ten opens and closes of the panel that
 # send no request; a refused token's expired warning and a failed
 # request's stale figures; that no read changed a credential file's
-# bytes or modification time; and the AI Gateway key's line in the Setup
-# section of the Setup tab, whose Add key, Replace and Remove
+# bytes or modification time; and the AI Gateway key's line beside its
+# Settings field, whose Add key, Replace and Remove
 # write the row's libsecret stand-in through the core, the key on stdin
 # alone, with no key line on Details.
 # Controls: a widget copy shown with no account, a panel copy capped at its
@@ -672,7 +672,7 @@ cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 # item, the key a store hands it on stdin, and answers a search as
 # libsecret's secret-tool does; the helper copy asks the endpoint stand-in
 # for the gateway's credits, so each check sends it the stored key, which
-# the endpoint logs as a hash. With no key, Setup draws the key's line with
+# the endpoint logs as a hash. With no key, Settings draws the key's line with
 # Add key, whose masked field stores what was typed; the stored key's line
 # reads Present with Replace, whose field stores another key over the
 # first, and Remove, which clears it. Details draws no key line, and
@@ -716,6 +716,7 @@ PY
 }
 usage_key_row() { status_row vgs.ai-usage gatewayKey | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[i["label"], i["value"], i["secret"], i["access"]] for i in r["value"] or []]))'; }
 usage_key_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["gatewayKey"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$usage_plugin/manifest.json"; }
+usage_key_location() { ipc smoke settingKeyRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row["key"]=="gatewayKey"]))'; }
 usage_key_inputs() { ipc smoke statusRowInputs window vgs.settings | py_reply 'import json,sys; print(json.dumps([name for row in json.load(sys.stdin) for name in row]))'; }
 usage_key_change() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "AI Gateway" RowAction "Replace") == \[* ]] && echo true || echo false; }
 # usage_key_line: whether the key's line draws Replace, then the inputs
@@ -737,9 +738,9 @@ usage_typed_key="vck-smoke-typed-$SRANDOM"
 usage_changed_key="$usage_typed_key-changed"
 expect "Settings opens on AI Usage's page for its key" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
 expect_poll "the page opens on its Settings tab" 0 settings_tab
-settings_setup
+expect_poll "the gateway key is beside its AI Gateway Settings field" '[{"key": "gatewayKey", "setting": "aiGateway", "field": "aiGateway"}]' usage_key_location
 expect_poll "the service lists the key absent, with Add key" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
-expect_poll "with no key Setup draws the key's line with Add key" "$(usage_key_want absent)" usage_key_drawn
+expect_poll "with no key Settings draws the key's line with Add key" "$(usage_key_want absent)" usage_key_drawn
 expect "an absent key's line draws no Replace and takes no edit" 'false []' usage_key_line
 expect "with no key the gateway was asked nothing" none usage_gateway_token
 settings_press --type RowAction "Add key" StatusLine "AI Gateway" || fail "the click on the key's Add key failed"
@@ -778,21 +779,28 @@ expect "Details draws no key line" rows=0 usage_key_drawn
 expect "the Settings window closes after the key's line" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the key's line" 0 window_count Plugins
 # The control: a copy of the Settings plugin, over the shipped one, whose
-# page keeps the stored keys out of Setup and draws them on Details, read
+# page keeps the stored keys out of Settings and draws them on Details, read
 # by the same reader on each tab.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
 usage_keys_copy="$home/.config/vgshell/plugins/vgs.settings"
 rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
 mkdir -p -- "$home/.config/vgshell/plugins"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$usage_keys_copy"
-if usage_edit "$usage_keys_copy/Steps.js" 'return status.filter(listsKeys);' 'return [];' \
-  && usage_edit "$usage_keys_copy/Steps.js" 'return !listsKeys(entry);' 'return true;'
+if usage_edit "$usage_keys_copy/Steps.js" 'return status.filter(function (entry) { return entry.setting === key; });' 'return status.filter(function (entry) { return entry.setting === key && !listsKeys(entry); });' \
+  && usage_edit "$usage_keys_copy/Steps.js" '!declaresStep(entry) && entry.setting === "" && entry.step === ""' 'listsKeys(entry) || (!declaresStep(entry) && entry.setting === "" && entry.step === "")'
 then ok "the control copy draws its stored keys on Details"; else fail "the control copy could not be written"; fi
 rescan "a rescan picks the key placement control copy"
 expect "the control copy's page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
 expect_poll "the control copy lists the key absent" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
 settings_details
 expect_poll "control: a page that draws its keys on Details draws the key's line there" "$(usage_key_want absent)" usage_key_drawn
+expect "control: the key on Details has no Settings field ancestor" '[{"key": "gatewayKey", "setting": "aiGateway", "field": ""}]' usage_key_location
+usage_key_placement_control() {
+  (failures=0 behaviour_failures=0
+   expect "the gateway key stays beside its Settings field" '[{"key": "gatewayKey", "setting": "aiGateway", "field": "aiGateway"}]' usage_key_location >"$sandbox/ai-usage-key-placement-control.log"
+   echo "$failures")
+}
+expect "control: a key on Details fails its Settings field placement" 1 usage_key_placement_control
 settings_tab_click Settings || fail "control: the click back to the Settings tab failed"
 expect_poll "control: the copy shows its Settings tab" 0 settings_tab
 expect "control: that page draws no key line on its Settings tab" rows=0 usage_key_drawn

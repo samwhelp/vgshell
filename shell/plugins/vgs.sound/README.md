@@ -19,4 +19,4 @@ Sound sets the volume, the output and input device, and the volume of each app t
 | --- | --- |
 | Volume step | How much the volume keys and the mouse wheel change the volume: 2%, 5% or 10%. |
 
-Moving the apps that play needs `pactl`. When it is missing, the Playing apps row in the flyout and the section installs it, as does Install all missing on the Setup tab of the plugin's page. Without it, new apps use the new output and the apps that play now stay where they are.
+Moving the apps that play needs `pactl`. When it is missing, the Playing apps row in the flyout and the section installs it, as does Review all missing or outdated tools on the Tools step of the plugin's Setup tab. Without it, new apps use the new output and the apps that play now stay where they are.

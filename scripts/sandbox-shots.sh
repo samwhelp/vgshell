@@ -25,8 +25,10 @@
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
-# the comma-separated ids it names, an `ID:setup` entry at the tab that
-# draws the page's setup, and captures
+# the comma-separated ids it names. `ID:settings`, `ID:setup` and
+# `ID:details` select a tab. A missing Setup tab is captured on Settings,
+# with its tab strip in view. pages.tsv records the requested and shown
+# tabs beside each shot. It captures
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
 # hover; tooltips, taken only when named, enables and places every
@@ -102,11 +104,13 @@
 # is the Jarvis page with a stored ElevenLabs key whose voices a loopback
 # stand-in first refuses, then lists: the Settings tab's Voice section and
 # the Details tab's ElevenLabs voices line in each state, and the Voice
-# field's list open on the listed voices, taken only when named; setup-tab is the plugin list with a row that shows Setup
-# needed beside the warning icon, one that shows the icon alone and one that shows neither, that
-# icon's tooltip, a page with no Setup tab, a Setup tab that holds only
-# Requirements, and Jarvis's Settings tab and its Setup tab with steps
-# open and with steps done, taken only when named; updates is the Updates
+# field's list open on the listed voices, taken only when named; setup-tab is
+# the plugin list's required-step badge, an optional-tool icon's tooltip
+# where the captured revision declares that icon, a page with no
+# Setup tab, and the status fixture's Setup tab with its required Token
+# step incomplete and complete. setup-states.tsv records each fixture
+# state and the tab's warning reading. It is taken only when named;
+# updates is the Updates
 # page with every tool it requires found or stood in and no Setup tab: its
 # Settings tab, then Details with its Actions row, which holds Update
 # everything, taken only when named; clone-voice is the
@@ -485,7 +489,7 @@ scene_ships() {
     tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
-    setup-tab) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
+    setup-tab) [[ $manager_scene == settings && $has_setup_tab == true ]] ;;
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
@@ -1761,14 +1765,26 @@ plugin_pages_list() {
   ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; print("\n".join(p["id"] for p in json.load(sys.stdin)))'
 }
 
-# plugin_page_shots MODE ID [NAME [setup]]: every screen of plugin ID's page,
-# NAME, NAME-2 and on, NAME plugin-pages-MODE-ID by default; with `setup`,
-# of the tab that draws its setup (page_setup).
+# plugin_page_shots MODE ID [NAME [TAB]]: every screen of plugin ID's page.
+# A requested Setup tab that is absent leaves Settings visible, so the
+# captured strip proves that the plugin has no Setup tab.
 plugin_page_shots() {
-  local id="$2" name="${3:-plugin-pages-$1-$2}" suffix=1 at cy ch h y=0
+  local id="$2" name="${3:-plugin-pages-$1-$2}" requested="${4:-settings}" shown=Settings tabs image suffix=1 at cy ch h y=0
   expect "the window opens the $id page for screenshots" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$id"
   expect_poll "the $id page is shown for screenshots" "\"$id\"" settings_page
-  [[ ${4:-} != setup ]] || page_setup
+  case "$requested" in
+    setup)
+      tabs="$(ipc smoke itemValues "$settings_kind" vgs.settings TabPages model | py_reply 'import json,sys; rows=json.load(sys.stdin); print("unreadable" if len(rows)!=1 or not isinstance(rows[0].get("model"),list) else "setup" if "Setup" in rows[0]["model"] else "absent")')" || { fail "the $id tab strip is unreadable"; return; }
+      [[ $tabs != unreadable ]] || { fail "the $id tab strip is unreadable"; return; }
+      if [[ $tabs == setup ]]; then settings_setup; shown=Setup; fi ;;
+    details) page_details; shown=Details ;;
+    settings) ;;
+    *) fail "the requested tab is unknown: $requested"; return ;;
+  esac
+  if [[ $shown == Settings ]]; then
+    settings_tab_click Settings || { fail "the click on the $id Settings tab failed"; return; }
+    expect_poll "the $id Settings tab is shown for screenshots" Settings settings_tab_text
+  fi
   at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" || at=""
   if [[ $at != "["* ]]; then
     fail "the $id page did not scroll to its top: ${at:-no reply}"
@@ -1776,7 +1792,10 @@ plugin_page_shots() {
   fi
   while :; do
     read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
-    if (( suffix == 1 )); then take "$name"; else take "$name-$suffix"; fi
+    image="$name"
+    (( suffix == 1 )) || image="$name-$suffix"
+    take "$image"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$image" "$1" "$capture_source" "$id" "$requested" "$shown" "$cy" >>"$SHOT_DIR/pages.tsv"
     (( cy + h < ch )) || break
     y=$(( cy + h - 40 ))
     suffix=$(( suffix + 1 ))
@@ -1802,7 +1821,7 @@ scene_plugin-pages() { # MODE
   fi
   for id in "${ids[@]}"; do
     case "$id" in
-      *:setup) plugin_page_shots "$1" "${id%:setup}" "plugin-pages-$1-${id%:setup}-setup" setup ;;
+      *:settings|*:setup|*:details) plugin_page_shots "$1" "${id%:*}" "plugin-pages-$1-${id%:*}-${id##*:}" "${id##*:}" ;;
       *) plugin_page_shots "$1" "$id" ;;
     esac
   done
@@ -1884,28 +1903,22 @@ hover_card() {
   return 1
 }
 
-# The plugin page's Setup tab and the list's setup marks. The list: Acme
-# Sync, the needs fixture, misses a required tool and optional ones and
-# shows Setup needed beside the warning icon, Bare misses an optional one
-# and shows the icon alone, and Probe shows neither; then Bare's icon's
-# tooltip. Then Probe's page, which has no Setup tab, Bare's Setup tab with
-# its Requirements, and Jarvis: its Settings tab, its Setup tab on a fresh
-# profile, and its Setup tab with an AI model chosen and the local voice
-# ready, as rows/jarvis-setup.sh plants them. The fresh tab's Local voice is
-# planted not set up and read back before its shot.
+# The same required Token step before and after completion. The fixture's
+# publisher changes its status; the page's shared judge chooses the warning.
 setup_tab_ready=false
 setup_tab_prepare() {
   local fixture
   "$setup_tab_ready" && return 0
   setup_tab_ready=true
-  for fixture in acme.probe acme.bare acme.needs; do
+  for fixture in acme.probe acme.bare acme.needs acme.status; do
     mkdir -p "$home/.config/vgshell/plugins/$fixture"
     cp -R -- "$fixtures/$fixture/." "$home/.config/vgshell/plugins/$fixture/"
   done
   tree_rescan "the setup tab fixtures are scanned"
-  for fixture in acme.probe acme.bare acme.needs; do
+  for fixture in acme.probe acme.bare acme.needs acme.status; do
     expect "enabling $fixture for the setup tab shots is allowed" ok ipc shell setPluginEnabled "$fixture" true
   done
+  expect_poll "the status fixture is built for setup warning shots" True record_exists acme.status
   for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
   close_notices
 }
@@ -1916,102 +1929,59 @@ setup_tab_page() { # ID
   expect "the window opens the $1 page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$1"
   expect_poll "the $1 page is shown" "\"$1\"" settings_page
 }
-setup_tab_headline() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(r[0]["chips"][0][1] if r and r[0]["chips"] else "none")'; }
-# The first chip text of the setup row whose key is KEY, `none` when the
-# row draws no chip, `absent` when no such row shows.
-setup_tab_step_chip() { # KEY
-  ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["key"]==sys.argv[1]]; print("absent" if not r else r[0]["chips"][0][0] if r[0]["chips"] else "none")' "$1"
+setup_tab_warning() {
+  ipc smoke itemValues "$settings_kind" vgs.settings TabPages warningTabs | py_reply 'import json,sys; rows=json.load(sys.stdin); print("warning" if len(rows)==1 and "Setup" in rows[0].get("warningTabs",[]) else "clear" if len(rows)==1 else "unreadable")'
 }
-setup_tab_jarvis_on() { # LABEL
-  expect "enabling vgs.jarvis $1 is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
-  expect_poll "the Jarvis daemon answers hello $1" ready jarvis_started
-  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
-  close_notices
-}
-setup_tab_jarvis_off() {
-  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
-  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
-}
+setup_tab_token_tone() { status_row acme.status token | py_reply 'import json,sys; print(json.load(sys.stdin)["tone"])'; }
 scene_setup-tab() { # MODE
-  local rect x y brain
-  local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" codex="$home/setup-codex" config="$home/.config/vgshell/shell.json" world="$sandbox/jarvis-world"
-  cp -- "$world/local-mode" "$sandbox/setup-tab-local-mode" 2>/dev/null || printf 'absent\n' >"$sandbox/setup-tab-local-mode"
+  local rect x y state token warning optional_icon=false list_marks="drawn absent"
+  if tree_has shell/plugins/vgs.settings/ListPage.qml '"Open setup"'; then
+    optional_icon=true
+    list_marks="drawn drawn"
+  fi
   setup_tab_prepare
+  expect "the fixture publishes a complete check" ok ipc acme.status invoke set 'check={"tone":"ok","text":"The check is complete"}'
+  expect "the fixture publishes a missing token" ok ipc acme.status invoke set 'token="absent"'
   expect "the Settings window opens for the setup tab shots" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps for the setup tab shots" 1 settings_count
-  expect_poll "the Acme Sync row draws Setup needed and the warning icon" "drawn drawn" setup_tab_marks "Acme Sync"
-  expect_poll "the Bare row draws the warning icon and no Setup needed" "absent drawn" setup_tab_marks Bare
+  expect_poll "the Acme Sync row draws its required badge and the captured tree's optional-icon state" "$list_marks" setup_tab_marks "Acme Sync"
   expect "the Probe row draws neither mark" "absent absent" setup_tab_marks Probe
   expect "the Settings window's root takes the focus for the list image" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
   take "setup-tab-$1-list"
-  rect="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings ListItem Bare IconButton "Open setup")" || rect=""
-  if [[ $rect == \[* ]] && read -r x y < <(at_centre "$settings_surface" "$rect") && hover "$((x - 6))" "$y" && hover "$x" "$y"; then
-    expect_poll "the warning icon's tooltip opens" True setup_tab_tip
-    take_posed "setup-tab-$1-list-tooltip"
-  else
-    fail "the Bare row's warning icon has no box: $rect"
+  if "$optional_icon"; then
+    rect="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings ListItem 'Acme Sync' IconButton 'Open setup')" || rect=""
+    if [[ $rect == \[* ]] && read -r x y < <(at_centre "$settings_surface" "$rect") && hover "$((x - 6))" "$y" && hover "$x" "$y"; then
+      expect_poll "the optional-tool icon's tooltip opens" True setup_tab_tip
+      take_posed "setup-tab-$1-list-tooltip"
+    else
+      fail "the Acme Sync row's optional-tool icon has no box: $rect"
+    fi
   fi
   park_pointer
   setup_tab_page acme.probe
   take "setup-tab-$1-no-setup"
-  setup_tab_page acme.bare
-  settings_setup
-  take "setup-tab-$1-requirements"
-  # Jarvis on a fresh profile: steps open, the local voice not set up.
-  printf 'absent\n' >"$world/local-mode"
-  setup_tab_jarvis_on "for its fresh Setup tab"
-  setup_tab_page vgs.jarvis
-  take "setup-tab-$1-jarvis-settings"
-  settings_setup
-  expect_poll "the fresh Jarvis Setup tab reads not ready" warning setup_tab_headline
-  expect_poll "the fresh Jarvis Setup tab draws Local voice Not set up" "Not set up" setup_tab_step_chip localRuntime
-  park_pointer
-  take "setup-tab-$1-jarvis-partial"
-  setup_tab_jarvis_off
-  # Jarvis with its required tools stood in, a Codex folder chosen as the
-  # AI model and the local voice ready: steps done. The local voice records
-  # through the core's dictation, whose daemon is the smoke's voxtype
-  # stand-in here, as in rows/jarvis-setup.sh.
-  jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
-  cp -- "$repo/scripts/smoke/fixtures/voxtype/voxtype" "$repo/scripts/smoke/fixtures/voxtype/wtype" "$shim/" && chmod 755 "$shim/voxtype" "$shim/wtype" ||
-    fail "the voxtype stand-ins are not written"
-  expect "the done Setup tab resolves voxtype to its stand-in" "$shim/voxtype" shell_resolves voxtype
-  tree_rescan "the Jarvis requirement stand-ins are scanned"
-  mkdir -p -- "$codex" "$state" "$data/local/venv/bin"
-  python3 -c 'import json,sys; open(sys.argv[1],"w").write(json.dumps([{"provider": "codex", "directory": sys.argv[2], "label": "setup"}]))' "$state/accounts.json" "$codex"
-  mkdir -p -- "$sandbox/setup-no-path"
-  brain="$(env -i PATH="$sandbox/setup-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share" \
-    "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
-    py_reply 'import json,sys; print(next(a["id"] for a in json.load(sys.stdin) if a["source"].get("directory")==sys.argv[1]))' "$codex")" || fail "the account helper lists no id for the Codex folder"
-  cp -- "$checkout/scripts/fixtures/jarvis-local-speech/standin.py" "$data/local/venv/bin/python"
-  chmod 700 -- "$data/local/venv/bin/python"
-  python3 -c 'import json,os,sys
-tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
-open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$state/local-ready.json"
-  printf 'ready\n' >"$world/local-mode"
-  cp -- "$config" "$sandbox/setup-tab-config"
-  python3 -c 'import json,sys
-value=json.load(open(sys.argv[1]))
-row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
-if row is None:
-    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
-row["brain"]=sys.argv[2]
-open(sys.argv[1],"w").write(json.dumps(value))' "$config" "$brain"
-  expect "the Jarvis AI model is delivered" ok ipc shell reloadConfig
-  setup_tab_jarvis_on "for its done Setup tab"
-  setup_tab_page vgs.jarvis
-  settings_setup
-  expect_poll "the Jarvis Setup tab reads ready" success setup_tab_headline
-  park_pointer
-  take "setup-tab-$1-jarvis-done"
+  for state in incomplete complete; do
+    token=absent warning=warning
+    [[ $state != complete ]] || { token=present; warning=clear; }
+    expect "the fixture publishes its $state Token step" ok ipc acme.status invoke set "token=\"$token\""
+    setup_tab_page acme.status
+    settings_setup
+    if [[ $state == incomplete ]]; then
+      expect_poll "the fixture's Token is missing" warning setup_tab_token_tone
+    else
+      expect_poll "the fixture's Token is present" success setup_tab_token_tone
+    fi
+    if tree_has shell/Ui/layout/TabPages.qml warningTabs; then
+      expect_poll "the Setup tab warning follows the $state required step" "$warning" setup_tab_warning
+    else
+      warning=unsupported
+    fi
+    settings_scroll_to 0 || fail "the fixture Setup tab did not scroll to its top"
+    park_pointer
+    take "setup-tab-$1-fixture-$state"
+    printf '%s\t%s\t%s\t%s\t%s\n' "setup-tab-$1-fixture-$state" "$1" "$capture_source" "$state" "$warning" >>"$SHOT_DIR/setup-states.tsv"
+  done
   settings_close
-  setup_tab_jarvis_off
-  cp -- "$sandbox/setup-tab-config" "$config"
-  expect "the Jarvis AI model setting is put back" ok ipc shell reloadConfig
-  rm -f -- "${state:?}/accounts.json" "${state:?}/local-ready.json"
-  cp -- "$sandbox/setup-tab-local-mode" "$world/local-mode"
-  rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype" "${sandbox:?}/voxtype-daemon.log" "${sandbox:?}/voxtype-follow.log"
-  jarvis_restore_requirements
 }
 
 # The Updates page with every tool it requires found: its tab strip holds
@@ -4510,7 +4480,7 @@ EOF
   else
     expect "the setup holder's page opens" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.dictation
     settings_setup || { fail "dictation-setup: the Setup tab did not open"; return; }
-    settings_press "Set up" || { fail "dictation-setup: Set up did not open"; return; }
+    settings_press --type RowAction "Set up" || { fail "dictation-setup: Set up did not open"; return; }
   fi
   settings_close
   dictation_setup_confirm() { [[ -e $sandbox/dictation-setup-confirm ]] && echo asking || echo waiting; }

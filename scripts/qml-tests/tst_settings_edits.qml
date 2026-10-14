@@ -344,46 +344,19 @@ Item {
             releasePage(page, original);
         }
 
-        // A Setup state too long for the value column elides inside a chip
-        // that ends inside the page.
-        function test_a_long_setup_state_stays_inside_the_page() {
-            const original = root.pageRow;
-            const manifest = { status: { check: { type: "state", label: "Check", group: "Setup" } } };
-            const long = "The update check failed. Select Refresh to try again.";
-            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, { check: { tone: "danger", text: long } }, []) });
-            const page = createTemporaryObject(pluginPageComponent, root);
-            try {
-                verify(page !== null);
-                page.open(Qt.OtherFocusReason, "Setup");
-                compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
-                const chip = () => descendants(page).find(child => child instanceof Badge && child.text === long && child.visible);
-                tryVerify(() => chip() !== undefined && chip().width > 0);
-                const right = () => chip().mapToItem(page, chip().width, 0).x;
-                verify(chip().mapToItem(page, 0, 0).x + chip().implicitWidth > page.width, "the fixture's state is too long for the page");
-                tryVerify(() => right() <= page.width + 0.5, 1000, "the chip ends inside the page: " + right() + " > " + page.width);
-            } finally {
-                releasePage(page, original);
-            }
-        }
-
-        // The status sections: the Setup group's first entry under its own
-        // label in Status, a group that lists keys in its own section, the
-        // first offered step that is no danger as the one primary Button, a
-        // danger step and a stored key's Remove as danger RowActions, and
-        // a hairline between each two groups of a section, as on Details:
-        // the Download section's key list and its sign-in, and the key
-        // list's own two lines.
-        function test_status_sections_draw_one_primary_and_hairlines() {
+        // Required steps and their keys share one section. All actions
+        // are links; danger actions and the key list keep their dividers.
+        function test_required_steps_and_keys_draw_links_and_hairlines() {
             const original = root.pageRow;
             const screen = { requires: null };
             const manifest = {
                 secrets: { service: "acme-unit", label: "Key" }, requirements: [],
                 tui: { pairs: screen, connect: screen, out: screen },
                 status: {
-                    sync: { type: "state", label: "Cloud Sync", group: "Setup" },
-                    pairs: { type: "state", label: "Folder pairs", group: "Setup", action: { label: "Add a pair", tui: "pairs" } },
-                    keys: { type: "presenceList", label: "Keys", group: "Download" },
-                    down: { type: "state", label: "Sign-in", group: "Download", actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }
+                    sync: { type: "state", label: "Cloud Sync", setup: true },
+                    pairs: { type: "state", label: "Folder pairs", setup: true, action: { label: "Add a pair", tui: "pairs" } },
+                    keys: { type: "presenceList", label: "Keys", step: "down" },
+                    down: { type: "state", label: "Sign-in", setup: true, actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }
                 }
             };
             const values = {
@@ -400,11 +373,11 @@ Item {
                 compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
                 const shown = type => descendants(page).filter(child => child instanceof type && child.visible);
                 tryVerify(() => shown(StatusRow).length === 1, 1000, "the key list is drawn");
-                compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Status", "Setup", "Download"]);
+                compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Setup"]);
                 verify(shown(Field).some(row => row.label === "Cloud Sync"), "the Status section draws its entry under its own label");
-                compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), ["Add a pair"], "one primary action");
-                compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Remove danger", "Replace accent", "Sign out danger"]);
-                compare(shown(GroupList).map(list => list.hairlines.length).sort(), [0, 0, 1, 1], "each two groups of a section are divided");
+                compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), [], "Setup has no boxed action");
+                compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Add a pair accent", "Remove danger", "Replace accent", "Sign out danger"]);
+                compare(shown(GroupList).map(list => list.hairlines.length).sort(), [1, 3], "required rows and the key list keep their dividers");
                 page.open(Qt.OtherFocusReason, "Settings");
                 compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), [], "Settings draws none of the setup");
             } finally {
@@ -412,18 +385,15 @@ Item {
             }
         }
 
-        // A Setup step row keeps one height whichever action it offers: the
-        // row with the primary Button starts as far above the next row as a
-        // row with a RowAction does, each with a hint under it. The group's
-        // first entry draws in Status, so the steps follow it.
+        // Required steps with hints keep the same row pitch.
         function test_setup_steps_keep_one_row_pitch() {
             const original = root.pageRow;
             const screen = { requires: null };
-            const step = (label, tui) => ({ type: "state", label: label, group: "Setup", hint: "What " + label + " unlocks.", action: { label: "Set up " + label, tui: tui } });
+            const step = (label, tui) => ({ type: "state", label: label, setup: true, hint: "What " + label + " unlocks.", action: { label: "Set up " + label, tui: tui } });
             const manifest = {
                 requirements: [],
                 tui: { voice: screen, browser: screen, input: screen },
-                status: { ready: { type: "state", label: "Ready", group: "Setup" }, voice: step("Voice", "voice"), browser: step("Browser", "browser"), input: step("Input", "input") }
+                status: { ready: { type: "state", label: "Ready" }, voice: step("Voice", "voice"), browser: step("Browser", "browser"), input: step("Input", "input") }
             };
             const todo = { tone: "warning", text: "To do", action: true };
             root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, { ready: { tone: "ok", text: "Ready" }, voice: todo, browser: todo, input: todo }, []) });
@@ -434,11 +404,11 @@ Item {
                 compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
                 const row = label => descendants(page).find(child => child instanceof Field && child.visible && child.label === label);
                 tryVerify(() => row("Voice") !== undefined && row("Browser") !== undefined && row("Input") !== undefined);
-                compare(descendants(row("Voice")).filter(child => child instanceof Button && child.visible && child.variant === "primary").length, 1, "the first step draws the primary Button");
+                compare(descendants(row("Voice")).filter(child => child instanceof RowAction && child.visible).length, 1, "the first step draws a RowAction");
                 compare(descendants(row("Browser")).filter(child => child instanceof RowAction && child.visible).length, 1, "the next step draws a RowAction");
                 verify(waitForRendering(page));
                 const top = label => row(label).mapToItem(page, 0, 0).y;
-                compare(top("Browser") - top("Voice"), top("Input") - top("Browser"), "the primary step's row pitch is a plain step's");
+                compare(top("Browser") - top("Voice"), top("Input") - top("Browser"), "required steps keep the same row pitch");
             } finally {
                 releasePage(page, original);
             }

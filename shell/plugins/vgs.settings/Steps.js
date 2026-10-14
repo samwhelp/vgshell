@@ -1,58 +1,85 @@
 .pragma library
 
-// The one rule for when a plugin page shows a setup step (D061), pure so
-// scripts/test-settings-steps.js runs it under node: a step's button shows
-// only while its value offers it: a `presence` while `absent` and a `state`
-// while it carries `action: true` or names one of its entry's actions, so a
-// failing state its writer gives no action shows none. The core decides when
-// a step applies (PluginLogic.statusActionOffered, SECRET_ACCESS,
-// requirementRows); this file decides what the page then draws, and where:
-// a setup step, which is every entry that declares an action, a stored key
-// and a setup screen on the Setup tab, an entry outside them and a listed
-// screen that is no setup screen on Details, and the requirements on Setup
-// when the page has that tab, else on Details. It also judges what a plugin still asks of its user
-// (setupNeeds), which the plugin list marks its row with.
-
-// What the line of ENTRY, one row of PluginLogic.statusRows, draws of its
-// step: { offered }, whether the action's button shows.
-function statusStep(entry) {
-    var offered = entry.action !== null && entry.action.offered;
-    return { offered: offered };
+// One page judge owns placement and required readiness. The manifest judge
+// validates every reference before these manager rows reach the page.
+function requirementApplies(requirement) { return requirement.state !== "present"; }
+function listsKeys(entry) { return entry.type === "presenceList"; }
+function declaresStep(entry) { return entry.setup === true; }
+function stepOpen(entry) { return entry.report !== "reported" || entry.tone !== "success"; }
+function stepRank(entry) { return stepOpen(entry) ? 0 : 1; }
+function stepView(entry, timeText) {
+    var view = statusView(entry, timeText);
+    view.text = stepOpen(entry) ? "To do" : "Done";
+    view.tone = stepOpen(entry) ? "warning" : "success";
+    // The published state explains the work beneath the two-state chip.
+    if (entry.report === "reported" && entry.type === "state" && entry.value.text !== "" && entry.value.text !== view.text)
+        view.lines = [entry.value.text].concat(view.lines);
+    return view;
 }
-
-// Whether the Requirements section's step applies to REQUIREMENT, one row
-// of PluginLogic.requirementRows: while its requirement is missing or
-// outdated.
-function requirementApplies(requirement) {
-    return requirement.state !== "present";
+function detailEntries(status) {
+    return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === ""; });
 }
-
-// What the Requirements section's step row draws for REQUIREMENTS, a plugin's
-// rows: null while the step applies to none, else { label, hint, button,
-// icon, optional }, the install's words while one is missing and the
-// update's once each one the step applies to is outdated. While each one it
-// applies to is optional, `optional` holds and the step reads as a choice,
-// not as work the plugin needs (requirementPrimary). Either button asks the
-// core for the one notice, which updates first and then installs.
+function settingEntries(status, key) { return status.filter(function (entry) { return entry.setting === key; }); }
+function settingRequirements(requirements, key) { return requirements.filter(function (entry) { return entry.optional && entry.setting === key; }); }
+function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional && entry.setting === ""; }); }
 function requirementStep(requirements) {
-    var lacking = requirements.filter(requirementApplies);
-    if (lacking.length === 0) return null;
-    var missing = lacking.some(function (requirement) { return requirement.state === "missing"; });
-    if (lacking.every(function (requirement) { return requirement.optional; }))
-        return missing
-            ? { label: "Optional tools", hint: "Review the optional tools before you install them", button: "Install optional tools", icon: "", optional: true }
-            : { label: "Optional tools", hint: "Review the outdated optional tools before you update them", button: "Update optional tools", icon: "", optional: true };
-    if (missing)
-        return { label: "Missing", hint: "Review the missing tools before you install them", button: "Install all missing", icon: "download", optional: false };
-    return { label: "Outdated", hint: "Review the outdated tools before you update them", button: "Update all outdated", icon: "refresh-cw", optional: false };
+    var required = requirements.filter(function (row) { return !row.optional; });
+    if (required.length === 0) return null;
+    var lacking = required.filter(requirementApplies);
+    return { done: lacking.length === 0, label: "Tools", text: lacking.length === 0 ? "Done" : "To do",
+        tone: lacking.length === 0 ? "success" : "warning",
+        hint: lacking.length === 0 ? "Every required tool is available" : lacking.map(function (row) { return row.name + (row.state === "outdated" ? " (outdated)" : " (missing)"); }).join(", "),
+        button: lacking.length === 0 ? "" : "Review all missing or outdated tools" };
 }
-
-// Whether STEP, a page's requirementStep, holds the page's one primary
-// action for SECTIONS, its setupSections: while a required tool is missing
-// or outdated and no step holds the primary (stepHoldsPrimary). An
-// optional step draws as a row action.
-function requirementPrimary(step, sections) {
-    return step !== null && !step.optional && !stepHoldsPrimary(sections);
+function setupSections(tuis, status, requirements) {
+    var steps = status.filter(declaresStep);
+    var ordered = steps.filter(stepOpen).concat(steps.filter(function (entry) { return !stepOpen(entry); }));
+    var items = [];
+    ordered.forEach(function (entry) {
+        items.push({ key: entry.key, slot: entry.key + ":" + stepRank(entry), keys: false, entry: entry,
+            label: entry.label, step: true, button: stepButton(tuis, entry), aside: asideButton(entry) });
+        status.filter(function (keyList) { return keyList.step === entry.key; }).forEach(function (keyList) {
+            items.push({ key: keyList.key, slot: keyList.key, keys: true, entry: keyList, label: keyList.label, step: false, button: null, aside: null });
+        });
+    });
+    var tools = requirementStep(requirements === undefined ? [] : requirements);
+    if (tools !== null) {
+        var toolEntry = { key: "required-tools", label: tools.label, type: "state", setup: true, report: "reported", tone: tools.tone,
+            value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
+        var toolItem = { key: toolEntry.key, slot: toolEntry.key + ":" + tools.done, keys: false, tools: true, entry: toolEntry,
+            label: tools.label, step: true, button: tools.done ? null : { name: "", label: tools.button, tone: "" }, aside: null };
+        var firstDone = items.findIndex(function (item) { return !item.keys && !stepOpen(item.entry); });
+        if (!tools.done && firstDone !== -1) items.splice(firstDone, 0, toolItem);
+        else items.push(toolItem);
+    }
+    return items.length === 0 ? [] : [{ title: "Setup", items: items, buttons: [] }];
+}
+function setupNeeds(status, requirements, enabled) {
+    return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepOpen(entry); })
+        || requirements.some(function (entry) { return !entry.optional && requirementApplies(entry); })) };
+}
+function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
+function stepButton(tuis, entry) {
+    if (entry.action === null || !entry.action.offered) return null;
+    var tui = entry.action.tui === "" ? undefined : tuis.find(function (row) { return row.name === entry.action.tui; });
+    return { key: entry.key + " " + entry.action.label, name: tui === undefined ? "" : tui.name, label: entry.action.label, tone: entry.action.tone };
+}
+function asideButton(entry) {
+    if (entry.aside === null || !entry.aside.offered) return null;
+    return { name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone };
+}
+function freeScreens(tuis, status, place) {
+    var declared = [];
+    status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
+    return tuis.filter(function (tui) {
+        return declared.indexOf(tui.name) === -1 && (place === "Settings" ? tui.settings : place === "Details" ? !tui.settings && tui.setting === "" : tui.setting === place);
+    }).map(function (tui) {
+        var enabled = tui.withheld === "";
+        return { key: tui.name + " " + tui.label + " " + enabled, name: tui.name, label: tui.label, tone: "", enabled: enabled, reason: enabled ? "" : tui.withheld };
+    });
+}
+function withheldHint(buttons) {
+    return buttons.filter(function (button) { return !button.enabled; }).map(function (button) { return button.label + ": " + button.reason; }).join(" ");
 }
 
 // The words a `presence` value reads as on the page.
@@ -103,7 +130,12 @@ function statusView(entry, timeText) {
 // What a line draws of ITEM's presence, one item of a presence list:
 // { tone, text }, its chip, or neither for a secret nothing is stored for,
 // whose line offers Add key in the chip's place.
-function itemView(item) {
+function itemView(item, setup) {
+    if (setup) {
+        var done = item.value === "present";
+        var reason = done ? "" : PRESENCE_WORDS[item.value];
+        return { tone: done ? "success" : "warning", text: done ? "Done" : "To do", reason: reason };
+    }
     if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };
     return { tone: item.tone, text: PRESENCE_WORDS[item.value] };
 }
@@ -119,311 +151,5 @@ function itemsKeyed(items) {
         var name = item.secret !== "" ? "secret " + item.secret : "label " + item.label;
         seen[name] = (seen[name] || 0) + 1;
         return Object.assign({ key: seen[name] === 1 ? name : name + " " + seen[name] }, item);
-    });
-}
-
-// The status group whose first entry a page draws as its own Status
-// section, the plugin's headline state, and whose further entries open its
-// Setup section as step rows, so the state a setup step changes reads
-// beside the step.
-var SETUP_GROUP = "Setup";
-// The title of the section that holds SETUP_GROUP's first entry.
-var STATUS_TITLE = "Status";
-
-// Whether ENTRY, one of a manager row's status rows, lists keys and tokens
-// the plugin stores: the presence list of a manifest that declares
-// `secrets` (PluginLogic.statusRows' `secrets`), whose keys the core
-// stores, or a presence list its manifest groups under SETUP_GROUP, the
-// keys a plugin stores through a setup screen of its own.
-function listsKeys(entry) {
-    return entry.secrets || (entry.type === "presenceList" && entry.group === SETUP_GROUP);
-}
-
-// Whether ENTRY declares a setup step: its manifest gives it an `action`
-// or `actions`, for which PluginLogic.statusRowAction hands an object
-// whatever the entry's value, and null for an entry that declares none. So
-// an entry keeps its tab while its value changes.
-function declaresStep(entry) {
-    return entry.action !== null;
-}
-
-// The entries of STATUS, a manager row's status rows, that list the
-// plugin's stored keys and tokens: a page draws each on its Setup tab,
-// where a key is added, replaced and removed, and every other entry
-// read-only on Details (detailEntries), but for the entries of
-// SETUP_GROUP, the Setup tab's headline and steps, the states of a
-// keyed group (keyedGroups), which the Setup tab draws beside its keys,
-// and each entry of another group that declares a step (declaresStep),
-// which the Setup tab draws as a step. No entry draws on both tabs, and
-// Details draws no entry's action.
-function keyEntries(status) {
-    return status.filter(listsKeys);
-}
-function detailEntries(status) {
-    var keyed = keyedGroups(status);
-    return status.filter(function (entry) {
-        if (inKeyedGroup(entry, keyed)) return false;
-        if (entry.group === SETUP_GROUP) return false;
-        if (declaresStep(entry)) return false;
-        return !listsKeys(entry);
-    });
-}
-
-// The groups of STATUS, other than "" and SETUP_GROUP, that hold an entry
-// HOLDS admits, in the order of their first such entry.
-function groupsHolding(status, holds) {
-    var out = [];
-    status.filter(holds).forEach(function (entry) {
-        if (entry.group !== "" && entry.group !== SETUP_GROUP && out.indexOf(entry.group) === -1) out.push(entry.group);
-    });
-    return out;
-}
-
-// The groups of STATUS that hold a key list: the Setup tab draws the
-// states of each beside its keys, so a key and the step that uses it read
-// under one heading.
-function keyedGroups(status) {
-    return groupsHolding(status, listsKeys);
-}
-
-// The groups of STATUS that are each a section of the Setup tab, titled
-// with the group: those that hold a key list or an entry that declares a
-// step.
-function sectionGroups(status) {
-    return groupsHolding(status, function (entry) { return listsKeys(entry) || declaresStep(entry); });
-}
-
-// Whether ENTRY draws in the section of one of KEYED, keyedGroups' groups:
-// a key list or a state of such a group. Another type stays on Details
-// unless it declares a step.
-function inKeyedGroup(entry, keyed) {
-    return keyed.indexOf(entry.group) !== -1 && (listsKeys(entry) || entry.type === "state");
-}
-
-// The status sections of the Setup tab for TUIS, a manager row's listed
-// TUIs (PluginLogic.listedTuiRows), and STATUS, its status rows, in drawn
-// order, each { title, items, buttons }:
-// - STATUS_TITLE: SETUP_GROUP's first entry, under its own label, with no
-//   step;
-// - SETUP_GROUP: each further entry of that group, then each entry of
-//   group "" that declares a step (declaresStep), as a step row, by
-//   stepRank, open steps first, then the steps that wait on an offered
-//   action, then the done ones, each rank in manifest order; then the key
-//   lists of group "" or SETUP_GROUP, then `buttons`, the headline's
-//   offered action and the setup screens no entry declares (flowButtons);
-// - each further group that holds a key list or a declared step
-//   (sectionGroups): its key lists, the states of a keyed group and the
-//   entries that declare a step, in manifest order, each but a key list a
-//   step row.
-// A section with no item and no button is left out. Each item is { key,
-// slot, keys, entry, label, step, button, aside }: `key` the entry's, `slot` the
-// key the page matches its drawn row by, the entry's key and, for a step of
-// the Setup section, its stepRank, so a step that moves to another rank is
-// a new row; `keys` whether it draws as a key list, `step` whether its
-// offered action draws beside it, `button` that action (stepButton) or null,
-// `aside` the step's offered aside (asideButton) or null. The page's one primary action
-// belongs to the first open required step in that order, while its action
-// is offered and not danger; an optional row action takes it only while
-// no required step is open, which a step that asks nothing (stepAsks) is
-// not (markPrimary). Flow screens stay secondary.
-function setupSections(tuis, status) {
-    var keyed = keyedGroups(status);
-    var setup = status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
-    function row(entry, step, slot) {
-        return { key: entry.key, slot: slot, keys: false, entry: entry, label: entry.label, step: step,
-            button: step ? stepButton(tuis, entry) : null, aside: step ? asideButton(entry) : null };
-    }
-    function keys(entry) {
-        return { key: entry.key, slot: entry.key, keys: true, entry: entry, label: entry.label, step: false, button: null, aside: null };
-    }
-    var steps = setup.slice(1).concat(status.filter(function (entry) { return entry.group === "" && declaresStep(entry); }));
-    var setupItems = [0, 1, 2].map(function (rank) { return steps.filter(function (entry) { return stepRank(entry) === rank; }); })
-        .reduce(function (all, ranked) { return all.concat(ranked); }, []).map(function (entry) { return row(entry, true, entry.key + ":" + stepRank(entry)); })
-        .concat(keyEntries(status).filter(function (entry) { return keyed.indexOf(entry.group) === -1; }).map(keys));
-    var groups = sectionGroups(status).map(function (group) {
-        return { title: group, buttons: [], items: status.filter(function (entry) { return entry.group === group && (inKeyedGroup(entry, keyed) || declaresStep(entry)); })
-            .map(function (entry) { return listsKeys(entry) ? keys(entry) : row(entry, true, entry.key); }) };
-    });
-    var out = [];
-    if (setup.length > 0) out.push({ title: STATUS_TITLE, items: [row(setup[0], false, setup[0].key)], buttons: [] });
-    var buttons = flowButtons(tuis, status, setup.length > 0 ? setup[0] : null);
-    if (setupItems.length > 0 || buttons.length > 0) out.push({ title: SETUP_GROUP, items: setupItems, buttons: buttons });
-    out = out.concat(groups);
-    markPrimary(out, keyed);
-    return out;
-}
-
-// Whether ENTRY, a status row the Setup tab draws as its headline or as a
-// step, is open: reported in the warning or the danger tone, which a plugin
-// gives a step its user has still to do. An optional step reads info, a
-// done one success, and a disabled plugin reports none.
-function stepOpen(entry) {
-    return entry.tone === "warning" || entry.tone === "danger";
-}
-
-// Whether ENTRY, a headline or step that is not done, asks its user for
-// anything, for KEYED, its status rows' keyedGroups: always in SETUP_GROUP
-// and in a keyed group, and outside them only while its value offers its
-// action, since an entry there may read warning for a fault no step of its
-// own mends. setupNeeds and markPrimary both judge an open step by it.
-function stepAsks(entry, keyed) {
-    return entry.group === SETUP_GROUP || inKeyedGroup(entry, keyed) || (declaresStep(entry) && statusStep(entry).offered);
-}
-
-// Where step ENTRY draws among the Setup section's steps: 0 while it is
-// open (stepOpen), 1 while it is not done and its value offers its action,
-// such as an optional step a user may still take, and 2 for the rest: a
-// done step in the success tone, and a step that is not done and offers no
-// action, such as one that waits on another step, which a user cannot act
-// on now. So every step a user can still act on reads above every other.
-function stepRank(entry) {
-    if (stepOpen(entry)) return 0;
-    return entry.tone !== "success" && statusStep(entry).offered ? 1 : 2;
-}
-
-// What a plugin still asks of its user, for STATUS and REQUIREMENTS, its
-// manager row's status and requirement rows, and ENABLED, whether it is
-// on: { open, optional }. `open` holds while a required tool is missing or
-// outdated (requirementApplies) or a headline or step of the Setup tab is
-// open (stepOpen) and asks (stepAsks); the plugin list then draws Setup
-// needed on the row and a click on the row opens Setup. `optional` counts
-// the optional tools that are missing, which the list marks with its
-// warning icon. A plugin that is off asks nothing: both read as none until
-// it is turned on.
-function setupNeeds(status, requirements, enabled) {
-    if (!enabled) return { open: false, optional: 0 };
-    var keyed = keyedGroups(status);
-    return {
-        open: requirements.some(function (requirement) { return !requirement.optional && requirementApplies(requirement); })
-            || status.some(function (entry) { return stepOpen(entry) && !listsKeys(entry) && stepAsks(entry, keyed); }),
-        optional: requirements.filter(function (requirement) { return requirement.optional && requirement.state === "missing"; }).length
-    };
-}
-
-// Whether a plugin's page has a Setup tab, for SECTIONS, its setupSections,
-// and REQUIREMENTS, its requirement rows: while it has a step, a stored key
-// or a setup screen to draw, or a tool to install or update. The
-// Requirements section draws on that tab, so its install action never
-// draws on Details, which holds what a user reads.
-function setupTab(sections, requirements) {
-    return sections.length > 0 || requirements.some(requirementApplies);
-}
-
-// Whether a step of SECTIONS, a page's setupSections, holds the page's one
-// primary action (markPrimary); the Requirements section's action is then
-// secondary on the Setup tab.
-function stepHoldsPrimary(sections) {
-    return sections.some(function (section) {
-        return section.items.some(function (item) { return item.button !== null && item.button.primary; });
-    });
-}
-
-// The action beside step ENTRY, or null while its value offers none:
-// { key, name, label, tone, primary }, `name` the listed TUI of TUIS the
-// offered action opens, a press the manager's openTui, or "" for an action
-// that opens no listed screen, such as a screen with no `entry` or a system
-// step, whose press the page hands the manager's act; `tone` "" or "danger"; `primary` markPrimary's.
-function stepButton(tuis, entry) {
-    if (entry.action === null || !entry.action.offered) return null;
-    var tui = entry.action.tui === "" ? undefined : tuis.filter(function (t) { return t.name === entry.action.tui; })[0];
-    var name = tui === undefined ? "" : tui.name;
-    return { key: entry.key + " " + entry.action.label, name: name, label: entry.action.label, tone: entry.action.tone, primary: false };
-}
-
-// The second action beside step ENTRY, its declared `aside`, or null while
-// its value does not offer it (PluginLogic.statusRowAside): { name, label,
-// tone }, `name` the listed TUI its press opens through the
-// manager's openTui, `tone` "" or "danger". It never holds the page's
-// primary action.
-function asideButton(entry) {
-    if (entry.aside === null || !entry.aside.offered) return null;
-    return { name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone };
-}
-
-// The Setup section's actions for TUIS and STATUS, in drawn order: first
-// the offered action of HEADLINE, the entry the Status section draws with
-// no step, or null, as a screen when it opens a listed one (stepButton), else
-// as a press the manager's act on `status`, the entry's key; then each
-// listed screen its manifest marks as a setup screen and no entry of STATUS
-// declares (freeScreens), with its entry's label. A listed screen with no
-// mark is no setup screen: Details draws it, so it gives the page no Setup
-// tab. A screen an entry declares belongs to
-// that entry's row, which draws it beside the row while the entry's value
-// offers it, so a done step draws no setup action anywhere on the page.
-// A screen of no entry that lacks a requirement takes no press and reads
-// the core's reason, the TUI's `withheld`: its press would only raise the
-// requirement notice; the headline's offered action always
-// takes its press. Each { key, name, status, label, tone, primary,
-// enabled, reason }, `status` "" for a screen, `key` naming the action as
-// drawn, so a change of label or state draws it anew (markPrimary sets the
-// Flow's).
-function flowButtons(tuis, status, headline) {
-    var out = [];
-    var step = headline === null ? null : stepButton(tuis, headline);
-    if (step !== null)
-        out.push({ key: "", name: step.name, status: step.name === "" ? headline.key : "", label: step.label, tone: step.tone, primary: false, enabled: true, reason: "" });
-    return out.concat(freeScreens(tuis, status, true));
-}
-
-// The listed screens of TUIS that no entry of STATUS declares
-// (`declaredTuis`), in manifest order, each a Flow button of no entry, its
-// `key` naming it as drawn: the setup screens for SETUP true, which the
-// Setup section draws, and for false the rest, such as a screen that runs
-// the plugin's own task, which Details draws as its Actions.
-function freeScreens(tuis, status, setup) {
-    var declared = [];
-    status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
-    return tuis.filter(function (tui) { return tui.setup === setup && declared.indexOf(tui.name) === -1; }).map(function (tui) {
-        var enabled = tui.withheld === "";
-        return { key: tui.name + " " + tui.label + " " + enabled, name: tui.name, status: "", label: tui.label, tone: "", primary: false, enabled: enabled, reason: enabled ? "" : tui.withheld };
-    });
-}
-
-// The line a row of screens BUTTONS, flowButtons' or freeScreens', draws
-// under itself while one takes no press: for each reason, in drawn order,
-// the labels of the screens it withholds and that reason, the core's
-// `withheld`, so a reader sees why without the tooltip; "" while every
-// screen takes a press.
-function withheldHint(buttons) {
-    var reasons = [];
-    var labels = Object.create(null);
-    buttons.forEach(function (button) {
-        if (button.enabled) return;
-        if (labels[button.reason] === undefined) {
-            reasons.push(button.reason);
-            labels[button.reason] = [];
-        }
-        labels[button.reason].push(button.label);
-    });
-    return reasons.map(function (reason) { return labels[reason].join(", ") + ": " + reason; }).join(" ");
-}
-
-// Choose the first open required step of SECTIONS before inspecting its
-// action, for KEYED, the page's keyedGroups. An actionless step that asks
-// (stepAsks) cannot hand its primary to a later step or Flow screen; one
-// that asks nothing is no open step, so it withholds no primary.
-// The core's success tone marks completion and info marks optional steps.
-// Each Flow button keeps its drawing key, with secondary weight.
-function markPrimary(sections, keyed) {
-    var first = null;
-    sections.some(function (section) {
-        return section.items.some(function (item) {
-            if (!item.step || item.entry.tone === "info" || item.entry.tone === "success" || !stepAsks(item.entry, keyed)) return false;
-            first = item;
-            return true;
-        });
-    });
-    if (first === null) sections.some(function (section) {
-        return section.items.some(function (item) {
-            if (item.step && item.entry.tone === "info" && item.button !== null && item.button.tone !== "danger") {
-                first = item;
-                return true;
-            }
-            return false;
-        });
-    });
-    if (first !== null && first.button !== null && first.button.tone !== "danger") first.button.primary = true;
-    sections.forEach(function (section) {
-        section.buttons.forEach(function (button) { button.key = button.name + " " + button.label + " " + button.enabled + " " + button.tone + " " + button.primary + " " + button.status; });
     });
 }

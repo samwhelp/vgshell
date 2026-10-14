@@ -205,11 +205,22 @@ function verify(L) {
     // The published values of the record and the probe.
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
     const values = L.statusValues(good.record, presence, "", NOW);
-    same(Object.keys(values).sort(), ["account", "cloud", "keys", "lastSync", "pairs", "schedule", "sync"]);
+    same(Object.keys(values).sort(), ["account", "cloud", "connection", "firstPair", "keys", "lastSync", "pairs", "schedule", "sync"]);
     same(values.sync.lines, ["Documents: 3 files to review", "Agent uploads: Connect needed"], "a line per pair, each by its own state and files");
     assert.equal(values.lastSync, NOW - HOUR);
     same(Object.keys(L.statusValues(null, null, "", NOW)), [], "nothing is published before the first answers");
-    same(Object.keys(L.statusValues(null, presence, "", NOW)).sort(), ["account", "keys"]);
+    same(Object.keys(L.statusValues(null, presence, "", NOW)).sort(), ["account", "connection", "keys"]);
+
+    for (const [label, record, expected] of [
+        ["first pair missing", well({ state: "not-set-up", pairs: [] }), ["warning", true]],
+        ["first pair exists", good.record, ["ok", false]]
+    ]) {
+        const first = L.statusValues(record, null, "", NOW).firstPair;
+        same([first.tone, first.action], expected, label);
+    }
+    const disconnected = L.parseProbe(JSON.stringify(probe({ token: { presence: "absent" } }))).presence;
+    const disconnectedValues = L.statusValues(good.record, disconnected, "", NOW);
+    same([disconnectedValues.connection.action, disconnectedValues.account.action], [true, undefined], "only the connection step offers Connect");
 
     // schedule: the hourly units.
     const hourly = "Cloud Sync runs every hour while you are logged in.";
@@ -400,7 +411,7 @@ function verify(L) {
     same(L.notification(good.record), { title: "Cloud Sync needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "danger" });
     same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Cloud Sync kept files for review", message: "4 files to review. Open Cloud Sync to see them.", tone: "warning" });
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
-    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "warning" });
+    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Settings](page:vgs.cloud-sync/Settings).", tone: "warning" });
     assert.equal(L.notification(record({ attention: null })), null);
     same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, SIGNED_OUT, "a missing token is a connection");
     assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. [Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
@@ -426,6 +437,10 @@ function verify(L) {
 verify(load(file));
 
 const controls = [
+    ["first pair cannot finish empty", 'pairListValid(cloud) && cloud.pairs.length > 0', 'pairListValid(cloud)'],
+    ["connection offers Connect when missing", 'values.account.action === "signIn" || values.account.action === "reconnect"', 'false'],
+    ["account maintenance cannot offer Connect", 'if (values.account.action === "signIn") delete values.account.action;', 'if (false) delete values.account.action;'],
+
     ["the missing-key text links to Setup", "then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).", "then select Connect on the Cloud Sync page."],
     ["the judge refuses an unknown state", "if (STATES.indexOf(doc.state) === -1) return", "if (false) return"],
     ["the judge needs attention.notified", "\n        && typeof doc.attention.notified === \"boolean\")", ")"],

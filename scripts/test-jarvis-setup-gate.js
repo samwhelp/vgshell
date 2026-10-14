@@ -19,12 +19,31 @@ const cp = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
-// Every row the Settings tab's status sections draw, in drawn order.
+// Required Setup projection and Settings action decisions from Steps.js.
 const settingsRows = sections => sections.reduce((all, section) => all.concat(section.items), []);
+const settingActionRows = (tuis, status) => Array.from(new Set(Array.from(status, entry => entry.setting).filter(Boolean)))
+    .flatMap(key => Array.from(settings.settingEntries(status, key), entry => ({ key: entry.key, entry,
+        button: settings.stepButton(tuis, entry), aside: settings.asideButton(entry) })));
+
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
 const pageReference = load(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
+let manifestControlCount = 0;
+
+function changedManifest(source, change) {
+    const raw = JSON.parse(source);
+    const before = JSON.stringify(raw);
+    change(raw);
+    const after = JSON.stringify(raw);
+    assert.notEqual(after, before, "the manifest control changes its field");
+    return after;
+}
+function withoutOption(options, value) {
+    assert.equal(options.filter(option => option.value === value).length, 1, value + ": one option to remove");
+    return options.filter(option => option.value !== value);
+}
+
 
 // This terminal only sends the request. It never owns capture or opens audio.
 function verifyMicrophoneAction(script, root) {
@@ -131,41 +150,33 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
     console.log("test-jarvis-setup-gate: control=edit-picker-requirement rejected=true");
 }
 
-// The Jarvis entries outside the Setup group that declare an action each
-// draw once, as a step of the Setup tab in the section the table names,
-// with the action its value offers, and Details draws no action: [key,
-// section, action label]. Voice reads done and offers its check, so the
-// screen it shares with Local voice draws beside Local voice alone.
+// Optional actions belong to the Settings field that controls the feature.
 {
     const MOVED = [
-        ["keyStore", "AI model", "Add key"],
-        ["accountSearch", "AI model", "Accounts"],
-        ["voicePreview", "Voice", "Preview"],
-        ["voiceKey", "Voice", "Add key"],
-        ["localRuntime", "Setup", "Set up local voice"],
-        ["input", "Setup", "Check input"]
+        ["keyStore", "brain", "Add key"],
+        ["accountSearch", "brain", "Accounts"],
+        ["voicePreview", "voice", "Preview"],
+        ["voiceKey", "voiceAccount", "Add key"],
+        ["localRuntime", "localTier", "Set up local voice"],
+        ["input", "desktopInput", "Check input"]
     ];
     const values = Object.fromEntries(MOVED.map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
     values.setupVoice = { tone: "ok", text: "Ready", action: "check" };
     const status = judge.statusRows(manifest, values, []);
-    const sections = settings.setupSections(judge.listedTuiRows(manifest, []), status);
-    const drawn = Array.from(sections).flatMap(section => Array.from(section.items, item => [String(item.key), String(section.title), item.button === null ? null : String(item.button.label)]));
-    for (const row of MOVED)
-        assert.deepEqual(drawn.filter(item => item[0] === row[0]), [row], row[0] + ": one step on Setup, in its section, with its action");
-    assert.deepEqual(Array.from(settings.detailEntries(status)).filter(entry => entry.action !== null).map(entry => entry.key), [], "Jarvis Details draws no entry that declares an action");
-    assert.deepEqual(Array.from(settings.detailEntries(status)).filter(entry => drawn.some(item => item[0] === entry.key)).map(entry => entry.key), [], "no Jarvis entry draws on both tabs");
-    // The entries whose install the Requirements section owns (VGS-1464)
-    // declare no action, so no step, button or Details action comes from
-    // them, whatever their value says.
+    const tuis = judge.listedTuiRows(manifest, []);
+    const setup = settingsRows(settings.setupSections(tuis, status));
+    for (const [key, field, label] of MOVED) {
+        const rows = Array.from(settings.settingEntries(status, field)).filter(entry => entry.key === key);
+        assert.equal(rows.length, 1, key + ": one row beside its Settings field");
+        assert.equal(settings.stepButton(tuis, rows[0]).label, label, key + ": its action stays beside that field");
+        assert.equal(setup.some(item => item.key === key), false, key + ": no optional row on Setup");
+        assert.equal(settings.detailEntries(status).some(entry => entry.key === key), false, key + ": no duplicate fact on Details");
+    }
     const INSTALLED = ["shell", "voxtype", "claude", "codex", "browserDriver"];
     const lacking = Object.fromEntries(INSTALLED.map(key => [key, { tone: "warning", text: "Not installed", action: true }]));
     const lackingStatus = judge.statusRows(manifest, lacking, []);
-    const lackingDrawn = Array.from(settings.setupSections(judge.listedTuiRows(manifest, []), lackingStatus)).flatMap(section => Array.from(section.items, item => [String(item.key), item.button === null ? null : String(item.button.label)]));
-    assert.deepEqual(lackingDrawn.filter(item => INSTALLED.includes(item[0]) && item[1] !== null), [], "no Setup step of Jarvis installs a requirement");
-    assert.deepEqual(Array.from(lackingStatus).filter(entry => INSTALLED.includes(entry.key) && entry.action !== null).map(entry => String(entry.key)), [], "no Jarvis entry whose tool Requirements installs declares an action");
-    const local = Array.from(sections).flatMap(section => Array.from(section.items).filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key))
-        .concat(Array.from(section.buttons).filter(button => button.name === "setup-local").map(() => "More setup")));
-    assert.deepEqual(local, ["localRuntime"], "Set up local voice draws once, beside Local voice");
+    assert.deepEqual(Array.from(lackingStatus).filter(entry => INSTALLED.includes(entry.key) && entry.action !== null).map(entry => String(entry.key)), [],
+        "tool facts declare no install action");
 }
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
 const READY = { tone: "ok", text: "Private browser ready", action: false };
@@ -173,17 +184,17 @@ const INPUT_ABSENT = { tone: "warning", text: "Input tools unavailable", action:
 const INPUT_READY = { tone: "ok", text: "Keys ready; pointer ready", action: true };
 const LOCAL_ABSENT = { tone: "warning", text: "Not set up", action: true };
 const LOCAL_READY = { tone: "ok", text: "Ready: small", action: false };
-// The Jarvis Setup tab, partial and done, as the service publishes it: no
-// section offers one screen twice, and Set up local voice, Set up browser
-// and Check input each draw beside one row of the tab while they apply.
-// Add key draws in the AI model and Voice sections, one for each kind of
-// key. [label, the voice the daemon runs, the daemon's causes, the local
+// Required Setup and optional Settings actions from the published status:
+// local voice, browser and input each offer their action once while it applies.
+// Provider key actions belong beside their Account fields. [label, the voice the daemon runs, the daemon's causes, the local
 // voice, browser and input readings, the rows of the tab that offer those
 // three screens, the Local voice row's chip tone].
 const ONCE = [
     ["partial under Local", "local", ["brain=unselected", "speech=local-not-set-up"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
         { "setup-local": ["setupVoice"], "setup-browser": ["browser"], "setup-input": ["input"] }, "info"],
     ["local voice open under Local beside a done Voice step", "local", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
+        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
+    ["dictation setup leaves local voice maintenance available", "local", ["speech=dictation-absent"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
         { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
     ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY, { "setup-local": [], "setup-browser": [], "setup-input": ["input"] }, "success"],
     ["partial under Realtime", "realtime", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
@@ -273,8 +284,7 @@ const FLEET = [
 // withheld reason of SetupGate's CLONE_WITHHELD it shows or null]. Set
 // up is withheld for the Realtime voice and beside a tier off the graphics
 // card; Remove recording stays offered whatever the voice. The row is an
-// optional step of the Setup tab: no state of it opens Setup needed, and
-// beside an open required step it never holds the page's primary action.
+// optional Settings state: no value of it opens the required Setup warning.
 const CLONE_ANSWER = { tone: "info", text: "Not set up", action: "setup", recording: false, tierReady: true };
 const CLONE_READY = { tone: "ok", text: "Ready", action: "remove", recording: true, tierReady: true };
 const CLONED = [
@@ -307,14 +317,15 @@ function verifyClonedVoice(gate, judged) {
         if (withheld !== null && action === undefined) assert.equal(value.text, withheld.text, label + ": the text names the reason");
         assert.equal(value.hint === gate.CLONE_READY_HINT, tone === "ok" && reason === null, label + ": only a ready row with nothing withheld takes the done hint");
         const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
-        assert.deepEqual([row.group, row.action.offered, row.action.tui || null], ["Setup", tui !== null, tui], label + ": its press");
+        assert.deepEqual([row.setting, row.action.offered, row.action.tui || null], ["clonedVoice", tui !== null, tui], label + ": its press");
         const tuis = judge.listedTuiRows(judged, []);
         assert.equal(settings.setupNeeds([row], [], true).open, false, label + ": the row alone opens no Setup needed");
         assert.equal(settings.detailEntries([row]).length, 0, label + ": Details draws no copy of it");
         const steps = settingsRows(settings.setupSections(tuis, judge.statusRows(judged,
             { setupVoice: { tone: "warning", text: "To do", action: "setup" }, clonedVoiceSetup: value }, [])));
-        const primary = steps.filter(item => item.button !== null && item.button.primary).map(item => item.entry.key);
-        assert.deepEqual(primary, ["setupVoice"], label + ": an open required step keeps the page's primary action");
+        assert.equal(steps.some(item => item.key === "clonedVoiceSetup"), false, label + ": the optional cloned voice stays off Setup");
+        assert.deepEqual(Array.from(settings.settingEntries([row], "clonedVoice")).map(entry => entry.key), ["clonedVoiceSetup"],
+            label + ": the cloned voice action belongs beside its setting");
         if (tui !== null)
             assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { clonedVoiceSetup: value }, "clonedVoiceSetup")),
                 { ok: true, kind: "tui", name: tui }, label + ": the press opens its TUI");
@@ -715,16 +726,17 @@ const providersFile = path.join(path.dirname(file), "AccountProviders.js");
 const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 // Remove key draws on the API keys row beside Add key, in the danger tone
 // that leads with the trash mark, while a key is stored, and never on a
-// More setup row: [where it draws on the page, its tone] for MANIFEST, a
+// More settings row: [where it draws on the page, its tone] for MANIFEST, a
 // judged manifest, and the keyStore value of WORDS.keysValue's OUTCOME.
 function removeKeyPlacement(judged, outcome) {
     const status = judge.statusRows(judged, { keyStore: plain(words.keysValue(outcome)) }, []);
-    const sections = Array.from(settings.setupSections(judge.listedTuiRows(judged, []), status));
-    const rows = sections.flatMap(section => Array.from(section.items)).filter(item => item.aside !== null && item.aside.name === "remove-key")
-        .map(item => ["row " + item.key + " beside " + item.button.label, item.aside.label, item.aside.tone]);
-    const flow = sections.flatMap(section => Array.from(section.buttons)).filter(button => button.name === "remove-key")
-        .map(button => ["More setup", button.label, button.tone]);
-    return rows.concat(flow);
+    const tuis = judge.listedTuiRows(judged, []);
+    const rows = Array.from(settings.settingEntries(status, "brain")).filter(entry => settings.asideButton(entry) !== null)
+        .map(entry => ["row " + entry.key + " beside " + settings.stepButton(tuis, entry).label,
+            settings.asideButton(entry).label, settings.asideButton(entry).tone]);
+    const more = Array.from(settings.freeScreens(tuis, status, "Settings")).filter(button => button.name === "remove-key")
+        .map(button => ["More settings", button.label, button.tone]);
+    return rows.concat(more);
 }
 {
     const key = { label: "OpenAI / fixture", value: "present" };
@@ -734,15 +746,15 @@ function removeKeyPlacement(judged, outcome) {
         ["no key stored", { kind: "listed", rows: [] }, []],
         ["the keyring unread", { kind: "failed" }, []]])
         assert.deepEqual(removeKeyPlacement(manifest, outcome), want, label + ": Remove key draws on the API keys row alone");
-    // Its control: the remove-key screen marked as a setup screen again and
-    // the API keys row with no aside, which draws it on More setup.
+    // Its control: the remove-key screen marked as a More settings screen and
+    // the API keys row with no aside, which draws it on More settings.
     const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-    raw.tui["remove-key"].entry.setup = true;
+    raw.tui["remove-key"].entry.settings = true;
     delete raw.status.keyStore.aside;
     const unaside = judge.validateManifest(raw, path.dirname(file));
     assert.equal(unaside.ok, true, "the control's manifest is judged");
-    assert.deepEqual(removeKeyPlacement(unaside.manifest, { kind: "listed", rows: [key] }), [["More setup", "Remove key", ""]],
-        "control: with no aside Remove key draws on More setup and not on the API keys row");
+    assert.deepEqual(removeKeyPlacement(unaside.manifest, { kind: "listed", rows: [key] }), [["More settings", "Remove key", ""]],
+        "control: with no aside Remove key draws on More settings and not on the API keys row");
 }
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
 const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
@@ -977,9 +989,16 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         // A hint is one sentence; what it no longer says is the entry's info.
         const worded = [field.description, manifest.schema.voice.description, row.hint, eleven.hint];
         assert.deepEqual(worded.map(oneSentence), [true, true, true, true], "each voice hint is one sentence");
+        const keyGuide = pageReference.parse(field.info === undefined ? "" : field.info);
+        assert.deepEqual([keyGuide.page, keyGuide.tab, keyGuide.words.includes(manifest.schema.brain.label)], ["vgs.jarvis", "Settings", true],
+            "the Voice key help links provider keys beside Account on Settings");
         assert.deepEqual([field, manifest.schema.voice, row, eleven].map(entry => typeof entry.info === "string" && entry.info !== ""),
             [true, true, true, true], "each voice entry keeps its longer help behind the info button");
-        assert.equal(row.hint, localHint, "the declared key hint is the one Local and Auto read");
+        const declaredGuide = pageReference.parse(row.hint);
+        assert.deepEqual([declaredGuide.page, declaredGuide.tab, declaredGuide.words], ["vgs.jarvis", "Settings", manifest.schema.brain.label],
+            "the declared key guide links the Account field on Settings");
+        assert.deepEqual([field.link.text, row.link.text].map(page => row.hint.includes(page)), [true, true],
+            "the declared key guide keeps the provider key sources");
         // A row with a key stored asks for no key: its hint says what the
         // key gives and where another goes in, the API keys row's Add key,
         // which stays offered, and the Voice key field.
@@ -989,7 +1008,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         assert.deepEqual([stored.local.hint === stored.realtime.hint, new Set(kept.map(item => item.hint)).size], [true, 3],
             "a stored key's row names the voice its key runs");
         const adds = manifest.status.keyStore;
-        // The API keys row shares this Setup tab; the Voice key field is on
+        // The API keys row belongs beside Account; the Voice key field is on
         // the Settings tab, the hint's one page reference, since LinkText
         // draws one link a text and the row's declared link gives way to it.
         const references = hint => [...hint.matchAll(/\[([^\[\]]+)\]\(page:([^\s()\/]*)\/([^\s()\/]+)\)/g)].map(found => [found[1], found[2], found[3]]);
@@ -1055,7 +1074,7 @@ function verifyReadiness(gate) {
     for (const [label, answer, tone, todo, declared, model] of READINESS) {
         const got = plain(gate.readiness(answer));
         assert.deepEqual(Object.keys(got).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], label);
-        assert.deepEqual(got.setupHome, { hidden: true }, label + ": the home folder step stays off the page");
+        assert.deepEqual(got.setupHome, { tone: "ok", text: "Done" }, label + ": the checked Home folder stays visible as Done");
         assert.equal(got.setup.tone, tone, label + ": the summary");
         assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
         assert.deepEqual(keyedCauses(got.setup, ["text", "hint", "lines"]), [], label + ": the summary draws no keyed cause");
@@ -1120,7 +1139,7 @@ function verifyReadiness(gate) {
     // A stopped daemon runs no check: its steps claim none and offer none.
     const stopped = plain(gate.readiness({ kind: "stopped" }));
     assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], "stopped");
-    assert.deepEqual([stopped.setupHome, checking.setupHome], [{ hidden: true }, { hidden: true }], "no home folder step without an answer");
+    assert.deepEqual([stopped.setupHome, checking.setupHome], [{ tone: "warning", text: "Not checked" }, { tone: "warning", text: "Not checked" }], "Home stays pending before the daemon checks it");
     // A refused home folder is the one step to do, with what to change and
     // no action of its own; the voice and the AI model stay done.
     const homeHints = HOME_CAUSES.map(cause => {
@@ -1148,6 +1167,9 @@ function verifyReadiness(gate) {
         assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, DONE_ACTION[key]], "stopped: " + key);
     assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    const piFloor = manifest.requirements.find(row => row.name === "pi").floor;
+    const piHint = gate.readiness({ kind: "answered", causes: ["brain=pi-update"] }).setupModel.hint;
+    assert.equal(piHint.includes(piFloor), true, "Pi recovery names the required version");
     // An optional step reads its reader's state, in the info tone while it
     // is not ok. The Local voice row is a state of the Voice step while
     // that step offers Set up local voice, else required under a voice that
@@ -1559,8 +1581,8 @@ function verify(gate) {
         "the browser driver and Pi declare a floor");
     for (const [, missing, outdated] of FLOORED)
         assert.equal(judge.statusWrite(judged, {}, "browserDriver", plain(gate.flooredValue("agent-browser", missing, outdated))).ok, true, "the manifest judge accepts the driver row");
-    // Neither row installs or updates its command: the page's Requirements
-    // section does.
+    // Neither fact installs or updates its tool: Settings holds the
+    // tool and its install action beside the feature.
     const update = judge.statusActionRequest(judged, "vgs.jarvis", true, { setupModel: plain(gate.readiness({ kind: "answered", causes: ["brain=pi-update"] })).setupModel }, "setupModel");
     assert.deepEqual(plain(update), { ok: false, answer: "refused: action=setupModel reason=not-offered" }, "a Pi below its floor offers no step on the AI model row");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
@@ -1568,7 +1590,7 @@ function verify(gate) {
     // The Agent fleet row: hidden with no home or once the home's mail tool
     // is found, else offering its setup terminal, and no step while kendex
     // or another command that terminal needs is missing, which the page's
-    // Requirements section installs.
+    // Settings field offers to install.
     for (const [label, home, tool, shown] of FLEET) {
         const value = plain(gate.fleetStep(home, tool));
         assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, label + ": the manifest judge accepts the row");
@@ -1654,14 +1676,14 @@ const CONTROLS = [
     ["Local voice stays open beside the Voice step", 'var row = { tone: "info", text: value.text,', "var row = { tone: value.tone, text: value.text,", "partial under Local: the browser and input read optional"],
     ["Local voice does not say where its setup is", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[]", "not set up: its line count"],
     ["Local voice says where its setup is while it runs", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[VOICE_STEP_SETS_UP]", "setting up: its line count"],
-    ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "one row offers Set up local voice"],
-    ["a timed-out check is an open step", 'if (kind === "timeout") return { tone: "info",', 'if (kind === "timeout") return { tone: "warning",', "timeout: the row is no open step"],
+    ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "dictation setup leaves local voice maintenance available: the rows that offer"],
+    ["a timed-out check gets warning severity", 'if (kind === "timeout") return { tone: "info",', 'if (kind === "timeout") return { tone: "warning",', "timeout: the check remains informational"],
     ["a timed-out check offers setup", 'runs it again after the next setup", action: false };', 'runs it again after the next setup", action: true };',
         "the row offers its setup only while setup mends it"],
     ["a timed-out check draws its keyed cause", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };', 'hint: "setup=probe-timeout", action: false };',
         "timeout: the row draws no keyed cause"],
     ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
-        "the Local voice row names no Voice step setup"],
+        "dictation setup leaves local voice maintenance available: the rows that offer"],
     ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory"',
         '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
     ["the voices hint names the Voice plugin page", 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";', 'var ELEVENLABS_READY = "Choose one in Settings > Voice";',
@@ -1674,8 +1696,8 @@ const CONTROLS = [
     ["a voice list being read reads as a failed one", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', "ElevenLabs voices being read"],
     ["missing voxtype is not named", 'var ACTION_REQUIRES = { dictation: ["voxtype"] };', "var ACTION_REQUIRES = {};", "voxtype missing"],
     ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
-    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)" },',
-        '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)", action: "dictation" },', "another voxtype"],
+    ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone:',
+        '"speech=dictation-elsewhere": { action: "dictation", tone:', "another voxtype"],
     ["the holder omits a missing engine name", 'if (!setup.compiled) lines.push(', 'if (false) lines.push(', "the holder names"],
     ["the holder omits a missing model name", 'if (!setup.installed) lines.push(', 'if (false) lines.push(', "the holder names"],
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
@@ -1755,19 +1777,20 @@ const CONTROLS = [
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };',
         "hint: START_RESTART, action: false };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
-        '"setup=probe-timeout": "Jarvis setup check timed out. Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."', "probe timeout: the caution asks for no restart beside Ready"],
+        '"setup=probe-timeout": "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)"', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
     ["the home causes share one hint", "hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };", "hint: HOME_STEP_TODO };"],
-    ["the home folder step always shows", "var HOME_READY = { hidden: true };", 'var HOME_READY = { tone: "ok", text: "Done" };'],
+    ["the completed Home folder step disappears", 'var HOME_READY = { tone: "ok", text: "Done" };', "var HOME_READY = { hidden: true };"],
+    ["the unchecked Home folder reads Done", 'var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };', 'var HOME_UNCHECKED = { tone: "ok", text: "Done" };'],
     ["the home folder step offers an action", 'out.setupHome = { tone: "warning", text: "To do",', 'out.setupHome = { tone: "warning", text: "To do", action: true,'],
     ["any account shows Copilot Memory", 'account.provider === "copilot" && ', ""],
     ["a signed-out Copilot shows Copilot Memory", ' && account.value === "present"; })', "; })"],
     ["a command below its floor reads as installed", 'if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update" };', ""],
     ["a missing command with a floor reads as installed", 'if (missing.indexOf(command) !== -1) return { tone: "warning", text: "Not installed" };', ""],
     ["a Pi older than its floor offers Add key", '            if (cause === "brain=pi-update") out[REQUIRED[step]] = noAction(out[REQUIRED[step]]);\n', ""],
-    ["a Pi older than its floor takes the step's hint", '    "brain=pi-update": ', '    "brain=pi-update-removed": '],
+    ["a Pi older than its floor takes the step's hint", '    "brain=pi-update": ', '    "brain=pi-update-removed": ', "Pi recovery names the required version"],
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
@@ -1781,12 +1804,12 @@ const CONTROLS = [
     ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(statusCauseLine) },', "nothing set up: the summary draws no keyed cause"],
     ["a caution summary draws its cause", 'return CAUTION[cause]; })) }', 'return CAUTION[cause]; })), lines: answer.causes.map(statusCauseLine) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
-    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
+    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "done under Local: the browser and input read optional"],
     ["an optional step drops its action", 'Object.assign({}, value, { tone: "info" })', 'Object.assign({}, value, { tone: "info", action: false })', "partial under Local: the rows that offer"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
-    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
-        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
+    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
+        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
     ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],', ""],
     ["a status cause line is not bounded", ".slice(0, STATUS_TEXT_MAX)", ""],
     ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
@@ -1799,7 +1822,8 @@ const CONTROLS = [
     ["the ready pick is written by name", 'return ready === pick ? "auto" : ready;', "return ready;"],
     ["a stopped session offers no Start", '{ tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }', '{ tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT }', "the action the row offers"],
     ["a failure offers no Retry", '"failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }', '"failed launch-failed": { tone: "danger", text: "Not started", detail: true }', "the action the row offers"],
-    ["a missing tmux offers a step", 'hint: "No session can start without tmux. Install all missing installs it." }', 'hint: "No session can start without tmux. Install all missing installs it.", action: "retry" }', "the action the row offers"],
+    ["a missing tmux offers a step", '"blocked tmux-missing": { tone:',
+        '"blocked tmux-missing": { action: "retry", tone:', "the action the row offers"],
     ["the boot setting hides a running session", '    if (row.wanted) value = wanted ?', '    if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
     ["an answer outside the contract reads as a state", "    if (row === undefined) return failure;", '    if (row === undefined) return { tone: "ok", text: "Running", hint: "Planted." };', "outside the contract"],
     ["the package's failure line is dropped", 'var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)', "var hint = row.detail ? SESSION_FAILED", "the package's own line is shown"],
@@ -1927,17 +1951,6 @@ try {
         assert.throws(() => verifyVoiceStepRepublish(load(file), serviceSource.replace(needle, "")), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
     }
-    {
-        // The Local voice row as published before VGS-1508: required and
-        // without its setup under a voice that hears the user on this
-        // computer, whatever the Voice step offers.
-        const shipped = load(file);
-        const before = (value, provider) => shipped.hearsLocally(provider) ? Object.assign({}, value, { action: false }) : shipped.optionalStep(value);
-        assert.throws(() => verifyOneLocalVoiceTask(shipped, before), error => error instanceof assert.AssertionError
-            && error.message.startsWith(LOCAL_VOICE_TASK.voice[0][0] + " / " + LOCAL_VOICE_TASK.local[0][0] + " / " + LOCAL_VOICE_TASK.providers[0] + ": one open step"),
-            "the Local voice row of before VGS-1508 turns the one-step check red on the first pair");
-        console.log("test-jarvis-setup-gate: control=local-voice-two-steps rejected=true");
-    }
     for (const [target, original, needle, replacement] of [
         ["Service.qml", serviceSource, 'values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);', 'values.setupModel = values.setupModel;'],
         ["Accounts.qml", accountsSource, 'modelAccess = Gate.accountAccess(value.accounts);', 'modelAccess = { kind: "absent" };']
@@ -1966,31 +1979,60 @@ try {
         ["Service.qml", serviceSource, "Gate.cloudSpeech(provider) ? Gate.previewCost(provider)", 'Gate.cloudSpeech(provider) ? Gate.previewCost("realtime")'],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"voiceProvider": "local", "voiceAccount"', '"voiceProvider": "auto", "voiceAccount"'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ',\n        { "value": "gemini", "label": "Gemini Live" }', ""],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), ', { "value": "elevenlabs", "label": "ElevenLabs" }]', "]"],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '"url": "https://platform.openai.com/api-keys" } },\n    "voice":', '"url": "https://aistudio.google.com/apikey" } },\n    "voice":'],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "or an ElevenLabs key for ElevenLabs\"", "or an ElevenLabs key for ElevenLabs, as ElevenLabs voices says\""],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), "for Realtime, a Gemini key for Gemini Live or an ElevenLabs key for ElevenLabs\"", "for Realtime. A Gemini key for Gemini Live or an ElevenLabs key for ElevenLabs.\""],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "With one stored key for the chosen voice, Jarvis picks it. Add key, on Setup, stores a new key.",\n', ""],
-        ["manifest.json", fs.readFileSync(manifestFile, "utf8"), '      "info": "Design or clone a voice on ElevenLabs\'s site, under Voices. Jarvis reads the voices of your key again each time you open this page.",\n', ""]
     ]) {
         assert.equal(original.split(needle).length, 2);
         let failure = null;
-        // A manifest copy is read in place of the plugin's while the row runs.
-        const readFile = fs.readFileSync;
-        if (target === "manifest.json") {
-            const copy = path.join(temp, "voice-default-manifest.json");
-            fs.writeFileSync(copy, original.replace(needle, replacement));
-            fs.readFileSync = (name, ...rest) => readFile(name === manifestFile ? copy : name, ...rest);
-        }
         try { verifyVoice(load(file), target === "Service.qml" ? original.replace(needle, replacement) : serviceSource,
             target === "Accounts.qml" ? original.replace(needle, replacement) : accountsSource); }
         catch (error) { failure = error; }
-        finally { fs.readFileSync = readFile; }
         assert.ok(failure instanceof assert.AssertionError);
         assert.equal(failure.check, "voice-default");
         console.log("test-jarvis-setup-gate: control=" + target + " check=voice-default rejected=true");
+    }
+    const voiceManifestControls = [
+        ["voice-default", raw => {
+            assert.equal(raw.settings.voiceProvider, "local");
+            raw.settings.voiceProvider = "auto";
+        }],
+        ["gemini-option", raw => { raw.schema.voiceProvider.options = withoutOption(raw.schema.voiceProvider.options, "gemini"); }],
+        ["elevenlabs-option", raw => { raw.schema.voiceProvider.options = withoutOption(raw.schema.voiceProvider.options, "elevenlabs"); }],
+        ["key-source-link", raw => {
+            assert.equal(raw.schema.voiceAccount.link.url, "https://platform.openai.com/api-keys");
+            raw.schema.voiceAccount.link.url = "https://aistudio.google.com/apikey";
+        }],
+        ["key-description-row-reference", raw => {
+            assert.equal(raw.schema.voiceAccount.description.includes(raw.status.elevenLabs.label), false);
+            raw.schema.voiceAccount.description += ", as " + raw.status.elevenLabs.label + " says";
+        }],
+        ["key-description-sentences", raw => { raw.schema.voiceAccount.description += ". Another sentence."; }],
+        ["key-settings-path", raw => {
+            const info = raw.schema.voiceAccount.info;
+            const reference = "(page:vgs.jarvis/Settings)";
+            assert.equal(info.split(reference).length, 2);
+            raw.schema.voiceAccount.info = info.replace(reference, "(page:vgs.jarvis/Setup)");
+        }],
+        ["key-help-omitted", raw => {
+            assert.equal(typeof raw.schema.voiceAccount.info, "string");
+            delete raw.schema.voiceAccount.info;
+        }],
+        ["elevenlabs-help-omitted", raw => {
+            assert.equal(typeof raw.status.elevenLabs.info, "string");
+            delete raw.status.elevenLabs.info;
+        }]
+    ];
+    for (const [label, change] of voiceManifestControls) {
+        const readFile = fs.readFileSync;
+        const copy = path.join(temp, label + "-manifest.json");
+        fs.writeFileSync(copy, changedManifest(readFile(manifestFile, "utf8"), change));
+        let failure = null;
+        fs.readFileSync = (name, ...rest) => readFile(name === manifestFile ? copy : name, ...rest);
+        try { verifyVoice(load(file), serviceSource, accountsSource); }
+        catch (error) { failure = error; }
+        finally { fs.readFileSync = readFile; }
+        assert.ok(failure instanceof assert.AssertionError, label + ": the manifest control must fail an assertion");
+        assert.equal(failure.check, "voice-default", label + ": the intended voice check rejects the change");
+        manifestControlCount++;
+        console.log("test-jarvis-setup-gate: control=manifest.json case=" + label + " check=voice-default rejected=true");
     }
     // The model and effort choice and its list read: one rule at a time.
     const providersSource = fs.readFileSync(providersFile, "utf8");
@@ -2049,30 +2091,51 @@ try {
         ["Accounts.qml", 'if (answer.kind === "failed") console.warn("jarvis-accounts: models=" + answer.reason);', ""],
         ["Accounts.qml", "listed = Object.assign({ brain: listed.brain }, answer);", "listed = answer;"],
         ["Accounts.qml", 'shell.status.set("efforts", choice.efforts) !== "ok"', 'shell.status.set("efforts", []) !== "ok"'],
-        ["manifest.json", '"optionsFrom": "efforts", "hideEmpty": true,', '"optionsFrom": "efforts",'],
-        ["manifest.json", ', "placeholder": "Choose a model"', ""]
     ];
     for (const [index, [target, needle, replacement]] of CHOICE_CONTROLS.entries()) {
-        const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "Service.qml": serviceSource, "manifest.json": fs.readFileSync(manifestFile, "utf8") }[target];
+        const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "Service.qml": serviceSource }[target];
         assert.equal(original.split(needle).length, 2, "the text to replace occurs once: " + needle);
         const changed = original.replace(needle, () => replacement);
         // One file a control: require caches a module by its path.
         const copy = path.join(temp, "choice-" + index + "-" + target);
         fs.writeFileSync(copy, changed);
         let failure = null;
-        // A manifest copy is read in place of the plugin's while the row runs.
-        const readFile = fs.readFileSync;
-        if (target === "manifest.json") fs.readFileSync = (name, ...rest) => readFile(name === manifestFile ? copy : name, ...rest);
         try {
             const providers = target === "AccountProviders.js" ? require(copy) : require(providersFile);
             verifyModelChoice(providers);
             verifyUnlisted(load(file), providers, target === "Service.qml" ? changed : serviceSource);
             verifyListRead(providers, target === "Accounts.qml" ? changed : accountsSource);
         } catch (error) { failure = error; }
-        finally { fs.readFileSync = readFile; }
         assert.ok(failure instanceof assert.AssertionError, "the suite passed, or failed on no assertion, without: " + needle + (failure === null ? "" : ": " + failure));
         assert.equal(failure.check, "model-choice");
         console.log("test-jarvis-setup-gate: control=" + target + " check=model-choice rejected=true");
+    }
+    for (const [label, change] of [
+        ["empty-effort-field", raw => {
+            assert.equal(raw.schema.effort.hideEmpty, true);
+            delete raw.schema.effort.hideEmpty;
+        }],
+        ["model-placeholder", raw => {
+            assert.equal(typeof raw.schema.model.placeholder, "string");
+            delete raw.schema.model.placeholder;
+        }]
+    ]) {
+        const readFile = fs.readFileSync;
+        const copy = path.join(temp, label + "-manifest.json");
+        fs.writeFileSync(copy, changedManifest(readFile(manifestFile, "utf8"), change));
+        let failure = null;
+        fs.readFileSync = (name, ...rest) => readFile(name === manifestFile ? copy : name, ...rest);
+        try {
+            const providers = require(providersFile);
+            verifyModelChoice(providers);
+            verifyUnlisted(load(file), providers, serviceSource);
+            verifyListRead(providers, accountsSource);
+        } catch (error) { failure = error; }
+        finally { fs.readFileSync = readFile; }
+        assert.ok(failure instanceof assert.AssertionError, label + ": the manifest control must fail an assertion");
+        assert.equal(failure.check, "model-choice", label + ": the intended model check rejects the change");
+        manifestControlCount++;
+        console.log("test-jarvis-setup-gate: control=manifest.json case=" + label + " check=model-choice rejected=true");
     }
     // The Agent fleet row's reader, backend/fleet-setup.js, run as the
     // service and the setup terminal run it, over a scratch HOME: no home,
@@ -2178,41 +2241,41 @@ try {
         }
         assert.ok(failure instanceof assert.AssertionError, `control "${label}": the suite passed on a copy without that rule` +
             (failure === null ? "" : ", or failed on something other than an assertion: " + failure));
-        if (assertion !== undefined) assert.equal(failure.message.includes(assertion), true, label + ": the intended assertion fails");
+        if (assertion !== undefined) assert.equal(failure.message.includes(assertion), true,
+            label + ": the intended assertion fails; expected=" + JSON.stringify(assertion) + " actual=" + JSON.stringify(failure.message));
     }
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
-    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 13 + 59 + 1}`);
+    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 12 + 59 + manifestControlCount - 10 + 2}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
 // draws its button, whose press the core turns into that terminal, but
-// while kendex is missing, which the Requirements section installs.
+// while kendex is missing, which Settings offers to install.
 function verifySetupButtons(gate, manifest) {
     for (const [label, home, tool, shown] of FLEET)
         for (const missing of [[], ["kendex"]]) {
             const tuis = judge.listedTuiRows(manifest, missing);
             assert.equal(tuis.some(tui => tui.name === "setup-fleet"), false, label + ": the launcher lists no fleet setup");
             const value = plain(gate.fleetStep(home, tool));
-            const sections = settings.setupSections(tuis, judge.statusRows(manifest, { setupFleet: value }, missing));
-            const fleet = sections.flatMap(section => section.buttons).filter(button => button.name === "setup-fleet");
-            const row = settingsRows(sections).find(item => item.key === "setupFleet");
-            assert.deepEqual([fleet.length, row !== undefined && row.button !== null], [0, shown && missing.length === 0], label + ": only the shown fleet row draws its setup, missing " + missing);
+            const status = judge.statusRows(manifest, { setupFleet: value }, missing);
+            const steps = settingsRows(settings.setupSections(tuis, status));
+            assert.equal(steps.some(item => item.key === "setupFleet"), false, label + ": optional fleet setup stays off Setup");
+            const row = settingActionRows(tuis, status).find(item => item.key === "setupFleet");
+            assert.equal(row !== undefined && row.button !== null, shown && missing.length === 0,
+                label + ": only the shown Settings fleet row draws its action, missing " + missing);
             if (shown)
                 assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
                     label + ": the row's press opens the fleet setup");
         }
 }
-// The screens a section of SECTIONS draws beside more than one row, as
-// "section: screen".
-function drawnTwice(sections) {
-    return sections.flatMap(section => {
-        const names = Array.from(section.items).filter(item => item.button !== null && item.button.name !== "").map(item => String(item.button.name))
-            .concat(Array.from(section.buttons, button => String(button.name)));
-        return names.filter((name, at) => names.indexOf(name) !== at).map(name => section.title + ": " + name);
-    });
+// Local voice, browser and input screens offered by more than one page row.
+function drawnTwice(rows) {
+    const screens = ["setup-local", "setup-browser", "setup-input"];
+    const names = rows.filter(item => item.button !== null && screens.includes(item.button.name)).map(item => String(item.button.name));
+    return names.filter((name, at) => names.indexOf(name) !== at);
 }
 function verifyScreensOnce(gate) {
     const tuis = judge.listedTuiRows(manifest, []);
@@ -2222,12 +2285,16 @@ function verifyScreensOnce(gate) {
         values.setupModel = gate.modelStep(values.setupModel, [{ value: "absent" }], { kind: "absent" });
         Object.assign(values, plain({ localRuntime: gate.localVoiceStep(local, provider, values.setupVoice), browser: gate.optionalStep(browser), input: gate.optionalStep(input),
             keyStore: { tone: "ok", text: "1 key stored", action: true }, voiceKey: { tone: "info", text: "No key stored", action: true } }));
-        const sections = Array.from(settings.setupSections(tuis, judge.statusRows(manifest, values, [])));
-        assert.deepEqual(drawnTwice(sections), [], label + ": each screen once");
-        const rows = settingsRows(sections);
+        const status = judge.statusRows(manifest, values, []);
+        const sections = Array.from(settings.setupSections(tuis, status));
+        const required = settingsRows(sections);
+        const rows = required.concat(settingActionRows(tuis, status));
+        assert.deepEqual(drawnTwice(rows), [], label + ": each screen once");
+        assert.equal(required.some(item => ["localRuntime", "browser", "input"].includes(item.key)), false,
+            label + ": optional features stay off Setup");
         assert.deepEqual(Object.fromEntries(Object.keys(offering).map(name => [name, rows.filter(item => item.button !== null && item.button.name === name).map(item => String(item.key))])),
             offering, label + ": the rows that offer the local voice, browser and input screens");
-        const tones = Object.fromEntries(settingsRows(sections).filter(item => ["localRuntime", "browser", "input"].includes(item.key)).map(item => [item.key, item.entry.tone]));
+        const tones = Object.fromEntries(rows.filter(item => ["localRuntime", "browser", "input"].includes(item.key)).map(item => [item.key, item.entry.tone]));
         const open = causes.length > 0;
         assert.deepEqual(tones, { localRuntime: localTone, browser: open ? "info" : "success", input: open ? "info" : "success" },
             label + ": the browser and input read optional, Local voice required under Local while it holds its own setup");
@@ -2237,15 +2304,13 @@ function verifyScreensOnce(gate) {
     const both = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }));
     both.setupVoice = gate.voiceCheck(both.setupVoice, null);
     both.localRuntime = LOCAL_ABSENT;
-    assert.deepEqual(drawnTwice(Array.from(settings.setupSections(tuis, judge.statusRows(manifest, both, [])))), ["Setup: setup-local"],
+    const bothStatus = judge.statusRows(manifest, both, []);
+    assert.deepEqual(drawnTwice(settingsRows(settings.setupSections(tuis, bothStatus)).concat(settingActionRows(tuis, bothStatus))), ["setup-local"],
         "two rows that offer Set up local voice turn the check red");
 }
-// Over LOCAL_VOICE_TASK, through the shipped judge and Setup tab, with STEP
-// for SetupGate.localVoiceStep: a step describes the local-voice task while
-// it is the Local voice row, or the Voice step offering Set up local voice.
-// At most one such step is open. Exactly one row offers Set up local voice
-// while one is, while the Local voice reading offers its setup, and while
-// the Voice step offers it. A failed check says why.
+// Across required Voice setup and optional Local voice maintenance, the
+// shared judge projects each offered setup action once. Failed checks
+// retain their recovery guidance on the Settings state.
 function verifyOneLocalVoiceTask(gate, step) {
     const tuis = judge.listedTuiRows(manifest, []);
     for (const [voiceLabel, answer] of LOCAL_VOICE_TASK.voice)
@@ -2257,16 +2322,15 @@ function verifyOneLocalVoiceTask(gate, step) {
                 const local = typeof reading === "string" ? gate.checkFailure(reading, manifest.status.localRuntime) : reading;
                 values.localRuntime = plain(step(local, provider, values.setupVoice));
                 assert.equal(judge.statusWrite(manifest, {}, "localRuntime", values.localRuntime).ok, true, label + ": the manifest judge accepts the Local voice row");
-                const sections = Array.from(settings.setupSections(tuis, judge.statusRows(manifest, values, [])));
-                const rows = settingsRows(sections);
-                const describes = rows.filter(item => item.key === "localRuntime"
-                    || item.key === "setupVoice" && item.button !== null && item.button.name === "setup-local");
-                const open = describes.filter(item => settings.stepOpen(item.entry)).map(item => String(item.key));
-                const offering = rows.filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key))
-                    .concat(sections.flatMap(section => Array.from(section.buttons)).filter(button => button.name === "setup-local").map(() => "More setup"));
-                assert.equal(open.length <= 1, true, label + ": one open step for the local voice, not " + open.join(" and "));
-                if (open.length > 0 || local.action === true || values.setupVoice.action === "setup")
-                    assert.equal(offering.length, 1, label + ": one row offers Set up local voice, not " + JSON.stringify(offering));
+                const status = judge.statusRows(manifest, values, []);
+                const required = settingsRows(settings.setupSections(tuis, status));
+                const attached = settingActionRows(tuis, status);
+                assert.equal(required.some(item => item.key === "localRuntime"), false, label + ": Local voice maintenance stays off Setup");
+                const rows = required.concat(attached);
+                const offering = rows.filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key));
+                assert.equal(offering.length <= 1, true, label + ": one action for local voice setup, not " + JSON.stringify(offering));
+                const expected = values.setupVoice.action === "setup" || values.localRuntime.action === true;
+                assert.equal(offering.length, expected ? 1 : 0, label + ": the published action draws in its declared place");
                 if (typeof reading === "string") assert.equal(typeof values.localRuntime.hint, "string", label + ": the failed check says why");
             }
 }
@@ -2294,7 +2358,14 @@ function verifyCheckFailures(gate) {
             const row = judge.statusRows(manifest, { [key]: value }, []).find(entry => entry.key === key);
             assert.equal(row.action.offered, kind !== "timeout", key + " " + kind + ": the row offers its setup only while setup mends it");
             if (kind !== "timeout") continue;
-            assert.equal(settings.stepOpen(row), false, key + " timeout: the row is no open step");
+            assert.equal(value.tone, "info", key + " timeout: the check remains informational");
+            assert.equal(settings.declaresStep(row), false, key + " timeout: the optional state stays off Setup");
+            const completed = { ...plain(gate.readiness({ kind: "answered", causes: [] })), [key]: value };
+            assert.equal(settings.setupNeeds(judge.statusRows(manifest, completed, []), [], true).open, false,
+                key + " timeout: a completed required setup keeps its warning clear");
+            const unchecked = { ...plain(gate.readiness({ kind: "checking" })), [key]: value };
+            assert.equal(settings.setupNeeds(judge.statusRows(manifest, unchecked, []), [], true).open, true,
+                key + " timeout: required setup still warns before its checks answer");
             assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], key + " timeout: the row draws no keyed cause");
         }
     }
@@ -2481,14 +2552,14 @@ function verifyPathForm(gate) {
     for (const [cause, page, tab] of [
         ...["unselected", "account-unavailable", "model-required", "models-unavailable", "model-unavailable", "signed-out"]
             .map(name => ["brain=" + name, "vgs.jarvis", "Settings"]),
-        ["brain=pi-update", "vgs.jarvis", "Setup"],
-        ["speech=live-account-unselected", "vgs.jarvis", "Setup"],
-        ["speech=live-account-unreadable", "vgs.jarvis", "Setup"],
+        ["brain=pi-update", "vgs.jarvis", "Settings"],
+        ["speech=live-account-unselected", "vgs.jarvis", "Settings"],
+        ["speech=live-account-unreadable", "vgs.jarvis", "Settings"],
         ["speech=live-key-required", "vgs.jarvis", "Settings"],
         ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
         ["speech=always-local-voice", "vgs.jarvis", "Settings"],
-        ["speech=dictation-elsewhere", "vgs.voice", "Setup"],
-        ["speech=dictation-device", "vgs.voice", "Setup"],
+        ["speech=dictation-elsewhere", "vgs.voice", "Settings"],
+        ["speech=dictation-device", "vgs.voice", "Settings"],
         ["home=link", "vgs.jarvis", "Settings"],
         ["home=path", "vgs.jarvis", "Settings"]]) {
         const values = gate.readiness({ kind: "answered", causes: [cause] });

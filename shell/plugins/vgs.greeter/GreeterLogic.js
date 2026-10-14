@@ -444,7 +444,7 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 // information only.
 var STEP_STATES = ["ready", "needed", "nixos", "absent", "denied", "unknown"];
 var REASON_HINTS = {
-    "greetd-missing": "Needs greetd. Install it under [Requirements](page:vgs.greeter/Setup) to use the login screen.",
+    "greetd-missing": "Needs greetd. Choose Review all missing or outdated tools on the [Tools step](page:vgs.greeter/Setup) to use the login screen.",
     "hyprland-missing": "Needs Hyprland, which the login screen runs in. Install Hyprland to use it.",
     "greeter-user-missing": "Needs the greeter account that greetd's package makes. This is for information only.",
     "other-display-manager": "Another login screen is turned on. VGS does not turn it off, so it stays your login screen.",

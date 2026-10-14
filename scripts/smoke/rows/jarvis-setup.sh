@@ -1,18 +1,18 @@
 # No latency budget. Poll once per nested IPC round trip.
 # Process, local-speech and allow-listed TUI stand-ins run here.
-# The Setup tab's Setup section reads the real daemon's engine answer by row: label,
-# chip tone, the screen beside a step and its line count; the summary
-# draws its hint alone, no cause line. A fresh profile
+# Setup reads the real daemon's required Model and Voice answers by
+# manifest key, Done or To do chip, and offered text action. Optional
+# local voice, browser, input and cloned voice actions belong on Settings. A fresh profile
 # reads the AI model and local voice to do; an AI model whose account is
 # not there yet stays to do until an Accounts screen ends with the
 # account added, and local voice until its marker is there, its setup
-# run ends and the sidecar reports ready. Browser and input are optional rows. Its
+# run ends and the sidecar reports ready. Its
 # controls are two Service copies, one whose key and account readers send
 # no snapshot when their checks end and one whose local voice reader
 # sends none. Last, a `pi` stand-in below the floor the manifest gives Pi:
 # chosen as the AI model, the daemon refuses it, the AI model step reads to
 # do and offers no step, and the Setup section draws no button beside it,
-# since the Requirements section, which reads Pi outdated, updates it. The
+# while its Account setting holds the outdated tool reading. The
 # same Pi at its floor reads present, which is the control. The local
 # voice records through the core's dictation, so the row puts the voxtype
 # stand-in on the shell's PATH (rows/capabilities.sh) for its ready reads
@@ -22,14 +22,14 @@
 # Automatic with none; the run's end writes back the tier it left ready,
 # which opens nothing, and nor does a wanted tier that is ready. Its
 # control is a LocalTier copy that opens no run. The Cloned voice: the
-# Settings tab's Local voice section draws its setting and the Setup tab
-# its optional step, an info row Details does not repeat, whose reader
-# answers as setup-local does and whose Set up button opens the clone setup.
+# Settings tab's Local voice section draws its setting and attached state.
+# Details draws no copy. The reader answers as setup-local does. Its text
+# action opens the clone setup.
 # Beside no large tier the row offers nothing; once a local voice setup's
 # run ends beside a ready one, with no rescan, it opens the clone setup
 # while the voice resolves Local, and offers nothing with Realtime chosen.
 # A successful Remove recording run turns the Cloned voice setting off, so
-# the Setup tab and Settings tab agree.
+# the setting and attached state agree.
 # inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
@@ -101,53 +101,35 @@ setup_codex="$home/setup-codex"
 setup_marker="$setup_state/local-ready.json"
 setup_config="$home/.config/vgshell/shell.json"
 setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-# Setup rows use manifest ids. The renderer puts its summary first, then
-# the open steps, then the steps not done that offer their action, then
-# the done ones, each in manifest order, and
-# labels each step from its manifest entry. The optional row reads its chip
-# category because its reader depends on the world. The Setup section
-# also draws the entries of no group that declare an action; the reader
-# keeps the Setup group's rows by their entry's key, and
-# scripts/test-settings-steps.js pins where the others draw.
+# Required Setup rows use manifest ids. Read the two daemon-controlled
+# steps independently of Tools and the Home folder's state.
 setup_rows() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
-try:
-    with open(sys.argv[1]) as stream:
-        manifest=json.load(stream)
-except (OSError, ValueError):
-    print("unread")
-    sys.exit(0)
-steps=[key for key, entry in manifest["status"].items() if entry.get("group")=="Setup"]
 out=[]
-for r in rows:
-    key=r["key"]
-    if key == "setupSignIn" or key not in steps:
-        continue
-    if key == "clonedVoiceSetup":
-        out.append([key, len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info")])
-    else:
-        out.append([key, [c[1] for c in r["chips"]], [b["tui"] for b in r["buttons"]], len(r["lines"])])
+for key in ("setupModel", "setupVoice"):
+    matches=[r for r in rows if r["key"] == key]
+    if len(matches) != 1:
+        print("rows=%s:%d" % (key,len(matches))); sys.exit()
+    r=matches[0]
+    out.append([key, r["chips"], [b["text"] for b in r["buttons"]]])
 print(json.dumps(out))
-' "$repo/shell/plugins/vgs.jarvis/manifest.json"
+'
 }
-setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["clonedVoiceSetup", true]]'
-setup_voice_left='[["setup", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
-setup_ready='[["setup", ["success"], [], 1], ["setupVoice", ["info"], ["check-microphone"], 1], ["setupModel", ["success"], [], 1], ["clonedVoiceSetup", true]]'
-# The Setup tab offers the local voice, browser and input screens once
-# each, and the browser and input rows read optional: [the screens of the
-# three that draw beside more than one row, whether Browser and Input each
-# read info or success].
+setup_fresh='[["setupModel", [["To do", "warning"]], []], ["setupVoice", [["To do", "warning"]], ["Set up local voice"]]]'
+setup_voice_left='[["setupModel", [["Done", "success"]], []], ["setupVoice", [["To do", "warning"]], ["Set up local voice"]]]'
+setup_ready='[["setupModel", [["Done", "success"]], []], ["setupVoice", [["To do", "warning"]], ["Check microphone"]]]'
+# The Setup tab draws no optional rows or screens and each required step
+# uses the required chip vocabulary. Required local voice setup appears once.
 setup_once() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
-t=sys.stdin.read()
-rows=json.loads(t) if t.startswith("[") else []
-drawn=[b["tui"] for r in rows for b in r["buttons"]]
-twice=sorted(n for n in ("setup-local","setup-browser","setup-input") if drawn.count(n) > 1)
-optional=[any(len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info") for r in rows if r["key"] == key) for key in ("browser", "input")]
-print(json.dumps([twice] + optional) if rows else "absent")
+rows=json.load(sys.stdin)
+forbidden={"setup", "setupSignIn", "clonedVoiceSetup", "browser", "input", "localRuntime", "keys", "copilotMemory", "setupFleet"}
+violations=[r["key"] for r in rows if r["key"] in forbidden or r["chips"] not in ([["To do","warning"]], [["Done","success"]])]
+if sum(b["text"] == "Set up local voice" for r in rows for b in r["buttons"]) > 1: violations.append("setup-local-repeated")
+print(json.dumps(violations) if rows else "absent")
 '
 }
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
@@ -381,8 +363,8 @@ assert any(row["key"]=="vgs.jarvis/setup-local" and row["group"]=="Jarvis" for r
 expect_poll "the Setup fixture retains its present key" matched jarvis_key_value present
 expect_poll "the Setup fixture retains its signed-in app" matched jarvis_account_hint signed-in
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
-expect_poll "a fresh profile's Setup tab offers each setup screen once, the browser and input as optional steps" '[[], true, true]' setup_once
-expect_poll "Setup offers its declared Sign in action beside Add key" \
+expect_poll "a fresh profile's Setup tab holds only required steps with Done or To do chips" '[]' setup_once
+expect_poll "Settings offers its declared Sign in action beside Add key" \
   '["info", true, "sign-in"]' setup_sign_in_value
 setup_sign_in_end
 # An AI model the engine takes: a hand-added Codex folder, by the id the
@@ -428,7 +410,7 @@ local_ready || fail "local setup's marker is not written"
 local_open status
 expect_poll "the service rereads readiness after the Settings action ends" matched local_value ready
 expect_poll "the ended local setup reaches the daemon: the Setup section reads ready" "$setup_ready" setup_rows
-expect_poll "a ready Setup tab offers each setup screen once, the browser and input as optional steps" '[[], true, true]' setup_once
+expect_poll "the Setup tab keeps optional steps out after local voice setup" '[]' setup_once
 
 # Control: the local voice reader's end sends no snapshot, so the daemon
 # keeps its answer after the marker appears and local setup ends.
@@ -644,7 +626,7 @@ PY
 }
 # The setup row as [group, offered, the screen its press opens].
 setup_clone_row() {
-  status_row vgs.jarvis clonedVoiceSetup | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["group"], r["action"]["offered"], r["action"]["tui"]]))'
+  status_row vgs.jarvis clonedVoiceSetup | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["setting"], r["action"]["offered"], r["action"]["tui"]]))'
 }
 # Whether the shown tab's SECTION section draws LABEL.
 setup_tab_section() { # SECTION LABEL
@@ -656,53 +638,51 @@ print(json.dumps(any(sys.argv[2] in s for s in r)) if r else "absent")' "$1" "$2
 setup_tab_draws() { # LABEL
   ipc smoke itemTexts window vgs.settings Section | py_reply 'import json,sys; print(json.dumps(any(sys.argv[1] in s for s in json.load(sys.stdin))))' "$1"
 }
-# The Setup tab's Cloned voice step as [its chip tones, the screens its
-# buttons open, "" for one the manager acts on]. The clone setup screen has
-# no launcher entry, so its button takes the manager's act.
+# Settings' attached Cloned voice state: real field owner, chip tones and
+# visible action words, enabled state and tone.
 setup_clone_drawn() {
-  ipc smoke setupRows window vgs.settings | py_reply 'import json,sys
-t=sys.stdin.read()
-r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["label"]==sys.argv[1]]
-print(json.dumps([[c[1] for c in r[0]["chips"]], [b["tui"] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))' "$setup_clone_step"
+  ipc smoke settingRows window vgs.settings | py_reply 'import json,sys
+r=[x for x in json.load(sys.stdin) if x["key"]=="clonedVoiceSetup"]
+print(json.dumps([r[0]["setting"], r[0]["field"], [c[1] for c in r[0]["chips"]], [[b["text"],b["enabled"],b["tone"]] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))'
 }
 { read -r setup_clone_setting_label && read -r setup_clone_step && read -r setup_clone_press && read -r setup_clone_remove; } < <(python3 -c 'import json,sys
 m=json.load(open(sys.argv[1])); row=m["status"]["clonedVoiceSetup"]
 print(m["schema"]["clonedVoice"]["label"]); print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
   fail "the manifest names no Cloned voice setting, setup row or Set up action"
+settings_tab_click Settings || fail "the click on the Settings tab for Cloned voice failed"
 setup_clone_answer false
 rescan "a rescan reads the clone status beside no large tier"
-expect_poll "beside no large tier the setup row offers nothing" '["Setup", false, ""]' setup_clone_row
-expect_poll "the Setup tab draws the optional step with no button, as an info step" '[["info"], []]' setup_clone_drawn
+expect_poll "beside no large tier the setup row offers nothing" '["clonedVoice", false, ""]' setup_clone_row
+expect_poll "Settings draws Cloned voice with no action before the large tier is ready" '["clonedVoice", "clonedVoice", ["info"], []]' setup_clone_drawn
 # A local voice setup's end reads the row again, with no rescan: the
 # Large model now ready, the row offers the clone setup.
 setup_clone_answer true
 forget_record
 expect "the launcher opens local voice setup" ok ipc shell openTui vgs.jarvis/setup-local
 expect_run_end "the local voice setup terminal ends" vgs.jarvis/setup-local
-expect_poll "after a local voice setup the setup row opens the clone setup while the voice resolves Local" '["Setup", true, "clone-voice"]' setup_clone_row
-expect_poll "the Setup tab draws the step's Set up button beside it, an info step still" '[["info"], [""]]' setup_clone_drawn
+expect_poll "after a local voice setup the setup row opens the clone setup while the voice resolves Local" '["clonedVoice", true, "clone-voice"]' setup_clone_row
+expect_poll "Settings draws the declared clone setup text link beside Cloned voice" '["clonedVoice", "clonedVoice", ["info"], [["Set up cloned voice", true, "accent"]]]' setup_clone_drawn
 settings_tab_click Settings || fail "the click on the Settings tab failed"
 expect_poll "the plugin page shows Settings" Settings settings_tab_text
 expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_tab_section "Local voice" "$setup_clone_setting_label"
 settings_details
 expect_poll "Details draws no Cloned voice step" false setup_tab_draws "$setup_clone_step"
-# Back on Setup, where the sections after this one read the page.
-settings_setup
-expect_poll "the Setup tab's Setup section draws the Cloned voice step" true setup_tab_section Setup "$setup_clone_step"
+settings_tab_click Settings || fail "the click back to Settings for Cloned voice failed"
+expect_poll "Settings draws Cloned voice beside its setting" true setup_tab_section "Local voice" "$setup_clone_step"
 forget_record
 settings_press --type RowAction "$setup_clone_press" || fail "the click on $setup_clone_press failed"
 expect_poll "the step's button opens the clone setup in the core floating terminal" '["vgs.jarvis/clone-voice", "tui/clone-voice.sh"]' recorded_tail
 expect_run_end "the clone setup terminal ends" vgs.jarvis/clone-voice
 setup_provider realtime
-expect_poll "with Realtime chosen the setup row offers nothing" '["Setup", false, ""]' setup_clone_row
+expect_poll "with Realtime chosen the setup row offers nothing" '["clonedVoice", false, ""]' setup_clone_row
 expect_poll "with Realtime chosen Local voice reads optional and offers its setup" matched local_value optional
 setup_provider ""
 expect_poll "the default voice, Local, hands Local voice setup to the Voice step again" matched local_value absent-under-voice
-expect_poll "the default voice, Local, offers the clone setup again" '["Setup", true, "clone-voice"]' setup_clone_row
+expect_poll "the default voice, Local, offers the clone setup again" '["clonedVoice", true, "clone-voice"]' setup_clone_row
 
 setup_clone_ready_answer true
 rescan "a rescan reads the ready cloned voice"
-expect_poll "a ready recording offers Remove recording" '["Setup", true, "clone-voice-remove"]' setup_clone_row
+expect_poll "a ready recording offers Remove recording" '["clonedVoice", true, "clone-voice-remove"]' setup_clone_row
 setup_clone_setting true
 expect_poll "Cloned voice is on before Remove recording" true setup_clone_setting_value
 hold_runs
@@ -712,7 +692,7 @@ setup_clone_answer true
 release_runs
 expect_run_end "the clone remove terminal ends" vgs.jarvis/clone-voice-remove
 expect_poll "Remove recording turns Cloned voice off" false setup_clone_setting_value
-expect_poll "after Remove recording the setup row offers Set up" '["Setup", true, "clone-voice"]' setup_clone_row
+expect_poll "after Remove recording the setup row offers Set up" '["clonedVoice", true, "clone-voice"]' setup_clone_row
 
 python3 - "$setup_clone_reader" <<'PY'
 from pathlib import Path
@@ -743,6 +723,8 @@ jarvis_rescan
 setup_clone_setting false
 cp -- "$sandbox/clone-status-original" "$setup_clone_status"
 
+settings_setup
+
 # A Pi below its floor. The stand-in answers `--version` and nothing else,
 # so no Pi program runs a turn; its folder is added by hand, as the Codex
 # folder above is. The shell's scan reads the same program from the
@@ -762,17 +744,15 @@ setup_pi_id() {
 setup_model_step() {
   status_row vgs.jarvis setupModel | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["value"].get("tone"), r["value"].get("action"), r["action"]["offered"]]))'
 }
-# Pi's state in the plugin's requirements, which the Setup tab's
-# Requirements section draws.
+# Pi's state in the plugin's requirements, beside its Account setting.
 setup_pi_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.jarvis"][0]; print([r["state"] for r in p["requirements"] if r["name"]=="pi"][0])'; }
 # The actions the Setup section draws beside its AI model step, each as
-# the screen it opens, "" for one the manager acts on, and whether it takes
-# a press.
+# its displayed words and whether it takes a press.
 setup_model_drawn() {
   ipc smoke setupRows window vgs.settings | py_reply 'import json,sys
 t=sys.stdin.read()
 r=[x for x in (json.loads(t) if t.startswith("[") else []) if x["label"]=="AI model"]
-print(json.dumps([[b["tui"], b["enabled"]] for b in r[0]["buttons"]]) if r else "absent")'
+print(json.dumps([[b["text"], b["enabled"]] for b in r[0]["buttons"]]) if r else "absent")'
 }
 pi_floor="$(python3 -c 'import json,sys; print(next(r["floor"] for r in json.load(open(sys.argv[1]))["requirements"] if r.get("command")=="pi"))' "$repo/shell/plugins/vgs.jarvis/manifest.json")" || fail "the manifest gives Pi no floor"
 mkdir -p -- "$setup_pi" && printf '{}\n' >"$setup_pi/auth.json" || fail "the Pi folder is not written"
@@ -789,7 +769,7 @@ setup_brain "$setup_pi_brain"
 expect_poll "the daemon holds Pi as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
 expect_poll "a Pi below its floor leaves the AI model step to do, with no step of its own" '["warning", null, false]' setup_model_step
 expect_poll "the Setup section draws no button beside the AI model" '[]' setup_model_drawn
-expect_poll "the Requirements section reads Pi outdated" outdated setup_pi_requirement
+expect_poll "the selected account tool reads Pi outdated" outdated setup_pi_requirement
 # The control: the daemon judges the choice again when it is made again.
 pi_version "$pi_floor" || fail "the Pi stand-in at its floor is not written"
 rescan "a rescan with Pi at its floor starts"
@@ -797,7 +777,7 @@ setup_brain ""
 expect_poll "the daemon holds no AI model between the two choices" '""' setup_daemon_brain
 setup_brain "$setup_pi_brain"
 expect_poll "the daemon holds Pi at its floor as the chosen AI model" "\"$setup_pi_brain\"" setup_daemon_brain
-expect_poll "a Pi at its floor reads present under Requirements" present setup_pi_requirement
+expect_poll "a Pi at its floor reads present in the requirements record" present setup_pi_requirement
 rm -f -- "${shim:?}/pi" "${setup_state:?}/accounts.json" "${setup_pi_version:?}" "${setup_pi_standin:?}"
 [[ ! -e $sandbox/setup-accounts-before-pi ]] || cp -- "$sandbox/setup-accounts-before-pi" "$setup_state/accounts.json"
 rm -rf -- "${home:?}/.pi"

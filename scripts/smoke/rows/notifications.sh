@@ -3019,13 +3019,14 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 
 # The Slack token rows: the service publishes whether the stub libsecret
 # holds each listed workspace's token, never a
-# token, and the Settings page draws a line per account in the Setup
-# section of its Setup tab, and none on Details. The probe runs
+# token, and the Settings page draws a line per account beside the Slack
+# photos field, and none on Details. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
 token_hint="Connect each workspace to show sender photos"
 token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
-drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row]))'; }
+token_location() { ipc smoke settingKeyRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row["key"]=="slackTokens"]))'; }
 # want_rows rows|drawn ITEMS: the manager row, or the texts the page draws,
 # for ITEMS, `;`-separated `<account>,<state>` items.
 want_rows() {
@@ -3052,10 +3053,10 @@ PY
 change_offered() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "$1" RowAction "Replace") == \[* ]] && echo true || echo false; }
 expect "the notifications' Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page opens on its Settings tab" 0 settings_tab
-settings_setup
+expect_poll "workspace keys are beside the Slack photos Settings field" '[{"key": "slackTokens", "setting": "slackPhotos", "field": "slackPhotos"}]' token_location
 first_items="slack:T0ACME,present;slack:T0GLOBEX,present"
 expect_poll "the page reads each workspace's token" "$(want_rows rows "$first_items")" token_row
-expect_poll "Setup draws a line per account with its step, and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
+expect_poll "Settings draws a line per account with its action and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
 expect "a stored token's line draws Replace" true change_offered "Acme Corp (acme)"
 # Flips: label | the stub's states | the items the page reads.
 flips=(
@@ -3117,7 +3118,6 @@ expect_poll "the page reads the other plugin's write" '"unrelated"' fixture_note
 expect "the field outlives the write with what was typed and the keyboard" "[[${#typed_token}, true]]" row_fields
 expect "the Settings window hides for the field's control" ok ipc shell hide window vgs.settings
 expect "the Settings window is summoned again on the notifications' page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-settings_setup
 expect_poll "control: a page built anew holds no field" '[]' row_fields
 expect "disabling the status fixture beside the token rows is allowed" ok ipc shell setPluginEnabled acme.status false
 settings_press --type RowAction "Add key" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Add key failed"
@@ -3174,7 +3174,7 @@ settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "
 expect_poll "Remove on the unlocked store runs secret-tool clear again" "$((calls_before + 5))" secret_calls
 expect_poll "the unlocked Remove deletes the key and the lock line goes" "[$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent"), 0]" drawn_less_lock
 settings_details
-expect "Details draws no token line" '[[]]' drawn_token_row
+expect "Details draws no token line" '[]' drawn_token_row
 # Both typed tokens start with the first, so one search finds either.
 typed_in_argv() { grep -c -F -- "$typed_token" "$shim/secret-tool.calls" || true; }
 expect "no secret-tool argv holds a typed token" 0 typed_in_argv
@@ -3204,7 +3204,7 @@ expect "the shell's log holds no token" 0 token_in_log
 expect "the Settings window closes after the token rows" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone before the placement control" 0 window_count Plugins
 # The control: a copy of the Settings plugin, over the shipped one, whose
-# page keeps the stored keys out of Setup and draws them on Details, and
+# page keeps the stored keys out of Settings and draws them on Details, and
 # whose Replace opens nothing, read by the same readers.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
 slack_states "slack:T0ACME present;slack:T0GLOBEX absent"
@@ -3214,17 +3214,24 @@ rm -rf -- "${keys_copy:?}"
 mkdir -p -- "$(dirname -- "$keys_copy")"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$keys_copy"
 keys_copy_edit() { python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$keys_copy/$1" "$2" "$3"; }
-if keys_copy_edit Steps.js 'return status.filter(listsKeys);' 'return [];' \
-  && keys_copy_edit Steps.js 'return !listsKeys(entry);' 'return true;' \
+if keys_copy_edit Steps.js 'return status.filter(function (entry) { return entry.setting === key; });' 'return status.filter(function (entry) { return entry.setting === key && !listsKeys(entry); });' \
+  && keys_copy_edit Steps.js '!declaresStep(entry) && entry.setting === "" && entry.step === ""' 'listsKeys(entry) || (!declaresStep(entry) && entry.setting === "" && entry.step === "")' \
   && keys_copy_edit StatusLine.qml $'text: "Replace"\n                        onClicked: line.entering = true' $'text: "Replace"\n                        onClicked: {}'
 then ok "the control copy draws its keys on Details and its Replace opens nothing"; else fail "the control copy could not be written"; fi
 rescan "a rescan picks the placement control copy"
 control_items="slack:T0ACME,present;slack:T0GLOBEX,absent"
 expect "the control copy's Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the control copy reads each workspace's token" "$(want_rows rows "$control_items")" token_row
-expect_poll "control: a page that draws its keys on Details draws no token line on the tab it opens on" '[[]]' drawn_token_row
+expect_poll "control: a page that draws its keys on Details draws no token line on Settings" '[]' drawn_token_row
 settings_details
 expect_poll "control: that page draws the token lines on Details" "$(want_rows drawn "$control_items")" drawn_token_row
+expect "control: keys on Details have no Settings field ancestor" '[{"key": "slackTokens", "setting": "slackPhotos", "field": ""}]' token_location
+token_placement_control() {
+  (failures=0 behaviour_failures=0
+   expect "workspace keys stay beside Slack photos" '[{"key": "slackTokens", "setting": "slackPhotos", "field": "slackPhotos"}]' token_location >"$sandbox/notifications-key-placement-control.log"
+   echo "$failures")
+}
+expect "control: keys on Details fail their Settings field placement" 1 token_placement_control
 settings_press --type RowAction "Replace" StatusLine "Acme Corp (acme)" || fail "control: the click on the copy's Replace failed"
 change_key_control() {
   (failures=0 behaviour_failures=0
@@ -3237,8 +3244,8 @@ expect_poll "the Settings window is gone after the placement control" 0 window_c
 rm -rf -- "${keys_copy:?}"
 rescan "a rescan drops the placement control copy"
 expect "the Settings window opens on the shipped page again" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-settings_setup
-expect_poll "the shipped page draws the token lines under Setup again" "$(want_rows drawn "$control_items")" drawn_token_row
+expect_poll "the shipped page draws the token lines beside Slack photos again" "$(want_rows drawn "$control_items")" drawn_token_row
+expect "the restored keys are beside the Slack photos field" '[{"key": "slackTokens", "setting": "slackPhotos", "field": "slackPhotos"}]' token_location
 expect "the Settings window closes after the token rows' control" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the token rows" 0 window_count Plugins
 seed_slack_photos
@@ -3280,13 +3287,13 @@ expect_poll "the helper's run swept the photos" '[]' photo_teams
 expect "photos off reads no token and calls no Slack API" "" off_token_calls
 expect_poll "photos off still publishes the workspace token rows" True lent_has_tokens
 expect "the notifications' Settings page opens with photos off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-settings_setup
 settings_photo_setup() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print("slackTokens" in [s["key"] for s in p["status"]] and {"curl", "secret-tool"}.issubset(r["name"] for r in p["requirements"]) and p["schema"].get("slackPhotos", {}).get("type") == "boolean")'; }
 expect_poll "photos off keeps Add key, its requirements and the switch in Settings" True settings_photo_setup
 expect_poll "photos off draws Add key for each workspace" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
 settings_press --type RowAction "Add key" StatusLine "Acme Corp (acme)" || fail "Add key with photos off failed"
 expect_poll "Add key with photos off opens the masked field" '[["TextField"]]' row_inputs
-settings_press "Cancel" StatusLine "Acme Corp (acme)" || fail "Cancel with photos off failed"
+settings_press --type RowAction "Cancel" StatusLine "Acme Corp (acme)" || fail "Cancel with photos off failed"
+expect_poll "Cancel with photos off closes the masked field" '[[]]' row_inputs
 expect "the unused Add key field reads no token and calls no Slack API" "" off_token_calls
 # The control: the same Settings readers with photos on again.
 set_slack_photos on
@@ -3425,8 +3432,8 @@ hover 1 1 || fail "resting the pointer on the bar failed"
 expect "the notifications' Settings page opens for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page draws Position as a list of the six edges, each in words" '[{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]' position_read model
 expect "Position starts at the top center" '"top-center"' position_read value
-# The page keeps the whole Slack section in view under the Settings group
-# that holds Position, at the harness's screen size: slack_group_verdict
+# The page can bring the whole Slack section into view after its settings
+# and tools are attached. slack_group_verdict
 # reads the page's items, as descendantGeometry gives them, and answers
 # whether the Slack group, its heading through its last row and that row's
 # description, lies inside the scroll view that clips it: `in-view`,
@@ -3457,7 +3464,13 @@ slack_group() {
   ipc smoke descendantGeometry window vgs.settings >"$place_dir/page.json" || return
   slack_group_verdict "$place_dir/page.json"
 }
-geometry expect_poll "the Notifications page shows the whole Slack section in view below Position" in-view slack_group
+slack_group_reveal() {
+  local top
+  top="$(ipc smoke sectionSpan window vgs.settings Slack | py_reply 'import json,sys; top,bottom,scroll,height=json.load(sys.stdin); assert bottom-top <= height, "Slack section is taller than its viewport"; print(int(top))')" || return
+  ipc smoke scrollTo window vgs.settings "$top" | py_reply 'import json,sys; scroll,content,height=json.load(sys.stdin); print(str(0 <= scroll <= max(0,content-height)).lower())'
+}
+expect "the Settings scroll brings the measured Slack section into view" true slack_group_reveal
+geometry expect_poll "the Notifications page shows the whole revealed Slack section in view" in-view slack_group
 # The control: the same reading with the Slack group's last row one pixel
 # past the view's lower edge.
 slack_group_below() { # ITEMS_FILE

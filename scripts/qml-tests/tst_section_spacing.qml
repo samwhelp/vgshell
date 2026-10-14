@@ -11,10 +11,7 @@ import "../../shell/plugins/vgs.settings"
 // `stack.heading` on the System monitor, Capture and Displays pages, built
 // from their shipped manifests, whatever row ends the section above: a
 // switch, a select, a segmented control, a slider or a help line, one
-// with descenders or, planted, one without. The same holds on the Setup
-// tab of a Jarvis-like plugin with its steps open and with them done,
-// where a step with no hint whose primary button overhangs its row ends a
-// section, and after a status hint whose link's underline, not its
+// with descenders or, planted, one without, and after a status hint whose link's underline, not its
 // glyphs, ends the ink, and exactly under a row action's resting
 // underline or danger mark, not its box. The settings of no group draw no
 // heading: they follow the
@@ -54,23 +51,6 @@ Item {
         function replyOf() { return ""; }
         function tuiKey(name) { return "tui:" + name; }
     }
-
-    // A Jarvis-like plugin's Setup tab: the Setup group's headline and one
-    // step, a Personality step with its hint, a Home session step with
-    // none, as Jarvis's session row has none, and two tools, both present.
-    readonly property var stepped: ({
-        requirements: PluginLogic.normalRequirements([
-            { command: "acme-tool", optional: true, purpose: "A tool" },
-            { command: "acme-other", optional: false, purpose: "Another tool" }
-        ]),
-        tui: { connect: { requires: [] }, edit: { requires: [] }, start: { requires: [] } },
-        status: {
-            summary: { type: "state", label: "Setup", group: "Setup" },
-            account: { type: "state", label: "Account", group: "Setup", action: { label: "Sign in", tui: "connect" } },
-            personality: { type: "state", label: "Personality", group: "Personality", hint: "How Jarvis talks.", action: { label: "Edit", tui: "edit" } },
-            session: { type: "state", label: "Jarvis session", group: "Home", action: { label: "Start", tui: "start" } }
-        }
-    })
 
     Component {
         id: pageComponent
@@ -263,51 +243,6 @@ Item {
             return -1;
         }
 
-        // Steps open: the open account step holds the page's primary
-        // button and ends the Setup section. Steps done: the optional
-        // session step, the first that offers its action, holds it and
-        // ends the Home section.
-        function test_heading_space_on_the_setup_tab_data() {
-            return [
-                { tag: "steps open", primary: "Sign in", values: {
-                    summary: { tone: "warning", text: "Not ready" },
-                    account: { tone: "warning", text: "Signed out", action: true },
-                    personality: { tone: "ok", text: "Set", action: true },
-                    session: { tone: "info", text: "Optional" } } },
-                { tag: "steps done", primary: "Start", values: {
-                    summary: { tone: "ok", text: "Ready" },
-                    account: { tone: "ok", text: "Signed in" },
-                    personality: { tone: "ok", text: "Set", action: true },
-                    session: { tone: "info", text: "Not started", action: true } } }
-            ];
-        }
-
-        function test_heading_space_on_the_setup_tab(data) {
-            const row = Object.assign(rowOf("vgs.sysmon"), {
-                id: "acme.jarvis", name: "Acme Jarvis", schema: {}, settings: {},
-                status: PluginLogic.statusRows(root.stepped, data.values, []),
-                requirements: PluginLogic.requirementRows(root.stepped, [], {})
-            });
-            const page = createTemporaryObject(pageComponent, root, { row: row });
-            verify(page !== null);
-            page.open(Qt.OtherFocusReason, "Setup");
-            compare(page.tab, "Setup");
-            tryVerify(() => headings(page).length === 5, 2000, "the tab heads Status, Setup, Personality, Home and Requirements");
-            compare(descendants(page).filter(item => item instanceof Button && item.visible && item.variant === "primary").map(button => button.text), [data.primary]);
-            verify(waitForRendering(page));
-            const img = grabImage(root);
-            // The tab's first heading starts the page, `stack.page` under
-            // the strip (TabPages).
-            const shown = headings(page).slice(1);
-            compare(shown.map(label => label.text), ["Setup", "Personality", "Home", "Requirements"]);
-            for (const label of shown) {
-                const gap = gapAbove(img, label);
-                verify(gap >= 0, "something draws above \"" + label.text + "\"");
-                verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance,
-                    data.tag + ": \"" + label.text + "\" sits " + gap + " px under the ink above, not " + Theme.stack.heading);
-            }
-        }
-
         // The first and last rows of ink inside ITEM's box.
         function inkRows(img, item) {
             const at = item.mapToItem(root, 0, 0);
@@ -325,35 +260,6 @@ Item {
         // and the highest of LOWER.
         function gapBetween(img, upper, lower) {
             return inkRows(img, lower)[0] - inkRows(img, upper)[1] - 1;
-        }
-
-        // A setup screen no entry declares draws as a row action in the
-        // Setup section's More setup row, in a Flow, as Jarvis's Remove key
-        // does; the next heading stands exactly `stack.heading` under the
-        // action's underline. A Flow read as its box put it 33 blank rows
-        // under on Jarvis's Setup tab at 12b76016f and de119de92. The label
-        // has no descender, whose faint tail under the underline is ink
-        // here and not on that sheet.
-        function test_heading_space_under_more_setup() {
-            const row = Object.assign(rowOf("vgs.sysmon"), {
-                id: "acme.jarvis", name: "Acme Jarvis", schema: {}, settings: {},
-                status: PluginLogic.statusRows(root.stepped, {
-                    summary: { tone: "ok", text: "Ready" },
-                    account: { tone: "ok", text: "Signed in" },
-                    personality: { tone: "ok", text: "Set" },
-                    session: { tone: "info", text: "Not started" } }, []),
-                tuis: [{ name: "remove-token", label: "Remove token", icon: "trash", setup: true, withheld: "" }]
-            });
-            const page = createTemporaryObject(pageComponent, root, { row: row });
-            verify(page !== null);
-            page.open(Qt.OtherFocusReason, "Setup");
-            tryVerify(() => descendants(page).some(item => item instanceof RowAction && item.visible && item.text === "Remove token"), 2000, "the Setup section draws Remove token");
-            tryVerify(() => headings(page).map(label => label.text).indexOf("Personality") !== -1, 2000);
-            verify(waitForRendering(page));
-            const shown = headings(page).map(label => label.text);
-            const next = headings(page)[shown.indexOf("Setup") + 1];
-            const gap = gapAbove(grabImage(root), next);
-            compare(gap, Theme.stack.heading, "\"" + next.text + "\" sits " + gap + " px under Remove token, not " + Theme.stack.heading);
         }
 
         // Settings of no group follow the Enabled switch as rows of its

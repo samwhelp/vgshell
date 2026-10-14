@@ -201,6 +201,39 @@ function plantPluginDbusRequirement(tree, name, packages) {
     fs.writeFileSync(file, JSON.stringify(manifest));
 }
 
+// Broken-package gap rules retain a required command in their own fixture.
+// Jarvis browser input is optional in the shipped graph.
+function plantBrokenPackageGap(tree) {
+    const pluginFile = path.join(tree, "shell/plugins/vgs.jarvis/manifest.json");
+    const manifest = JSON.parse(fs.readFileSync(pluginFile, "utf8"));
+    const rows = manifest.requirements.filter(row => row.command === "agent-browser");
+    if (rows.length !== 1 || rows[0].optional !== true) throw new Error("fixture: agent-browser requirement is not optional");
+    rows[0].optional = false;
+    delete rows[0].setting;
+    fs.writeFileSync(pluginFile, JSON.stringify(manifest));
+    const lock = JSON.parse(fs.readFileSync(path.join(tree, "flake.lock"), "utf8"));
+    const file = path.join(tree, "packaging/channel-gaps.json");
+    const gaps = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (gaps.nix["agent-browser"] !== undefined) throw new Error("fixture: agent-browser gap already exists");
+    gaps.nix["agent-browser"] = { reason: "official-package-broken", revision: lock.nodes.nixpkgs.locked.rev,
+        failure: "native::actions::tests::test_build_fetch_patterns_with_routes" };
+    fs.writeFileSync(file, JSON.stringify(gaps));
+}
+
+function editRequirementRows(tree, plugin, commands, update) {
+    const file = path.join(tree, "shell/plugins", plugin, "manifest.json");
+    const before = fs.readFileSync(file, "utf8");
+    const manifest = JSON.parse(before);
+    for (const command of commands) {
+        const rows = manifest.requirements.filter(row => row.command === command);
+        if (rows.length !== 1) throw new Error("fixture: requirement=" + command + " rows=" + rows.length);
+        update(rows[0]);
+    }
+    const after = JSON.stringify(manifest);
+    if (after === before) throw new Error("fixture: requirements unchanged plugin=" + plugin);
+    fs.writeFileSync(file, after);
+}
+
 // A PATH holding what the check runs except makepkg: git, and python3 for
 // bin/vgshell-scan's interpreter line.
 const farm = path.join(tmp, "path-farm");
@@ -249,19 +282,28 @@ const ROWS = [
         edit(t, SRC, "^(pkgbase = vgshell\\n)", "$1\tdepends = voxtype-bin\n");
     }, 1, () => refused("on-request=voxtype-bin field=depends channel=pacman recipe=vgshell scope=vgs.voice")],
     ["a required requirement without its on-request flag wants its package in depends", t => {
-        for (const purpose of ["Captures speech", "Reads voice levels"])
-            edit(t, "shell/plugins/vgs.voice/manifest.json", `("optional": false,)\\n      "install": "on-request",(\\n      "purpose": "${purpose})`, "$1$2");
+        editRequirementRows(t, "vgs.voice", ["voxtype", "voxtype-audio-bridge"], row => {
+            if (row.optional !== false || row.install !== "on-request") throw new Error("fixture: required on-request row missing");
+            delete row.install;
+        });
     }, 1, () => refused("requirement=voxtype package=voxtype-bin want=depends channel=pacman recipe=vgshell scope=vgs.voice")],
-    ["one of a package's two requirements without its on-request flag is refused", t => edit(t, "shell/plugins/vgs.voice/manifest.json",
-        '("optional": false,)\\n      "install": "on-request",(\\n      "purpose": "Captures speech)', "$1$2"),
-        1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.voice channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["one of a package's two requirements without its on-request flag is refused", t => {
+        editRequirementRows(t, "vgs.voice", ["voxtype"], row => {
+            if (row.optional !== false || row.install !== "on-request") throw new Error("fixture: required on-request row missing");
+            delete row.install;
+        });
+    }, 1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.voice channel=pacman recipe=vgshell scope=vgs.voice")],
     ["Arch: an on-request package dropped from optdepends is refused", t => edit(t, SRC, "^\\toptdepends = voxtype-bin: .*\\n", ""),
         1, () => refused("requirement=voxtype package=voxtype-bin want=optdepends channel=pacman recipe=vgshell scope=vgs.voice")],
     ["Nix: an on-request package in the runtime closure is refused", t => edit(t, "flake.nix", "^(      runtimePackages = pkgs: \\[\\n)", "$1        pkgs.voxtype\n"),
         1, () => refused("on-request=voxtype field=runtimePackages channel=nix recipe=flake scope=vgs.voice")],
-    ["an on-request package another plugin wants installed with VGS is refused", t => edit(t, "shell/plugins/vgs.jarvis/manifest.json",
-        '(\\{ "command": "voxtype", "packages": \\{ "aur": "voxtype-bin" \\}, "optional": )true', "$1false"),
-        1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.jarvis channel=pacman recipe=vgshell scope=vgs.voice")],
+    ["an on-request package another plugin wants installed with VGS is refused", t => {
+        editRequirementRows(t, "vgs.jarvis", ["voxtype"], row => {
+            if (row.optional !== true || row.install !== undefined) throw new Error("fixture: optional voxtype row missing");
+            row.optional = false;
+            delete row.setting;
+        });
+    }, 1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.jarvis channel=pacman recipe=vgshell scope=vgs.voice")],
     ["a floor on an on-request command is refused", t => edit(t, "bin/vgshell", "^(preflight_floor='\\n)", "$1voxtype    1.0     ^([0-9.]+)   voxtype --version\n"),
         1, () => refused("floor=on-request command=voxtype tool=voxtype scope=vgs.voice")],
     ["Arch: a hardware option promoted to required is refused", t => {
@@ -273,8 +315,8 @@ const ROWS = [
         1, () => refused("extra=ddcutil field=runtimePackages channel=nix recipe=flake")],
     ["installer: a dropped English data package is refused", t => edit(t, "install.sh", "^(pacman .*?) tesseract-data-eng( .*)$", "$1$2"),
         1, () => refused("requirement=library:capture-english package=tesseract-data-eng want=runtime_packages channel=install-pacman recipe=pacman scope=core")],
-    ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^(aur .*?) wlrctl$", "$1"),
-        1, () => refused("requirement=wlrctl package=wlrctl want=runtime_packages channel=install-pacman recipe=pacman scope=vgs.jarvis")],
+    ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^aur vsys$", "aur"),
+        1, () => refused("requirement=vsys package=vsys want=runtime_packages channel=install-pacman recipe=pacman scope=vgs.agent-warden")],
     ["Debian installer: a dropped required package is refused", t => edit(t, "install.sh", "^(apt .*?) qrencode( .*)$", "$1$2"),
         1, () => refused("requirement=qrencode package=qrencode want=runtime_packages channel=install-apt recipe=apt scope=vgs.network")],
     ["Debian installer: a package no requirement names is refused", t => edit(t, "install.sh", "^(apt .*?) qrencode( .*)$", "$1 qrencode rclone$2"),
@@ -317,18 +359,21 @@ const ROWS = [
         fs.writeFileSync(file, JSON.stringify(gaps));
     }, 1, () => refused("gap=evidence manager=dnf command=voxtype")]),
     ["a broken official package gap needs its failure evidence", t => {
+        plantBrokenPackageGap(t);
         const file = path.join(t, "packaging/channel-gaps.json");
         const gaps = JSON.parse(fs.readFileSync(file, "utf8"));
         delete gaps.nix["agent-browser"].failure;
         fs.writeFileSync(file, JSON.stringify(gaps));
     }, 1, () => refused("gap=evidence manager=nix command=agent-browser")],
     ["a broken official package gap needs a named failing test", t => {
+        plantBrokenPackageGap(t);
         const file = path.join(t, "packaging/channel-gaps.json");
         const gaps = JSON.parse(fs.readFileSync(file, "utf8"));
         gaps.nix["agent-browser"].failure = "build failed";
         fs.writeFileSync(file, JSON.stringify(gaps));
     }, 1, () => refused("gap=evidence manager=nix command=agent-browser")],
     ["a broken official package gap expires with the pinned revision", t => {
+        plantBrokenPackageGap(t);
         const file = path.join(t, "flake.lock");
         const lock = JSON.parse(fs.readFileSync(file, "utf8"));
         lock.nodes.nixpkgs.locked.rev = "0000000000000000000000000000000000000000";

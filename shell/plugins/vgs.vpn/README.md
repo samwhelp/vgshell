@@ -19,7 +19,7 @@ VPN shows your saved VPN profiles and your Tailscale connection. It turns it on 
 
 ## Setup
 
-The VPN section and the plugin's Settings page offer one step at a time. Enable and Let my login control Tailscale run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, Install all missing on the Setup tab installs it.
+The VPN section and the plugin's Settings page offer one step at a time. Enable and Let my login control Tailscale run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, select Review all missing or outdated tools beside Tailscale in Settings.
 
 | Step | When | What it does |
 | --- | --- | --- |

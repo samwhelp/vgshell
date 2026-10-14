@@ -5,6 +5,6 @@
   "entryPoints": { "service": "Service.qml" }, "capabilities": ["status", "system"],
   "systemSteps": ["bandwhich-capture"],
   "status": {
-    "capture": { "type": "state", "label": "Traffic capture", "action": { "label": "Allow", "system": "bandwhich-capture" } }
+    "capture": { "type": "state", "label": "Traffic capture", "setup": true, "action": { "label": "Allow", "system": "bandwhich-capture" } }
   }
 }

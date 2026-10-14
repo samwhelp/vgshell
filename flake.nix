@@ -12,9 +12,11 @@
       # Only required packages enter the runtime PATH. The shared recipe
       # check holds this closure to the manifests and runtime libraries.
       runtimePackages = pkgs: [
+        pkgs.greetd
+        # The locked glibc recipe puts getent in its own output.
+        pkgs.glibc.getent
         pkgs.bash
         pkgs.bubblewrap
-        pkgs.chromium
         pkgs.coreutils
         pkgs.curl
         pkgs.dbus
@@ -53,10 +55,8 @@
         pkgs.systemd
         pkgs.tesseract
         pkgs.util-linux
-        pkgs.uv
         pkgs.wireplumber
         pkgs.wl-clipboard
-        pkgs.wlrctl
         pkgs.wtype
         pkgs.xdg-terminal-exec
         pkgs.xdg-utils
