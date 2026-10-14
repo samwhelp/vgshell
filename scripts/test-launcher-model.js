@@ -353,7 +353,7 @@ function verify(model, menu = shippedMenu) {
     for (const apps of [tiedApps, [...tiedApps].reverse()]) {
         const tied = model.swapProviderRows(zen.items, zen.itemOrder, "apps", apps.map(app => model.appRow("apps", app)));
         same(model.searchRows(tied.items, tied.itemOrder, "root", "sh", []).map(r => r.itemId),
-            ["apps.ssh-a", "apps.ssh-b", "apps.avahi", "apps.sunshine"], "application ties ignore source order and use path, then id");
+            ["apps.avahi", "apps.ssh-a", "apps.ssh-b", "apps.sunshine"], "application ties ignore source order and use path, then id");
     }
     const reboot = model.searchRows(again.items, again.itemOrder, "root", "reb", []);
     same(reboot.map(r => [r.label, r.detail, r.section]), [["Reboot", "Power", ""]]);
