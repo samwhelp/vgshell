@@ -393,7 +393,10 @@ done
 # longer than the terminal. A row that starts with a space starts past
 # it, and gum cuts a question wider than the terminal, so the whole text
 # must be drawn. The line is built so the terminal's own wrap would put a
-# space first on its second row.
+# space first on its second row. A choose, an input and a filter draw in
+# raw mode, where a line feed keeps the column and gum moves back with
+# CSI D or CSI G: the first frame's header and cursor row start at the
+# edge too, and every word the row names is drawn.
 cat >"$tmp/edge.py" <<'PY'
 import re
 import sys
@@ -435,18 +438,22 @@ while at < len(drawn):
                 i += 1
         elif final == "C":
             col += int(params or 1)
-        elif final in "AFH" and (text or fill):
+        elif final == "D":
+            col = max(0, col - int(params or 1))
+        elif final == "G":
+            col = int(params or 1) - 1
+        elif final in "AFHJ" and (text or fill):
             break  # gum redraws: the first frame is complete
         continue
     at += 1
     if char == "\r":
         col = 0
     elif char == "\n":
-        row, col = row + 1, 0
+        row += 1
     else:
         if col >= cols:
             row, col = row + 1, 0
-        if not char.isspace() and (mode == "lines" or fg == PROMPT):
+        if not char.isspace() and (mode != "confirm" or fg == PROMPT):
             text.setdefault(row, col)
             chars.append(char)
         if bg == FILL:
@@ -454,28 +461,33 @@ while at < len(drawn):
         col += 1
 starts = sorted(set(text.values()))
 fills = sorted(set(fill.values()))
-complete = whole in "".join(chars)
+drawn = "".join(chars)
+complete = whole in drawn if mode in ("confirm", "lines") else all(w in drawn for w in sys.argv[4].split())
 print(f"edge mode={mode} rows={len(text)} starts={starts} fills={fills} complete={complete}")
 wanted_fills = [edge] if mode == "confirm" else []
 sys.exit(0 if complete and starts == [edge] and fills == wanted_fills else 1)
 PY
 edge_long="$(printf 'ab %.0s' {1..40})end"
-edge_row() { # LIB_PATH confirm|lines
-  local snippet='vgs_tui_confirm "$LONG" --timeout=1s'
-  [[ $2 == lines ]] && snippet='cmd() { printf "%s\n" "$LONG"; }; vgs_tui_split "$TMP/edge.log" jarvis-setup cmd; vgs_tui_error "$LONG"; vgs_tui_text "$LONG"'
-  "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" TERM=xterm-256color COLORTERM=truecolor LONG="$edge_long" TMP="$tmp" \
+edge_row() { # LIB_PATH confirm|lines|choose|input|filter
+  local snippet='vgs_tui_confirm "$LONG" --timeout=1s' long="$edge_long"
+  case "$2" in
+    lines) snippet='cmd() { printf "%s\n" "$LONG"; }; vgs_tui_split "$TMP/edge.log" jarvis-setup cmd; vgs_tui_error "$LONG"; vgs_tui_text "$LONG"' ;;
+    choose|filter) snippet="echo alpha | vgs_tui_$2 --timeout=1s --header Pick" long="Pick alpha" ;;
+    input) snippet='vgs_tui_input --timeout=1s --header Pick --placeholder Name' long="Pick Name" ;;
+  esac
+  "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" TERM=xterm-256color COLORTERM=truecolor LONG="$long" TMP="$tmp" \
     GUM_CONFIRM_PROMPT_FOREGROUND='#ff0000' GUM_CONFIRM_SELECTED_FOREGROUND='#0000ff' \
     GUM_CONFIRM_UNSELECTED_FOREGROUND='#0000fe' GUM_CONFIRM_SELECTED_BACKGROUND='#00ff00' \
     timeout 20 script -qec "$(printf '%q ' "$BASH" -c "stty cols 80 rows 24; source $(printf '%q' "$1"); $snippet")" /dev/null \
     </dev/null >"$tmp/edge-drawn" 2>&1 || :
-  python3 "$tmp/edge.py" "$tmp/edge-drawn" "$2" 3 "$edge_long" >"$tmp/edge"
+  python3 "$tmp/edge.py" "$tmp/edge-drawn" "$2" 3 "$long" >"$tmp/edge"
 }
-for mode in confirm lines; do
+for mode in confirm lines choose input filter; do
   if edge_row "$LIB" "$mode"; then ok "every $mode row starts at the content edge"
   else fail "a $mode row is off the content edge: $(cat "$tmp/edge")"; fi
 done
 on_tty 'printf "a\nb\n" | vgs_tui_choose --header Pick'
-check "a choose on a terminal hands gum its arguments" test "$(cat "$tmp/gum")" == "$(printf '%s\n' choose --header Pick)"
+check "a choose on a terminal hands gum its arguments" test "$(cat "$tmp/gum")" == "$(printf '%s\n' choose --padding "0 0 0 3" --header Pick)"
 check "a choose on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
 on_tty 'vgs_tui_input --placeholder Name'
 check "an input on a terminal starts with one blank line on the terminal stream" starts_one_blank "$tmp/out"
@@ -968,6 +980,10 @@ control split-passes-through '_vgs_tui_print "" "$segment" "$width" || exit 1' '
 check "the split-passes-through mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 control text-unwrapped '_vgs_tui_print "" "$*"' 'printf '\''%s\n'\'' "$*"'
 check "the text-unwrapped mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
+for mode in choose input filter; do
+  control "$mode-unpadded" "gum $mode --padding \"0 0 0 \$_vgs_tui_edge\"" "gum $mode"
+  check "the $mode-unpadded mutant fails the $mode edge row" test "$(edge_row "$copy" "$mode" && echo green || echo red)" == red
+done
 control break-keeps-space 'then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi' 'then _vgs_tui_out+=("$cur"); cur="$gap" cur_n=${#gap}; fi'
 check "the break-keeps-space mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'

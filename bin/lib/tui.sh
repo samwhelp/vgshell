@@ -330,9 +330,10 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   return "$answer"
 }
 
-vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
-vgs_tui_input() { _vgs_tui_terminal input || return; _vgs_tui_prompt_gap; gum input "$@"; }
-vgs_tui_filter() { _vgs_tui_terminal filter || return; _vgs_tui_prompt_gap; gum filter "$@"; }
+# gum's --padding moves the header, cursor, items and key help together.
+vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose --padding "0 0 0 $_vgs_tui_edge" "$@"; }
+vgs_tui_input() { _vgs_tui_terminal input || return; _vgs_tui_prompt_gap; gum input --padding "0 0 0 $_vgs_tui_edge" "$@"; }
+vgs_tui_filter() { _vgs_tui_terminal filter || return; _vgs_tui_prompt_gap; gum filter --padding "0 0 0 $_vgs_tui_edge" "$@"; }
 
 _vgs_tui_editor_takes_line() { # EDITOR_ARGV0
   # These terminal editors accept +LINE before the path.
