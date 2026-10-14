@@ -113,8 +113,10 @@ FocusScope {
             wrapMode: Text.Wrap
         }
         Label {
+            id: setupHint
             objectName: "vpn-setup-hint"
             readonly property bool repeatsReason: true
+            opacity: OverlayState.coveredReason === setupHint ? Theme.opacity.disabled : 1
             width: parent.width
             visible: setupStep.visible && text !== ""
             role: "hint"

@@ -131,6 +131,17 @@ area = sum(cover(o) for o in s["obstacles"])
 print("free" if area == 0 else "covers %d px" % area)' "${2:-}"
 }
 vpn_tip_cover_word() { local reading; reading="$(vpn_tip_cover "$@")" || return 1; echo "${reading%% *}"; }
+vpn_tip_alignment() {
+  ipc smoke itemValues panel vgs.vpn Tooltip opened,placed,scene | py_reply '
+import json, sys
+tips = [t for t in json.load(sys.stdin) if t["opened"] and isinstance(t.get("scene"), dict)]
+if not tips: print("closed"); sys.exit()
+s, p = tips[0]["scene"], tips[0]["placed"]
+left, right = p["x"], p["x"] + p["width"]
+print("vpn-reason-edges: left-minus-switch-left=%g right-minus-switch-left=%g" % (left, right), file=sys.stderr)
+print("aligned" if right >= 0 else "left")'
+}
+vpn_setup_opacity() { ipc smoke readMatchingDescendant panel vgs.vpn Label objectName vpn-setup-hint opacity; }
 # Each poll sends at most one Tab until the actual switch holds focus.
 vpn_switch_focus() {
   if [[ $(ipc smoke activeFocusItem panel vgs.vpn) == '["Switch",""]' ]]; then echo focused; return; fi
@@ -400,10 +411,14 @@ for vpn_theme_name in vgs flexoki-light; do
   expect "the locked flyout opens for $vpn_theme_name" ok ipc shell summon panel vgs.vpn '{"source":"smoke"}'
   expect_poll "the pointer opens the reason in $vpn_theme_name" "$vpn_reason" vpn_switch_tip
   expect "the pointer reason covers no connection text or control in $vpn_theme_name" free vpn_tip_cover panel
+  expect "the pointer reason reaches under the switch in $vpn_theme_name" aligned vpn_tip_alignment
+  expect "the covered Setup text fades under the pointer in $vpn_theme_name" 0.5 vpn_setup_opacity
   rest_pointer || fail "vpn: moving off the switch failed"
   expect_poll "Tab reaches the header switch in $vpn_theme_name" focused vpn_switch_focus
   expect_poll "focus opens the reason in $vpn_theme_name" "$vpn_reason" vpn_tip panel
   expect "the focus reason covers no connection text or control in $vpn_theme_name" free vpn_tip_cover panel
+  expect "the focus reason reaches under the switch in $vpn_theme_name" aligned vpn_tip_alignment
+  expect "the covered Setup text fades under focus in $vpn_theme_name" 0.5 vpn_setup_opacity
   printf 'vpn-header-reason: theme=%s pointer=free focus=free\n' "$vpn_theme_name"
   expect "the themed locked flyout closes" ok ipc shell hide panel vgs.vpn
 done

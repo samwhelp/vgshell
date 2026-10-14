@@ -265,18 +265,21 @@ Item {
     // `origin`, the item's own corner; and `content`, the box the
     // obstacles and that anchor span inside the window, on whole pixels. The item and all it holds, an unlock mark
     // too, are no obstacle, and an item that holds the item, a Tab stop
-    // too, is read into. It walks the tree once, here, as the tooltip opens.
-    function survey() {
+    // too, is read into. It surveys before the popup is built, then finds
+    // the covered repeat text when the popup opens at its final size.
+    function survey(place) {
         const view = anchorItem.Window.contentItem;
         if (view === null) throw new Error("Tooltip: anchor=" + anchorItem + " has no window to place a clear tooltip in");
         const holders = [];
         for (let at = anchorItem.parent; at !== null; at = at.parent) holders.push(at);
         const obstacles = [], repeats = [];
+        let coveredRepeat = null;
         const walk = (item, held) => {
             if (item === anchorItem || !item.visible || item.opacity <= 0) return;
             const kind = holders.indexOf(item) === -1 ? obstacleKind(item) : "";
             if (kind !== "") {
                 const drawn = cut(drawnBox(item, kind, view), held);
+                if (kind === "repeat" && drawn !== null && place !== undefined && covered(place, drawn) > 0) coveredRepeat = item;
                 if (drawn !== null) (kind === "repeat" ? repeats : obstacles).push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: kind === "control" });
                 return;
             }
@@ -304,6 +307,7 @@ Item {
         return {
             obstacles: obstacles,
             repeats: repeats,
+            covered: coveredRepeat,
             anchor: anchor,
             origin: { x: corner.x, y: corner.y },
             content: { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
@@ -316,7 +320,8 @@ Item {
     // each centred on the item, then on its start and on its end edge,
     // held inside `content`; none overlaps the item. The first place by
     // [outside content, covers a Tab stop, the obstacle area it covers]
-    // plus the centre of each text that repeats the reason. The first
+    // plus each repeat text's rows, end and start aligned to the anchor,
+    // then centred on the text. The first
     // free place wins, else the place that covers the least,
     // one that stays inside the content and covers no Tab stop first.
     function clearPlace(scene, width, height, gap) {
@@ -330,10 +335,13 @@ Item {
             for (const x of across) places.push({ x: x, y: y, width: w, height: h });
         for (const x of [Math.ceil(a.x + a.width + gap), Math.floor(a.x - gap - w)])
             for (const y of along) places.push({ x: x, y: y, width: w, height: h });
-        // Repeated reason text offers room away from the anchor too.
+        // On repeated text's rows, stay under the control before moving away.
         for (const repeat of scene.repeats) {
-            const place = { x: hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width), y: hold(repeat.y + (repeat.height - h) / 2, room.y, h, room.height), width: w, height: h };
-            if (covered(place, a) === 0) places.push(place);
+            const xs = [across[2], across[1], hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width)];
+            for (const x of xs) {
+                const place = { x: x, y: hold(repeat.y + (repeat.height - h) / 2, room.y, h, room.height), width: w, height: h };
+                if (covered(place, a) === 0) places.push(place);
+            }
         }
         const rank = place => [
             covered(place, room) === w * h ? 0 : 1,
@@ -375,6 +383,9 @@ Item {
     onShownChanged: if (!shown) {
         current = -1;
         scene = null;
+    }
+    onOpenedChanged: if (side === "clear") {
+        OverlayState.coveredReason = opened && scene !== null ? survey({ x: placed.x + scene.origin.x, y: placed.y + scene.origin.y, width: placed.width, height: placed.height }).covered : null;
     }
     onCurrentChanged: held = current === -1 ? null : linkAt(links[current])
     // Every assign of the text or the details makes new `links`, the same

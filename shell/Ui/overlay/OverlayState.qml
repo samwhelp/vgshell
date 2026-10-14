@@ -13,6 +13,8 @@ QtObject {
     id: state
 
     property int open: 0
+    // Typed Item references clear when their item is destroyed (reasontip unit).
+    property Item coveredReason: null
 
     function opened() { open += 1; }
     function closed() { if (open > 0) open -= 1; }

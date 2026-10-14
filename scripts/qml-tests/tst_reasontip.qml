@@ -4,6 +4,8 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
+import "../../shell/plugins/vgs.vpn" as Vpn
+import "../../shell/plugins/vgs.vpn/VpnLogic.js" as VpnLogic
 
 // A disabled control's reason (DisabledReason, Tooltip's "clear" side)
 // opens where it covers no text, icon or Tab stop of its window, inside
@@ -245,20 +247,10 @@ Item {
             switchName: "Tailscale"
             switchDisabledReason: "The administrator holds Tailscale until you choose Let my login control Tailscale."
             switchUnlock: ({ label: "Let my login control Tailscale", run: () => {} })
-            Column {
+            Vpn.VpnBody {
+                id: repeatedBody
                 width: repeatedPane.contentWidth
-                spacing: Theme.stack.group
-                Label { id: repeatedState; width: parent.width; role: "body"; text: "Connected through Zurich, Switzerland" }
-                Label {
-                    id: repeatedHint
-                    property bool repeatsReason: true
-                    width: parent.width
-                    role: "hint"
-                    text: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password."
-                    wrapMode: Text.Wrap
-                }
-                RowAction { id: repeatedAction; text: "Let my login control Tailscale" }
-                Section { width: parent.width; title: "Exit node"; Button { text: "None" } }
+                shell: ({ status: { values: { vpn: Object.assign(VpnLogic.unread(), { state: "running", text: "Connected through Zurich, Switzerland" }) }, rows: [{ key: "setup", action: { offered: true, label: "Let my login control Tailscale" }, hint: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password." }] } })
             }
         }
     }
@@ -305,7 +297,6 @@ Item {
             iconed.visible = false;
             packed.visible = false;
             repeated.visible = false;
-            repeatedHint.repeatsReason = true;
         }
 
         function descendants(node) {
@@ -527,6 +518,10 @@ Item {
             request.send();
             compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
             repeated.visible = true;
+            const repeatedHint = descendants(repeatedBody).find(item => item.objectName === "vpn-setup-hint");
+            const repeatedState = descendants(repeatedBody).find(item => item.objectName === "vpn-state");
+            const repeatedAction = descendants(repeatedBody).find(item => item.objectName === "vpn-setup");
+            compare(repeatedHint.opacity, 1);
             const control = repeatedPane.headerSwitch;
             const tip = openReason(control);
             const place = placedBox(tip);
@@ -535,14 +530,22 @@ Item {
             compare(overlap(place, box(repeatedAction)), 0);
             compare(overlap(place, box(control)), 0);
             verify(overlap(place, words(repeatedHint)) > 0);
+            const anchor = tip.scene.anchor;
+            compare(place.x + place.width, anchor.x + anchor.width);
+            verify(place.x + place.width >= box(control).x);
+            compare(OverlayState.coveredReason, repeatedHint);
+            compare(repeatedHint.opacity, Theme.opacity.disabled);
             root.forceActiveFocus();
             tryCompare(tip, "opened", false);
-            repeatedHint.repeatsReason = false;
-            openReason(control);
-            const unmarked = placedBox(tip);
-            verify(tip.scene.obstacles.reduce((sum, each) => sum + overlap(unmarked, each), 0) > 0);
-            tip.shown = false;
-            tryCompare(tip, "opened", false);
+            compare(OverlayState.coveredReason, null);
+            compare(repeatedHint.opacity, 1);
+        }
+
+        function test_the_covered_text_reference_clears_on_destruction() {
+            const text = Qt.createQmlObject('import QtQuick; Text { text: "repeat" }', root);
+            OverlayState.coveredReason = text;
+            text.destroy();
+            tryCompare(OverlayState, "coveredReason", null);
         }
 
         // An icon is an image the reason never covers.
