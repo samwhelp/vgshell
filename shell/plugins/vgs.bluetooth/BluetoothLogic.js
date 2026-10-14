@@ -795,16 +795,14 @@ function mineMenu(row) {
 
 // What the bar icon shows for POWER, the published power view or null,
 // CONNECTED, the count of connected devices, and HIDEWHENOFF, the setting:
-// { shown, icon, count, tooltip }. It hides before the service published,
-// with no adapter, and while off when HIDEWHENOFF holds; `count` is the
-// connected count while on, "" otherwise.
+// { shown, icon, tooltip }. It hides before the service published,
+// with no adapter, and while off when HIDEWHENOFF holds.
 function barView(power, connected, hideWhenOff) {
-    if (power === null) return { shown: false, icon: "bluetooth", count: "", tooltip: "Bluetooth" };
+    if (power === null) return { shown: false, icon: "bluetooth", tooltip: "Bluetooth" };
     var linked = power.on && connected > 0;
     return {
         shown: power.key !== "no-adapter" && power.key !== "service-needed" && !(hideWhenOff && !power.on),
         icon: !power.on ? "bluetooth-off" : linked ? "bluetooth-connected" : "bluetooth",
-        count: linked ? String(connected) : "",
         tooltip: linked ? "Bluetooth: " + connected + " connected" : "Bluetooth: " + power.text
     };
 }

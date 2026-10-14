@@ -536,14 +536,14 @@ function verifyDevices(logic) {
 function verifyBar(logic) {
     const on = { key: "on", on: true, text: "On" }, off = { key: "off", on: false, text: "Off" };
     const rows = [
-        ["before the service published", null, 0, false, { shown: false, icon: "bluetooth", count: "", tooltip: "Bluetooth" }],
-        ["on with nothing connected", on, 0, false, { shown: true, icon: "bluetooth", count: "", tooltip: "Bluetooth: On" }],
-        ["on with two connected", on, 2, false, { shown: true, icon: "bluetooth-connected", count: "2", tooltip: "Bluetooth: 2 connected" }],
-        ["off with devices still listed connected", off, 1, false, { shown: true, icon: "bluetooth-off", count: "", tooltip: "Bluetooth: Off" }],
-        ["off with Hide when off", off, 0, true, { shown: false, icon: "bluetooth-off", count: "", tooltip: "Bluetooth: Off" }],
-        ["on with Hide when off", on, 0, true, { shown: true, icon: "bluetooth", count: "", tooltip: "Bluetooth: On" }],
-        ["no adapter", { key: "no-adapter", on: false, text: "No Bluetooth adapter found" }, 0, false, { shown: false, icon: "bluetooth-off", count: "", tooltip: "Bluetooth: No Bluetooth adapter found" }],
-        ["the service stopped", { key: "service-needed", on: false, text: "The Bluetooth service is off." }, 0, false, { shown: false, icon: "bluetooth-off", count: "", tooltip: "Bluetooth: The Bluetooth service is off." }],
+        ["before the service published", null, 0, false, { shown: false, icon: "bluetooth", tooltip: "Bluetooth" }],
+        ["on with nothing connected", on, 0, false, { shown: true, icon: "bluetooth", tooltip: "Bluetooth: On" }],
+        ["on with two connected", on, 2, false, { shown: true, icon: "bluetooth-connected", tooltip: "Bluetooth: 2 connected" }],
+        ["off with devices still listed connected", off, 1, false, { shown: true, icon: "bluetooth-off", tooltip: "Bluetooth: Off" }],
+        ["off with Hide when off", off, 0, true, { shown: false, icon: "bluetooth-off", tooltip: "Bluetooth: Off" }],
+        ["on with Hide when off", on, 0, true, { shown: true, icon: "bluetooth", tooltip: "Bluetooth: On" }],
+        ["no adapter", { key: "no-adapter", on: false, text: "No Bluetooth adapter found" }, 0, false, { shown: false, icon: "bluetooth-off", tooltip: "Bluetooth: No Bluetooth adapter found" }],
+        ["the service stopped", { key: "service-needed", on: false, text: "The Bluetooth service is off." }, 0, false, { shown: false, icon: "bluetooth-off", tooltip: "Bluetooth: The Bluetooth service is off." }],
     ];
     for (const [label, power, connected, hide, want] of rows) same(logic.barView(power, connected, hide), want, "bar: " + label);
 }
@@ -759,7 +759,7 @@ const controls = [
     ["the failure from a timed-out connect", 'if (keep && old === "pending" && state === "Disconnected") next = "failed";', 'if (false) next = "failed";', "a failed connect shows Retry and one failure sentence"],
     ["Pair hides while another device pairs", "return pairing || row.pairing ? null", "return row.pairing ? null", "Pair hides while any pairing runs"],
     ["the bar hides with Hide when off while off", "!(hideWhenOff && !power.on)", "true", "bar: off with Hide when off"],
-    ["the bar counts only while on", "var linked = power.on && connected > 0;", "var linked = connected > 0;", "bar: off with devices still listed connected"],
+    ["the bar shows connected only while on", "var linked = power.on && connected > 0;", "var linked = connected > 0;", "bar: off with devices still listed connected"],
 ];
 
 function failsWith(mutantFile, message) {

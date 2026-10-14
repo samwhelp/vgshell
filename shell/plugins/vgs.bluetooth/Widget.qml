@@ -4,8 +4,8 @@ import qs.Commons
 import qs.Ui
 import "BluetoothLogic.js" as Logic
 
-// The Bluetooth icon in the bar: off, on, or connected with the count of
-// connected devices, as BluetoothLogic.barView decides from the power the
+// The Bluetooth icon in the bar: off, on, or connected, as
+// BluetoothLogic.barView decides from the power the
 // service publishes and the devices Quickshell's Bluetooth singleton
 // lists. It starts no process and writes nothing to BlueZ. A click opens
 // or closes the flyout under it. A hidden icon stays placed. The bar takes
@@ -35,7 +35,6 @@ BarWidget {
         anchors.centerIn: parent
         label: "Bluetooth"
         iconName: widget.view.icon
-        count: widget.view.count
         tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
         tooltip: widget.view.tooltip
         onClicked: widget.toggle()
