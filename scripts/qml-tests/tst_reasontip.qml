@@ -230,6 +230,37 @@ Item {
         }
     }
 
+    Item {
+        id: repeated
+        visible: false
+        width: 480
+        height: 260
+        Pane {
+            id: repeatedPane
+            anchors.fill: parent
+            title: "VPN"
+            switchShown: true
+            switchName: "Tailscale"
+            switchDisabledReason: "The administrator holds Tailscale until you choose Let my login control Tailscale."
+            switchUnlock: ({ label: "Let my login control Tailscale", run: () => {} })
+            Column {
+                width: repeatedPane.contentWidth
+                spacing: Theme.stack.group
+                Label { id: repeatedState; width: parent.width; role: "body"; text: "Connected through Zurich, Switzerland" }
+                Label {
+                    id: repeatedHint
+                    property bool repeatsReason: true
+                    width: parent.width
+                    role: "hint"
+                    text: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password."
+                    wrapMode: Text.Wrap
+                }
+                RowAction { id: repeatedAction; text: "Let my login control Tailscale" }
+                Section { width: parent.width; title: "Exit node"; Button { text: "None" } }
+            }
+        }
+    }
+
     TestCase {
         name: "reasontip"
         when: windowShown
@@ -259,6 +290,11 @@ Item {
                     tryCompare(tip, "opened", false);
                 }
             }
+            const repeatedTip = reasonTip(repeatedPane.headerSwitch);
+            if (repeatedTip !== null) {
+                repeatedTip.shown = false;
+                tryCompare(repeatedTip, "opened", false);
+            }
             header.visible = false;
             header.named = true;
             headerPane.switchDisabledReason = "Sign in as the administrator to change this switch.";
@@ -266,6 +302,8 @@ Item {
             marked.visible = false;
             iconed.visible = false;
             packed.visible = false;
+            repeated.visible = false;
+            repeatedHint.repeatsReason = true;
         }
 
         function descendants(node) {
@@ -475,6 +513,34 @@ Item {
             const tip = openReason(control);
             compare(tip.box, Qt.rect(0, 0, control.width, control.height));
             compare(tip.maxWidth, Theme.tooltip.maxWidth);
+        }
+
+        function test_a_reason_can_cover_only_text_that_repeats_its_cause_data() {
+            return [{ tag: "vgs", theme: "vgs" }, { tag: "flexoki-light", theme: "catalog/flexoki-light" }];
+        }
+
+        function test_a_reason_can_cover_only_text_that_repeats_its_cause(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../themes/" + data.theme + "/theme.json"), false);
+            request.send();
+            compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
+            repeated.visible = true;
+            const control = repeatedPane.headerSwitch;
+            const tip = openReason(control);
+            const place = placedBox(tip);
+            compare(tip.scene.obstacles.reduce((sum, each) => sum + overlap(place, each), 0), 0);
+            compare(overlap(place, words(repeatedState)), 0);
+            compare(overlap(place, box(repeatedAction)), 0);
+            compare(overlap(place, box(control)), 0);
+            verify(overlap(place, words(repeatedHint)) > 0);
+            root.forceActiveFocus();
+            tryCompare(tip, "opened", false);
+            repeatedHint.repeatsReason = false;
+            openReason(control);
+            const unmarked = placedBox(tip);
+            verify(tip.scene.obstacles.reduce((sum, each) => sum + overlap(unmarked, each), 0) > 0);
+            tip.shown = false;
+            tryCompare(tip, "opened", false);
         }
 
         // An icon is an image the reason never covers.

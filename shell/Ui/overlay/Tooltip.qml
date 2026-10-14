@@ -222,7 +222,8 @@ Item {
     }
 
     // What a drawn item is to a "clear" tooltip: a Tab stop is a
-    // "control", a Text, TextInput or TextEdit a "text", an Image or an
+    // "control", a Text, TextInput or TextEdit a "text" ("repeat" when
+    // it declares repeatsReason), an Image or an
     // Icon of this module an "image"; anything else, another Shape such as
     // a card's background too, draws no obstacle of its own. A Qt Quick
     // Controls control sets activeFocusOnTab from its focusPolicy: a
@@ -230,7 +231,7 @@ Item {
     // IconButton (2026-10-13).
     function obstacleKind(item) {
         if (item.activeFocusOnTab === true) return "control";
-        if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return "text";
+        if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return item.repeatsReason === true ? "repeat" : "text";
         if (item.sourceSize !== undefined) return "image";
         if (Array.isArray(item.painted) && item.stroke !== undefined) return "image";
         return "";
@@ -245,7 +246,7 @@ Item {
             const ink = item.painted;
             return item.mapToItem(view, ink[0], ink[1], ink[2] - ink[0], ink[3] - ink[1]);
         }
-        if (kind !== "text") return item.mapToItem(view, 0, 0, item.width, item.height);
+        if (kind !== "text" && kind !== "repeat") return item.mapToItem(view, 0, 0, item.width, item.height);
         const roomX = item.width - item.leftPadding - item.rightPadding;
         const roomY = item.height - item.topPadding - item.bottomPadding;
         const across = item.effectiveHorizontalAlignment;
@@ -270,13 +271,13 @@ Item {
         if (view === null) throw new Error("Tooltip: anchor=" + anchorItem + " has no window to place a clear tooltip in");
         const holders = [];
         for (let at = anchorItem.parent; at !== null; at = at.parent) holders.push(at);
-        const obstacles = [];
+        const obstacles = [], repeats = [];
         const walk = (item, held) => {
             if (item === anchorItem || !item.visible || item.opacity <= 0) return;
             const kind = holders.indexOf(item) === -1 ? obstacleKind(item) : "";
             if (kind !== "") {
                 const drawn = cut(drawnBox(item, kind, view), held);
-                if (drawn !== null) obstacles.push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: kind === "control" });
+                if (drawn !== null) (kind === "repeat" ? repeats : obstacles).push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: kind === "control" });
                 return;
             }
             const inner = item.clip ? cut(item.mapToItem(view, 0, 0, item.width, item.height), held) : held;
@@ -293,7 +294,7 @@ Item {
             width: Math.max(mapped.x + mapped.width, owned.x + owned.width) - Math.min(mapped.x, owned.x),
             height: Math.max(mapped.y + mapped.height, owned.y + owned.height) - Math.min(mapped.y, owned.y)
         };
-        const span = obstacles.concat([anchor]).reduce((all, each) => ({
+        const span = obstacles.concat(repeats, [anchor]).reduce((all, each) => ({
             x: Math.min(all.x, each.x), y: Math.min(all.y, each.y),
             right: Math.max(all.right, each.x + each.width), bottom: Math.max(all.bottom, each.y + each.height)
         }), { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
@@ -302,6 +303,7 @@ Item {
         const corner = anchorItem.mapToItem(view, 0, 0);
         return {
             obstacles: obstacles,
+            repeats: repeats,
             anchor: anchor,
             origin: { x: corner.x, y: corner.y },
             content: { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
@@ -314,7 +316,8 @@ Item {
     // each centred on the item, then on its start and on its end edge,
     // held inside `content`; none overlaps the item. The first place by
     // [outside content, covers a Tab stop, the obstacle area it covers]
-    // wins: the first free place, else the place that covers the least,
+    // plus the centre of each text that repeats the reason. The first
+    // free place wins, else the place that covers the least,
     // one that stays inside the content and covers no Tab stop first.
     function clearPlace(scene, width, height, gap) {
         const a = scene.anchor, room = scene.content;
@@ -327,6 +330,11 @@ Item {
             for (const x of across) places.push({ x: x, y: y, width: w, height: h });
         for (const x of [Math.ceil(a.x + a.width + gap), Math.floor(a.x - gap - w)])
             for (const y of along) places.push({ x: x, y: y, width: w, height: h });
+        // Repeated reason text offers room away from the anchor too.
+        for (const repeat of scene.repeats) {
+            const place = { x: hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width), y: hold(repeat.y + (repeat.height - h) / 2, room.y, h, room.height), width: w, height: h };
+            if (covered(place, a) === 0) places.push(place);
+        }
         const rank = place => [
             covered(place, room) === w * h ? 0 : 1,
             scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0,

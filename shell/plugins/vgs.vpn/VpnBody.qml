@@ -114,6 +114,7 @@ FocusScope {
         }
         Label {
             objectName: "vpn-setup-hint"
+            readonly property bool repeatsReason: true
             width: parent.width
             visible: setupStep.visible && text !== ""
             role: "hint"

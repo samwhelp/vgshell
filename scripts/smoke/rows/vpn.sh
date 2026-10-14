@@ -13,9 +13,9 @@
 # Rows: the service publishes the fixture's state to the widget, the
 # flyout and the pane; an unset operator offers Allow and locks the
 # connection switch, whose reason opens on hover in the flyout, where it
-# covers no text, image or Tab stop when a free place exists; the locked
-# header's three-line reason takes the least text overlap when none exists,
-# with no Tab stop covered first, and opens on keyboard focus
+# covers no connection text or control, over the Setup paragraph that
+# repeats its cause, under pointer and keyboard focus in both themes;
+# the reason also opens on keyboard focus
 # in the pane; Space on the locked switch starts no change;
 # the keyboard reaches Allow and then the switch's unlock mark, which runs
 # the same step and hands the terminal `vgshell system apply
@@ -41,7 +41,7 @@
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -131,45 +131,12 @@ area = sum(cover(o) for o in s["obstacles"])
 print("free" if area == 0 else "covers %d px" % area)' "${2:-}"
 }
 vpn_tip_cover_word() { local reading; reading="$(vpn_tip_cover "$@")" || return 1; echo "${reading%% *}"; }
-# The locked header's candidate places from the placement contract, ranked
-# against the real open tooltip's scene. A free candidate still requires
-# zero overlap. PLANT "worse" substitutes a safe candidate with more text
-# overlap, which must fail the minimum read.
-vpn_header_place() { # HOST [PLANT]
-  local gap
-  gap="$(ipc smoke themeValue tooltip.gap)" || return 1
-  ipc smoke itemValues "$1" vgs.vpn Tooltip opened,placed,scene | py_reply '
-import json, math, sys
-tips = [t for t in json.load(sys.stdin) if t["opened"] and isinstance(t.get("scene"), dict)]
-if not tips: print("closed"); sys.exit()
-s, p = tips[0]["scene"], tips[0]["placed"]
-a, c = s["anchor"], s["content"]
-w, h = math.ceil(p["width"]), math.ceil(p["height"])
-gap = float(sys.argv[2])
-def hold(at, low, size, span): return max(low, min(math.floor(at + 0.5), low + span - size))
-xs = [hold(at, c["x"], w, c["width"]) for at in [a["x"] + (a["width"] - w) / 2, a["x"], a["x"] + a["width"] - w]]
-ys = [hold(at, c["y"], h, c["height"]) for at in [a["y"] + (a["height"] - h) / 2, a["y"], a["y"] + a["height"] - h]]
-places = [(x, y) for y in [math.ceil(a["y"] + a["height"] + gap), math.floor(a["y"] - gap - h)] for x in xs]
-places += [(x, y) for x in [math.ceil(a["x"] + a["width"] + gap), math.floor(a["x"] - gap - w)] for y in ys]
-def cover(at, o):
-    x, y = at
-    return max(0, min(x + w, o["x"] + o["width"]) - max(x, o["x"])) * max(0, min(y + h, o["y"] + o["height"]) - max(y, o["y"]))
-def controls(at): return any(o["control"] and cover(at, o) > 0 for o in s["obstacles"])
-def area(at): return sum(cover(at, o) for o in s["obstacles"])
-safe = [at for at in places if cover(at, c) == w * h and not controls(at)]
-if not safe: print("no-safe-place"); sys.exit()
-minimum = min(area(at) for at in safe)
-at = (p["x"] + s["origin"]["x"], p["y"] + s["origin"]["y"])
-if sys.argv[1] == "worse":
-    worse = [at for at in safe if area(at) > minimum]
-    if not worse: print("no-worse-control"); sys.exit()
-    at = max(worse, key=area)
-covered = area(at)
-valid = cover(at, c) == w * h and not controls(at) and covered == minimum
-verdict = ("free" if minimum == 0 else "least") if valid else "worse"
-print("%s covered_px=%g minimum_px=%g controls=%d" % (verdict, covered, minimum, controls(at)))' "${2:-}" "$gap"
+# Each poll sends at most one Tab until the actual switch holds focus.
+vpn_switch_focus() {
+  if [[ $(ipc smoke activeFocusItem panel vgs.vpn) == '["Switch",""]' ]]; then echo focused; return; fi
+  type_keys -k Tab || return 1
+  echo moving
 }
-vpn_header_place_word() { local reading; reading="$(vpn_header_place "$@")" || return 1; echo "${reading%% *}"; }
 vpn_setup_label() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x["label"] for x in (json.loads(t) if t.startswith("[") else []) if x["key"]=="setup"]; print(json.dumps(r))'; }
 vpn_body_state() { vpn_body "$1" vpn | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 vpn_exit_rows() { vpn_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
@@ -415,20 +382,37 @@ expect_poll "the locked switch draws its unlock mark named for Allow" drawn vpn_
 expect "the locked switch's reason names Allow's step" True vpn_reason_names panel "Let my login control Tailscale"
 vpn_reason="$(vpn_body panel lockReason)" || vpn_reason=unread
 expect_poll "the pointer on the locked switch opens its reason" "$vpn_reason" vpn_switch_tip
-vpn_header_reading="$(vpn_header_place panel)" || vpn_header_reading=unread
-printf 'vpn-header-reason: state=locked-header %s\n' "$vpn_header_reading"
-if [[ $vpn_header_reading == free\ * ]]; then
-  expect "the locked header reason with a free place covers no text, image or Tab stop" free vpn_tip_cover panel
-else
-  expect "the locked header three-line reason with no free place covers no Tab stop and the least text" least vpn_header_place_word panel
-fi
-expect "control: the locked header reason rejects a place with more text overlap" worse vpn_header_place_word panel worse
+expect "the locked header reason covers no connection text or control" free vpn_tip_cover panel
 expect "control: the reason's place moved onto a text covers it" covers vpn_tip_cover_word panel obstacle
 rest_pointer || fail "vpn: moving the pointer off the switch failed"
 expect_poll "the pointer off the locked switch closes its reason" closed vpn_tip panel
 expect "the flyout closes before System" ok ipc shell hide panel vgs.vpn
 expect_poll "the locked flyout is gone" hidden vpn_shown panel
 expect_poll "the closed locked flyout gives the poll its 30 s back" 30000 vpn_interval
+vpn_theme="$home/.config/vgshell/theme.json"
+vpn_theme_before="$(ipc smoke themeName)" || return 1
+[[ ! -e $vpn_theme ]] || cp -- "$vpn_theme" "$vpn_dir/theme-before.json"
+for vpn_theme_name in vgs flexoki-light; do
+  vpn_theme_source="$repo/themes/vgs/theme.json"
+  [[ $vpn_theme_name != flexoki-light ]] || vpn_theme_source="$repo/themes/catalog/flexoki-light/theme.json"
+  cp -- "$vpn_theme_source" "$vpn_theme.next" && mv -- "$vpn_theme.next" "$vpn_theme"
+  expect_poll "the VPN reason theme applies: $vpn_theme_name" "$vpn_theme_name" ipc smoke themeName
+  expect "the locked flyout opens for $vpn_theme_name" ok ipc shell summon panel vgs.vpn '{"source":"smoke"}'
+  expect_poll "the pointer opens the reason in $vpn_theme_name" "$vpn_reason" vpn_switch_tip
+  expect "the pointer reason covers no connection text or control in $vpn_theme_name" free vpn_tip_cover panel
+  rest_pointer || fail "vpn: moving off the switch failed"
+  expect_poll "Tab reaches the header switch in $vpn_theme_name" focused vpn_switch_focus
+  expect_poll "focus opens the reason in $vpn_theme_name" "$vpn_reason" vpn_tip panel
+  expect "the focus reason covers no connection text or control in $vpn_theme_name" free vpn_tip_cover panel
+  printf 'vpn-header-reason: theme=%s pointer=free focus=free\n' "$vpn_theme_name"
+  expect "the themed locked flyout closes" ok ipc shell hide panel vgs.vpn
+done
+if [[ -e $vpn_dir/theme-before.json ]]; then
+  cp -- "$vpn_dir/theme-before.json" "$vpn_theme.next" && mv -- "$vpn_theme.next" "$vpn_theme"
+else
+  rm -f -- "${vpn_theme:?}"
+fi
+expect_poll "the VPN row restores its theme" "$vpn_theme_before" ipc smoke themeName
 expect "System enables for the VPN section" ok ipc shell setPluginEnabled vgs.system true
 expect "the VPN section opens in System" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn","source":"smoke"}'
 expect_poll "VPN's pane is mounted" shown vpn_shown window
@@ -626,6 +610,7 @@ for old, new in (
 service.write_text(text)
 text = body.read_text()
 for old, new in (
+    ('readonly property bool repeatsReason: true', 'readonly property bool repeatsReason: false'),
     ('kind: wanted ? "profile-up" : "profile-down",', 'kind: wanted ? "profile-down" : "profile-up",'),
     ('root.shell.ipc.call("import-wireguard", "")', 'root.shell.ipc.call("refresh", "")'),
 ):
@@ -661,6 +646,13 @@ expect "control: missing availability guard starts Import on an unavailable back
 expect_poll "control: the unavailable import reaches the fixture terminal" "$(words vgs.vpn/import-wireguard tui/import-wireguard.sh)" recorded_tail
 expect_run_end "control: unavailable import fixture ends" vgs.vpn/import-wireguard
 expect "control: System closes" ok ipc shell hide window vgs.system
+device_reply tailscale 0 "" get operator
+rescan "the unmarked Setup control needs Allow again"
+expect_poll "the unmarked Setup control offers Allow" allow vpn_setup
+expect "the unmarked Setup control opens its flyout" ok ipc shell summon panel vgs.vpn '{"source":"smoke"}'
+expect_poll "the unmarked Setup control opens the switch reason" "$vpn_reason" vpn_switch_tip
+expect "control: unmarked Setup makes the reason cover connection text" covers vpn_tip_cover_word panel
+expect "the unmarked Setup control closes" ok ipc shell hide panel vgs.vpn
 expect "the control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the control's service is gone" False record_exists vgs.vpn
 rm -rf -- "${vpn_copy:?}"

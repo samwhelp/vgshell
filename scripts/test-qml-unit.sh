@@ -933,6 +933,7 @@ mutations=(
   "a field keeps its reason from its control|controls/Field.qml|        when: root.reasonTarget !== null && root.disabledReason !== \"\"|        when: false|tst_disabledreason.qml"
   "a locked control's reason opens under it, over its row|controls/DisabledReason.qml|            side: \"clear\"|            side: \"below\"|tst_reasontip.qml"
   "a reason covers a Tab stop to cover less text|overlay/Tooltip.qml|scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0|0|tst_reasontip.qml"
+  "a reason ignores text that repeats its cause|overlay/Tooltip.qml|item.repeatsReason === true|false|tst_reasontip.qml"
   "an unlock mark's reason opens under it, over the hint|controls/UnlockMark.qml|        tooltipSide: \"clear\"|        tooltipSide: \"below\"|tst_reasontip.qml"
   "an unlock mark's reason covers the toggle it explains|overlay/Tooltip.qml|const owner = holders.find(item => item.activeFocusOnTab === true);|const owner = undefined;|tst_reasontip.qml"
   "a reason covers an icon|overlay/Tooltip.qml|if (Array.isArray(item.painted) && item.stroke !== undefined) return \"image\";|if (false) return \"image\";|tst_reasontip.qml"
