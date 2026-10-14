@@ -57,15 +57,15 @@
 #      a system or AUR upgrade
 #  14. a shell restart when a package step or the rebuild replaced the VGS
 #      package
-#  15. the result list: one line per source step, plugin, theme and
-#      skipped package, installed, skipped or failed with its cause
-#  16. a check request to refresh the widget and window
-#  17. a reboot question when the run changed a package, by pacman -Q
+#  15. a check request to refresh the widget and window
+#  16. a reboot question when the run changed a package, by pacman -Q
 #      before the first package step and after the last, that the CachyOS
 #      reboot hook names under its script's conditions
 #      (UpdatesLogic.rebootPackages through bin/facts reboot), or the
 #      kernel or the running Hyprland was replaced (tui.sh's
 #      vgs_tui_reboot_check)
+#  17. the result list, then the failure count and failed parts: the last
+#      output names each failed part, its cause and its next step
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
@@ -152,6 +152,7 @@ _updates_run() { # LABEL ARGV...
 # _updates_declined to 1 when the user said no: the `declined=` refusal of
 # `vgshell plugin|theme update`, or a step whose own text ends on a [Y/n]
 # or [y/N] question, as pacman and an AUR helper leave one answered no.
+# Also sets _updates_next for the result line's action.
 _updates_cause_of() { # FILE
   local line out last="" keyed=0 value="" held="" tail="" after="" own=""
   _updates_declined=0
@@ -177,11 +178,28 @@ _updates_cause_of() { # FILE
     _updates_cause="${after:-$value}"
   fi
   if [[ $own =~ \[(Y/n|y/N)\]:?[[:space:]]*$ ]]; then _updates_declined=1; fi
+  _updates_next="Update again; if it fails again, the log names the cause. Select Open last log in Updates."
+  # VGS's theme refusal and makepkg's build errors can precede a closing
+  # line such as Aborting, so map the whole stderr the step supplied.
+  case "$out" in
+    *"another theme command holds the theme lock"*)
+      _updates_cause="Another theme change is still running."
+      _updates_next="Wait for it to finish, then update again from the Updates panel."
+      ;;
+    *"A failure occurred in pkgver()"*)
+      _updates_cause="The package could not determine its version."
+      _updates_next="Update again from the Updates panel."
+      ;;
+    *"A failure occurred in build()"*|*"failed to build"*)
+      _updates_cause="A package could not be built."
+      _updates_next="Update again from the Updates panel."
+      ;;
+  esac
 }
 
 # Runs one source step, ARGV, and adds its result to _updates_results as
 # `LABEL: <result>`: installed; skipped when the user declined it; failed
-# with its cause line, else `exit <n>`. _updates_outcome is installed,
+# with its cause and next step, else `exit <n>`. _updates_outcome is installed,
 # declined or failed. The run goes on after a failure, so neither errexit
 # nor the ERR trap sees it. Its stderr reaches the terminal and the cause
 # file both, and the tee is waited for, so the file is whole when it is
@@ -213,7 +231,11 @@ _updates_source() { # ID LABEL ARGV...
   fi
   _updates_outcome=failed
   _updates_diagnostic "updates: failed source=$id exit=$status"
-  _updates_results+=("$label: failed, ${_updates_cause:-exit $status}")
+  if [[ $id == aur ]]; then label="AUR packages"
+  elif [[ $label == System ]]; then label="System packages"
+  fi
+  _updates_results+=("$label: failed, ${_updates_cause:-exit $status} Next: $_updates_next")
+  _updates_failed_parts+=("$label")
   _updates_failures=$((_updates_failures + 1))
   vgs_tui_warn "$label failed. The rest of the update goes on."
 }
@@ -827,7 +849,7 @@ updates_main() {
   # The result list, the failed steps' count, whether a reboot read warned,
   # and the file a source step's stderr is copied to: one file, since the
   # lock holds one run at a time.
-  _updates_results=() _updates_failures=0 _updates_reboot_warned=0
+  _updates_results=() _updates_failed_parts=() _updates_failures=0 _updates_reboot_warned=0
   _updates_cause_file="$state/.step-stderr"
 
   # What the run acts on: the plugin's settings and the system's managers.
@@ -1149,17 +1171,22 @@ updates_main() {
     vgs_tui_step "Restarting the shell on the updated VGS"
     "$_updates_vgshell" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
   fi
-  # Plain lines, not a box: a cause line can be wider than the window,
-  # and the terminal wraps a line where it would break a box's border.
-  if [[ ${#_updates_results[@]} -gt 0 ]]; then
-    vgs_tui_step "Update result"
-    printf '  %s\n' "${_updates_results[@]}"
-  fi
   rm -f -- "${_updates_cause_file:?}"
   local ended=success
   if [[ $_updates_failures -gt 0 ]]; then ended=failed; fi
   _updates_recheck "$ended"
-  if [[ $ended == failed ]]; then vgs_tui_error "Some updates failed. The list above names each cause."; fi
   _updates_reboot "${_updates_core[@]}"
+  # Plain lines wrap within the window. Keep the result after the restart,
+  # recheck and reboot output so the failed parts remain in view.
+  if [[ ${#_updates_results[@]} -gt 0 ]]; then
+    vgs_tui_step "Update result"
+    printf '  %s\n' "${_updates_results[@]}"
+  fi
+  if [[ $ended == failed ]]; then
+    vgs_tui_error "$_updates_failures of ${#_updates_results[@]} parts failed"
+    local failed_parts=""
+    for label in "${_updates_failed_parts[@]}"; do failed_parts+="${failed_parts:+, }$label"; done
+    printf 'Failed parts: %s\n' "$failed_parts"
+  fi
   [[ $ended == success ]] || exit 1
 }

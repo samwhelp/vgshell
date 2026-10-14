@@ -137,6 +137,7 @@ case "$1 $2" in
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
+    [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
     [ ! -e "$FIX/interrupt-$5" ] || exit 130
     [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; }
     [ ! -e "$FIX/decline-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; exit 1; }
@@ -147,6 +148,7 @@ case "$1 $2" in
   "plugin update"|"theme update")
     if [ "$1" = theme ] && [ -x "$FIX/theme-update" ]; then exec "$FIX/theme-update" "$@"; fi
     for id; do :; done
+    [ ! -e "$FIX/busy-$id" ] || { printf "vgshell: refused: theme=%s reason=busy\nanother theme command holds the theme lock\n" "$id" >&2; exit 75; }
     [ ! -e "$FIX/decline-$id" ] || { printf "vgshell: update %s? [y/N] vgshell: refused: declined=%s\nthe checkout stays at its commit\n" "$id" "$id" >&2; exit 1; }
     [ ! -e "$FIX/offline-$id" ] || { printf "vgshell: refused: fetch=%s\nfatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org\n" "$id" >&2; exit 1; } ;;
   "pkg check")
@@ -285,6 +287,7 @@ stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
   done
   [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
+[ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
@@ -480,7 +483,7 @@ row_snapshot() {
   assert "a failed snapshot leaves the exit 0" test "$status" == 0
 }
 # A failed source records its cause and the run goes on with every later
-# source; the reboot question still follows the result list, and the run
+# source; the result list follows the reboot question, and the run
 # exits 1.
 row_failure() {
   reset_fix
@@ -492,11 +495,48 @@ row_failure() {
   assert "the plugin update runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell plugin update acme.one"
   assert "the AUR runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell pkg run upgrade --manager aur"
   assert "the result list names the failed source with its cause line" out_has "mise: failed, error: failed to install crush"
+  assert "an unknown cause gives a next step and the log button" out_has "Next: Update again; if it fails again, the log names the cause. Select Open last log in Updates."
   assert "the result list names the later source installed" out_has "AUR: installed"
   assert "the failure stays in the developer log" diag_has "updates: failed source=mise exit=9"
   assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
   assert "a failed source is not a stopped run" out_lacks "The update stopped."
   assert "a failed source still asks to reboot after an upgraded kernel" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+}
+# The owner's failed theme change and VGS build, plus an AUR build, leave
+# one end block after the shell restart and reboot answer. These wording
+# assertions are the issue's explicit acceptance, including its control.
+row_failed_end() {
+  reset_fix
+  reboot_hook
+  self_json package '"vgshell-git"' true
+  printf '[{"id":"tokyo-night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
+  touch "$fix/busy-tokyo-night" "$fix/build-aur" "$fix/pkgver-paru" "$fix/owner" "$fix/owner-changes" "$fix/running"
+  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r2-1\n' >"$fix/installed-after"
+  echo 1 >"$fix/answer-reboot"
+  pipeline update.sh
+  assert "three failed parts keep the failure exit" test "$status" == 1
+  assert "three failed parts still recheck before the reboot answer" before "vgshell ipc call vgs.updates invoke check " "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+  assert "the final block names every failed part, cause and action" python3 - "$tmp/out" <<'PY'
+import pathlib
+import re
+import sys
+
+text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", pathlib.Path(sys.argv[1]).read_text()).replace("\r", "")
+start = text.rfind("Update result\n")
+assert start >= 0, "end block missing"
+assert text.index("Restarting the shell on the updated VGS") < start
+assert text.index("Reboot later to run the updated system.") < start
+end = text[start:]
+expected = (
+    ("Theme tokyo-night", "Another theme change is still running.", "Wait for it to finish, then update again from the Updates panel."),
+    ("VGS package", "The package could not determine its version.", "Update again from the Updates panel."),
+    ("AUR packages", "A package could not be built.", "Update again from the Updates panel."),
+)
+for part, cause, action in expected:
+    assert f"{part}: failed, {cause} Next: {action}" in end, (part, end)
+assert end.rstrip().endswith("3 of 7 parts failed\nFailed parts: Theme tokyo-night, AUR packages, VGS package"), end
+assert "pkgver()" not in end and "theme lock" not in end and "Aborting" not in end, end
+PY
 }
 # The cause line VGS's own refusals leave, and a step the user said no to.
 # A fetch the plugin update refuses names git's message; `vgshell pkg
@@ -731,7 +771,7 @@ row_aur_failure() {
   touch "$fix/fail-paru"
   pipeline update.sh
   assert "a failed AUR step ends the run with 1" test "$status" == 1
-  assert "a failed AUR step with no stderr is listed with its status" out_has "AUR: failed, exit 7"
+  assert "a failed AUR step with no stderr is listed with its status" out_has "AUR packages: failed, exit 7"
   assert "the credential is dropped after the failed AUR step" before "paru -Sua --devel" "sudo -k"
   rm -f -- "${fix:?}/fail-paru"
   touch "$fix/interrupt-paru"
@@ -1188,7 +1228,7 @@ row_pipeline_plain() {
   assert "the pipeline leaves no page markup in the window secondary" out_has "updates-test: secondary=plain"
 }
 row_facts_plain; row_pipeline_plain
-row_full; row_trusted; row_snapshot; row_failure; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
+row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_recheck_failure; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
@@ -1248,6 +1288,7 @@ control srcinfo-base-ignored '            base) base_file="$value" ;;' '        
 control unfound-reads-none '    if ! _updates_install_name "$dir/build" "$name"; then' '    if ! _updates_install_name "$dir/build" "$name"; then _updates_install_file="" _updates_install_dir=""; elif false; then' row_review_split
 control cause-keeps-escapes 'sed -E -e $'"'"'s/\e' 'sed -E -e $'"'"'s/NEVER\e' row_failure
 control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
+control no-failure-next-step ' Next: $_updates_next' '' row_failed_end
 control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted
 control declined-fails 'if [[ $_updates_declined == 1 ]]; then' 'if false; then' row_full
 control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_reboot_core
