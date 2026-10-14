@@ -3,10 +3,12 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
+const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
 // Typed setup readings published by the core, after its single probe chain.
@@ -15,7 +17,35 @@ const readsMissing = Object.assign({}, readsReady, { compiled: false, installed:
 // The `dictation` capability's state (DictationModel.state).
 const lent = (daemon, phase, holder) => ({ daemon: daemon, phase: phase, holder: holder, engine: "", model: "", device: "" });
 
+// Run the shipped publisher against the states the core publishes during
+// initial setup and restart. A stale Ready value must be replaced even
+// while no completed setup reading exists.
+function verifyRefreshSetup(logic, source) {
+  const found = source.match(/^    function refreshSetup\(\) \{\n[\s\S]*?^    \}/m);
+  assert.ok(found, "the service declares the setup publisher");
+  const ready = logic.setupState(readsReady, "ready");
+  for (const [label, initial, states] of [
+    ["cold read failure", { tone: "info", action: "" }, [["failed", null, "warning", "setup"]]],
+    ["restart read failure", ready, [["starting", null, "info", ""], ["failed", null, "warning", "setup"]]],
+    ["restart completes", ready, [["starting", null, "info", ""], ["ready", readsReady, "ok", ""]]]
+  ]) {
+    const published = [];
+    const world = { VoiceLogic: logic, voxtypePresent: true, dictationState: null, daemon: "", setupValue: initial };
+    world.publishSetup = () => published.push(world.setupValue);
+    const refresh = vm.runInNewContext("(" + found[0] + ")", world);
+    for (const [daemon, setup, tone, action] of states) {
+      world.daemon = daemon;
+      world.dictationState = { daemon, setup };
+      const before = published.length;
+      refresh();
+      assert.equal(published.length, before + 1, label + ": the new core state is published");
+      same([world.setupValue.tone, world.setupValue.action], [tone, action], label + ": current setup replaces the prior value");
+    }
+  }
+}
+
 function verify(logic) {
+  verifyRefreshSetup(logic, serviceSource);
   // ownDictation: [name, the capability's state, whether the last shown
   // was Voice's own, { own, phase }].
   const ownRows = [
@@ -38,6 +68,8 @@ function verify(logic) {
   // line count, a fragment the first line holds or null]. Ready's line
   // carries the version and the model; each missing thing is one line.
   const stateRows = [
+    ["a pending setup read is not ready", null, "starting", "info", "", 0, null],
+    ["a failed setup read offers recovery", null, "failed", "warning", "setup", 1, null],
     ["ready reads the version and the model", readsReady, "ready", "ok", "", 1, "1.1.0"],
     ["ready names the configured model", readsReady, "ready", "ok", "", 1, "parakeet-tdt-0.6b-v3"],
     ["a daemon that is starting adds no line", readsReady, "starting", "ok", "", 1, "1.1.0"],
@@ -236,6 +268,12 @@ try {
     try { verify(load(mutant)); } catch (e) { failed = true; }
     assert.ok(failed, `control ${label}: suite passed without the rule`);
   }
+  const needle = "        setupValue = VoiceLogic.setupState(dictationState.setup, daemon);";
+  assert.equal(serviceSource.split(needle).length, 2, "the null-setup control text occurs once");
+  const copy = path.join(temp, "Service.qml");
+  fs.writeFileSync(copy, serviceSource.replace(needle, "        if (dictationState.setup === null) return;\n" + needle));
+  assert.throws(() => verifyRefreshSetup(load(file), fs.readFileSync(copy, "utf8")), assert.AssertionError,
+    "control: retaining old setup while readings are null must fail publication");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
@@ -324,4 +362,4 @@ delete stored.sounds.feedback.held;
 stored.sounds.feedback.default = "own";
 assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
 
-console.log(`test-voice-logic: ok controls=${controls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length}`);
+console.log(`test-voice-logic: ok controls=${controls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length + 1}`);

@@ -245,6 +245,9 @@ const SETUP = [
 // in the core. Set up dictation is offered where the core's setup applies;
 // another voxtype or another microphone is the user's to change in Voice.
 const DICTATION = [
+    ["configured engine missing", "local", { daemon: "absent", device: "default", setup: { engine: "moonshine", model: "base", version: "voxtype 1.1.0", compiled: false, installed: true } }, [], "speech=dictation-absent", "named", true, ["moonshine"]],
+    ["configured model missing", "local", { daemon: "absent", device: "default", setup: { engine: "moonshine", model: "base", version: "voxtype 1.1.0", compiled: true, installed: false } }, [], "speech=dictation-absent", "named", true, ["base"]],
+    ["configured engine and model missing", "local", { daemon: "absent", device: "default", setup: { engine: "moonshine", model: "base", version: "voxtype 1.1.0", compiled: false, installed: false } }, [], "speech=dictation-absent", "named", true, ["moonshine", "base"]],
     ["voxtype missing", "local", { daemon: "failed", device: "" }, ["voxtype"], "speech=dictation-failed", "withheld", true],
     ["daemon absent", "local", { daemon: "absent", device: "" }, [], "speech=dictation-absent", "entry", true],
     ["daemon failed", "local", { daemon: "failed", device: "" }, [], "speech=dictation-failed", "entry", true],
@@ -1529,7 +1532,6 @@ function verify(gate) {
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
     verifyListRead(require(providersFile), fs.readFileSync(accountsFile, "utf8"));
     verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
-    verifyDictationSetup(gate);
     verifyElevenLabsRow(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyVoiceRoute(gate, fs.readFileSync(serviceFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
@@ -1871,6 +1873,13 @@ try {
     }
     {
         const accountsSource = fs.readFileSync(accountsFile, "utf8");
+        const needle = '        values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);\n';
+        assert.equal(serviceSource.split(needle).length, 2, "the configured-part publication control text occurs once");
+        const copy = path.join(temp, "dictation-setup-unpublished-Service.qml");
+        fs.writeFileSync(copy, serviceSource.replace(needle, ""));
+        assert.throws(() => verifyDictation(load(file), fs.readFileSync(copy, "utf8"), accountsSource), assert.AssertionError,
+            "control: bypassing core setup publication must omit the configured names");
+        console.log("test-jarvis-setup-gate: control=dictation-setup-unpublished rejected=true");
         for (const [name, needle] of [["voxtype-row-unpublished",
             '        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")\n            throw new Error("jarvis-accounts: status=refused");\n']]) {
             assert.equal(accountsSource.split(needle).length, 2, name + ": the control's text occurs once");
@@ -2175,7 +2184,7 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
-    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 13 + 59}`);
+    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 13 + 59 + 1}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
@@ -2312,7 +2321,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
     const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
     const publishRequirements = accountsSource.match(/^    function publishRequirements\(\) \{\n[\s\S]*?^    \}/m);
     assert.ok(publishSetup && publishRequirements);
-    for (const [label, voice, state, missing, cause, expect, offered] of DICTATION) {
+    for (const [label, voice, state, missing, cause, expect, offered, names] of DICTATION) {
         assert.equal(gate.dictationCause(voice, state), cause, label + ": the cause");
         const values = {};
         const shell = { settings: { voiceAccount: "" }, requirements: { missing }, status: { values, set: (key, value) => {
@@ -2325,6 +2334,11 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
             assert.deepEqual([voice_.tone, voice_.action, "hint" in voice_], ["warning", "dictation", false], label + ": the Voice step");
+        else if (expect === "named") {
+            assert.deepEqual([voice_.tone, voice_.action], ["warning", "dictation"], label + ": the Voice step retains setup");
+            for (const name of ["moonshine", "base"])
+                assert.equal(voice_.hint.includes(name), names.includes(name), label + ": the holder names " + name + " only when missing");
+        }
         else assert.deepEqual(voice_, plain({ entry: gate.DICTATION[cause], loading: gate.noAction(gate.LOADING), done: gate.noAction(gate.DONE) }[expect]), label + ": the Voice step");
         assert.equal(values.setup.lines, undefined, label + ": the summary draws no cause line");
         const row = judge.statusRows(manifest, values, missing).find(item => item.key === "setupVoice");
@@ -2342,23 +2356,6 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
             label + ": the start the service refuses itself");
     }
-}
-
-// Missing prerequisite names are the configured values, from the core's
-// published setup result. No holder runs an inventory probe of its own.
-function verifyDictationSetup(gate) {
-    const value = gate.DICTATION["speech=dictation-absent"];
-    for (const [compiled, installed, names] of [
-        [false, true, ["engine-fixture"]], [true, false, ["model-fixture"]],
-        [false, false, ["engine-fixture", "model-fixture"]]
-    ]) {
-        const shown = gate.dictationSetup(value, { setup: { engine: "engine-fixture", model: "model-fixture", compiled, installed } });
-        assert.equal(shown.action, "dictation");
-        assert.equal(shown.tone, "warning");
-        for (const name of names) assert.ok(shown.hint.includes(name), "the holder names " + name);
-    }
-    assert.equal(gate.dictationSetup(value, { setup: { compiled: true, installed: true } }), value);
-    assert.equal(gate.dictationSetup(value, null), value);
 }
 
 // The service's dictation start against a stand-in of the core that, as

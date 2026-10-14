@@ -292,7 +292,6 @@ Item {
             publishSetup();
             return;
         }
-        if (dictationState.setup === null) return;
         setupValue = VoiceLogic.setupState(dictationState.setup, daemon);
         publishSetup();
     }

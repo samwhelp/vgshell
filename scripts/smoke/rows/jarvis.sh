@@ -1783,13 +1783,15 @@ jarvis_disable
 # The stand-in answers Voice's config and info verbs from this part's files,
 # as rows/voice.sh's copy does.
 jarvis_voice_feedback="$sandbox/jarvis-voice-feedback"
+jarvis_voice_installed="$sandbox/jarvis-voice-installed"
 printf 'true\n' >"$jarvis_voice_feedback"
+touch -- "$jarvis_voice_installed"
 printf '%s' 'the stand-in heard this' >"$jarvis_dictation_words"
 rm -f -- "${jarvis_dictation_notes:?}"
 dictation_stand_ins on || fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
 cat >"$jarvis_voxtype" <<EOF_STUB
 #!/usr/bin/env bash
-voice_installed=$(printf %q "$sandbox/jarvis-voice-installed")
+voice_installed=$(printf %q "$jarvis_voice_installed")
 voice_feedback=$(printf %q "$jarvis_voice_feedback")
 voice_feedback_sets=$(printf %q "$sandbox/jarvis-voice-feedback-sets")
 voice_feedback_unreadable=$(printf %q "$sandbox/jarvis-voice-feedback-unreadable")
@@ -1874,7 +1876,7 @@ cp -- "$sandbox/jarvis-engine-original" "$jarvis_engine"
 rm -- "${repo:?}/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 rm -rf -- "${jarvis_local:?}"
 rm -f -- "${jarvis_local_marker:?}" "${jarvis_voxtype:?}" "${jarvis_voice_bridge:?}" "${jarvis_dictation_words:?}" "${jarvis_dictation_notes:?}" "${jarvis_voice_feedback:?}" \
-  "$sandbox/voxtype-follow.log" "$sandbox/jarvis-voice-feedback-sets"
+  "$sandbox/voxtype-follow.log" "$sandbox/jarvis-voice-feedback-sets" "$jarvis_voice_installed"
 dictation_stand_ins off
 jarvis_rescan
 jarvis_notice_close

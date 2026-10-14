@@ -47,7 +47,8 @@ var DAEMON_LINES = {
 };
 
 // Set up's state from READS, the core's typed setup readings, with
-// `present` false while voxtype is not found, and DAEMON, the capability's
+// null while the core reads setup or when that read failed, `present`
+// false while voxtype is not found, and DAEMON, the capability's
 // `daemon` word: { tone, text, lines, action, engine, model }, or
 // { hidden, lines, action, engine, model } without voxtype, whose missing
 // state the page's Requirements section states once and installs. Ready
@@ -57,10 +58,16 @@ var DAEMON_LINES = {
 // missing, since the core's setup cannot free it, `setup` while another
 // line stands, "" once ready and without voxtype.
 function setupState(reads, daemon) {
-    if (reads.present === false)
+    if (reads !== null && reads.present === false)
         return { hidden: true, lines: [], action: "", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
     if (DAEMON_LINES[daemon] === undefined)
         throw new Error("voice: daemon " + JSON.stringify(daemon) + " is not one of " + Object.keys(DAEMON_LINES).join(", "));
+    if (reads === null) {
+        var failed = daemon === "failed";
+        return { tone: failed ? "warning" : "info", text: failed ? "To do" : "Checking",
+            lines: failed ? [DAEMON_LINES.failed] : [], action: failed ? "setup" : "",
+            engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
+    }
     var engine = reads.engine || DEFAULT_ENGINE;
     var model = reads.model || DEFAULT_MODEL;
     var lines = [];
