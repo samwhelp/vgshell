@@ -80,15 +80,20 @@ var TOKENS = {
         // text, at the shell's 13 px floor; the flyout's entries and their
         // detail are chrome, at the 12 px floor
         // (shell/Commons/Tokens.js). Detail text and that message read
-        // at 4.5:1 on the card over any wallpaper. The fade is the
+        // at 4.5:1 as drawn on the card over any wallpaper. The fade is the
         // colour's alpha, which leaves a link in it at full strength.
         detail: { size: length(13), color: color("alpha({text.foreground}, 0.86)") },
+        // The fill a link's colour is picked on: the card nearest the ink,
+        // moved toward it by the share of that fill a regular stroke lets
+        // through, 1 - 0.966 (TEXT_STROKE_COVERAGE of
+        // shell/Commons/ThemeLogic.js), so the pick reads at 4.5:1 as drawn.
+        linkGround: color("mix({card.nearInk}, {text.foreground}, 0.034)"),
         // A notice description's page link, underlined: the theme's accent
         // where it reads at 4.5:1 there, else the accent mixed halfway to
         // the foreground where that reads, else the foreground.
-        // scripts/test-theme-logic.js holds both to 4.5:1 in every shipped
-        // and catalogued theme.
-        link: color("readable({palette.accent}, {card.nearInk}, readable(mix({palette.accent}, {text.foreground}, 0.5), {card.nearInk}, {text.foreground}))"),
+        // scripts/test-theme-logic.js holds the link and the detail colour
+        // to 4.5:1 as drawn in every shipped and catalogued theme.
+        link: color("readable({palette.accent}, {text.linkGround}, readable(mix({palette.accent}, {text.foreground}, 0.5), {text.linkGround}, {text.foreground}))"),
         empty: { size: length(13) },
         flyout: { size: length(12), detail: length(12) }
     },

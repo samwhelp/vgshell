@@ -1798,9 +1798,10 @@ try {
 }
 
 // The launcher's detail text and a notice's link are text on the launcher
-// card under the cursor's plate: each reads at 4.5:1 or more there over a
-// black and a white wallpaper, the darkest and lightest the card can lie
-// over, in the shipped theme and every catalog theme. The drawn fill is
+// card under the cursor's plate: each reads at 4.5:1 or more as drawn
+// there, at the regular weight both draw in, over a black and a white
+// wallpaper, the darkest and lightest the card can lie over, in the
+// shipped theme and every catalog theme. The drawn fill is
 // composed here from the card fill and the plate, never read from the
 // look's own `card.nearInk`. Answers each [theme, role, wallpaper] short
 // of the floor.
@@ -1813,7 +1814,7 @@ function launcherDetailShortfalls(judge, launcher) {
         for (const wallpaper of ["#000000", "#ffffff"]) {
             const fill = judge.overlay(judge.parseColor(look.highlight.plate), judge.overlay(judge.parseColor(look.card.fill), judge.parseColor(wallpaper)));
             for (const [role, ink] of [["link", look.text.link], ["detail", look.text.detail.color]])
-                if (judge.contrastRatio(judge.overlay(judge.parseColor(ink), fill), fill) < judge.READABILITY_FLOOR) out.push([name, role, wallpaper]);
+                if (judge.drawnTextRatio(judge.overlay(judge.parseColor(ink), fill), fill, 400) < judge.READABILITY_FLOOR) out.push([name, role, wallpaper]);
         }
     }
     return out;
@@ -1822,19 +1823,22 @@ function launcherDetailShortfalls(judge, launcher) {
     const judge = load(judgeFile);
     assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "the launcher's detail text and link read at 4.5:1 on the card in every theme");
     // Controls: the link in the theme's accent alone, as LinkText draws it
-    // by default, and the detail text at a 0.5 fade.
+    // by default, the detail text at a 0.5 fade, and the link picked on
+    // the card itself, which reads there by the colours' ratio and falls
+    // short as drawn in catppuccin-latte and ayu.
     const launcherSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.launcher/Appearance.js"), "utf8");
     const launcherControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "launcher-control-"));
     try {
-        for (const [role, needle, replacement] of [
-            ["link", /link: color\("readable\(.*\)"\),/g, 'link: color("{palette.accent}"),'],
-            ["detail", /color: color\("alpha\(\{text\.foreground\}, [0-9.]+\)"\) \},/g, 'color: color("alpha({text.foreground}, 0.5)") },']
+        for (const [role, needle, replacement, themes] of [
+            ["link", /link: color\("readable\(.*\)"\),/g, 'link: color("{palette.accent}"),', ["vgs", "catalog/flexoki-light"]],
+            ["detail", /color: color\("alpha\(\{text\.foreground\}, [0-9.]+\)"\) \},/g, 'color: color("alpha({text.foreground}, 0.5)") },', ["vgs", "catalog/flexoki-light"]],
+            ["link", /linkGround: color\("mix\(.*\)"\),/g, 'linkGround: color("{card.nearInk}"),', ["catalog/catppuccin-latte", "catalog/ayu"]]
         ]) {
             assert.equal((launcherSource.match(needle) || []).length, 1, `launcher control "${role}": the text to replace must occur once`);
             const mutant = path.join(launcherControlDir, "Appearance.js");
             fs.writeFileSync(mutant, launcherSource.replace(needle, () => replacement));
             const short = launcherDetailShortfalls(judge, load(mutant));
-            assert.ok(short.some(row => row[0] === "vgs" && row[1] === role) && short.some(row => row[0] === "catalog/flexoki-light" && row[1] === role), `launcher control "${role}": the planted colour is short in vgs and flexoki-light`);
+            assert.ok(themes.every(theme => short.some(row => row[0] === theme && row[1] === role)), `launcher control "${role}": the planted colour is short in ${themes.join(" and ")}`);
             assert.ok(short.every(row => row[1] === role), `launcher control "${role}": the other role still reads`);
         }
     } finally {
