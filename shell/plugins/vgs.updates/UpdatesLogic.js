@@ -227,17 +227,17 @@ function firstSourceError(snapshot) {
 // vgshell and bin/check keep these diagnostics in the snapshot. The status
 // line and source rows use words; the log keeps the source's full result.
 var CHECK_ERRORS = [
-    [/spawn=failed|start=failed|start-failed/, "The update check could not start. Select Refresh to try again."],
-    [/unparseable|not-json|output-unreadable|cache=|^sources|^checkedAt$/, "The update result could not be read. Select Refresh to try again."],
-    [/timeout/, "The update check took too long. Select Refresh to try again."],
-    [/fetch|remote|unreachable|release=http/, "The update source could not be reached. Check your connection and select Refresh."],
+    [/spawn=failed|start=failed|start-failed/, "The update check could not start. Select Open if needed, then Refresh in the Updates window to try again."],
+    [/unparseable|not-json|output-unreadable|cache=|^sources|^checkedAt$/, "The update result could not be read. Select Open if needed, then Refresh in the Updates window to try again."],
+    [/timeout/, "The update check took too long. Select Open if needed, then Refresh in the Updates window to try again."],
+    [/fetch|remote|unreachable|release=http/, "The update source could not be reached. Check your connection, select Open if needed, then Refresh in the Updates window."],
     [/missing|reason=absent/, "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup)."]
 ];
 
 function errorText(reason) {
     for (var i = 0; i < CHECK_ERRORS.length; i++)
         if (CHECK_ERRORS[i][0].test(String(reason))) return CHECK_ERRORS[i][1];
-    return "The update check failed. Select Refresh to try again.";
+    return "The update check failed. Select Open if needed, then Refresh in the Updates window to try again.";
 }
 
 // The check's `state` status value: `text` is the short state its badge
@@ -252,7 +252,7 @@ function checkState(snapshot, checking, now, intervalMs, checkFailure) {
     if (snapshot.error !== null && snapshot.error !== "") return { tone: "danger", text: "Failed", hint: errorText(snapshot.error) };
     var source = firstSourceError(snapshot);
     if (source !== null) return { tone: "warning", text: ((source.label || source.source) + " failed").slice(0, 200), hint: errorText(source.error) };
-    if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "Check is old", hint: "The last check is old. Select Refresh to check again." };
+    if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "Check is old", hint: "The last check is old. Select Open if needed, then Refresh in the Updates window to check again." };
     return { tone: "ok", text: pendingCount(snapshot) > 0 ? "Updates waiting" : "Up to date" };
 }
 

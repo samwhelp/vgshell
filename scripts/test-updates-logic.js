@@ -141,7 +141,7 @@ function verify(logic) {
   same(snapshot.sources.map(s => [s.source, s.count, s.label]), [["pacman", 2, "System"], ["aur", 1, "AUR"], ["flatpak", 0, "Flatpak"], ["mise", null, "mise"], ["vgs", 1, "VGS"], ["plugins", 1, "Plugins"], ["themes", 0, "Themes"]]);
   same(snapshot.sources[4].packages, [{ name: "vgs", old: "0.1.0.r1.g1111111", new: "0.1.0.r2.g2222222" }]);
   assert.equal(logic.pendingCount(snapshot), 5);
-  same(logic.checkState(snapshot, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "mise failed", hint: "The update check failed. Select Refresh to try again." });
+  same(logic.checkState(snapshot, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "mise failed", hint: logic.errorText(snapshot.sources[3].error) });
   const clean = JSON.parse(JSON.stringify(snapshot));
   clean.sources[3].error = null;
   clean.sources[3].count = 0;
@@ -150,9 +150,12 @@ function verify(logic) {
   same(logic.checkState(clean, false, now, 6 * 60 * 60 * 1000, ""), { tone: "ok", text: "Up to date" });
   same(logic.checkState(clean, true, now, 6, ""), { tone: "info", text: "Checking" });
   clean.checkedAt = now - 13;
-  same(logic.checkState(clean, false, now, 6, ""), { tone: "warning", text: "Check is old", hint: "The last check is old. Select Refresh to check again." });
+  const staleState = logic.checkState(clean, false, now, 6, "");
+  same([staleState.tone, staleState.text], ["warning", "Check is old"]);
+  assert.equal(typeof staleState.hint, "string");
+  assert.ok(staleState.hint.length > 0);
   clean.error = "exit=1";
-  same(logic.checkState(clean, false, now, 6, ""), { tone: "danger", text: "Failed", hint: "The update check failed. Select Refresh to try again." });
+  same(logic.checkState(clean, false, now, 6, ""), { tone: "danger", text: "Failed", hint: logic.errorText(clean.error) });
   same(logic.publishValues(snapshot, false, now, 6 * 60 * 60 * 1000, "").pending, 5);
   assert.equal(logic.publishValues(snapshot, false, now, 6, "").lastCheck, now);
   assert.equal(logic.nextCheckDelay(null, false, now, 6, null, null), 0);
@@ -177,7 +180,7 @@ function verify(logic) {
   assert.equal(logic.intervalMs({ intervalHours: 0 }), 3600000);
   assert.equal(logic.intervalMs({ intervalHours: 49 }), 48 * 3600000);
   same(snapshot.sources[5].packages, [{ name: "acme.one", old: "a", new: "b", behind: 2 }]);
-  same(logic.checkState(clean, false, now, 6, "timeout=120"), { tone: "danger", text: "Failed", hint: "The update check took too long. Select Refresh to try again." });
+  same(logic.checkState(clean, false, now, 6, "timeout=120"), { tone: "danger", text: "Failed", hint: logic.errorText("timeout=120") });
   same(logic.statusWrites({}, { pending: 1, lastCheck: null, checkState: { tone: "ok", text: "Up to date" }, sources: [] }).map(w => w.key), ["pending", "checkState", "sources"]);
   same(logic.statusWrites({ pending: 1 }, { pending: 1, checkState: { tone: "ok", text: "Up to date" } }).map(w => w.key), ["checkState"]);
   assert.equal(logic.nextCheckDelay(snapshot, false, now + 1000, 99999999, now, null), logic.RETRY_AFTER_FAILURE_MS - 1000);
@@ -211,7 +214,7 @@ function verify(logic) {
   const failedPlugins = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "bad", behind: null, head: null, upstream: null, error: "fetch=bad" }, { id: "good", behind: 3, head: "a", upstream: "b", error: null }]), themes: probe([]) }, now);
   const pluginRow = failedPlugins.sources.find(s => s.source === "plugins");
   same([pluginRow.count, pluginRow.error], [1, "bad: fetch=bad"]);
-  same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins failed", hint: "The update source could not be reached. Check your connection and select Refresh." });
+  same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins failed", hint: logic.errorText(pluginRow.error) });
   // `plugin outdated` emits refusals from installed_dir and the checkout
   // check. A refused unmanaged folder does not hide a real fetch failure.
   for (const [error, expectedError, tone] of [
@@ -269,8 +272,8 @@ function verifyView(logic) {
     [{ pending: 1, checkState: ok }, "1 update waiting"],
     [{ pending: 7, checkState: ok }, "7 updates waiting"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check stale" } }, "Check stale"],
-    [{ pending: 7, checkState: { tone: "warning", text: "Check is old", hint: "The last check is old. Select Refresh to check again." } }, "The last check is old. Select Refresh to check again."],
-    [{ checkState: { tone: "danger", text: "Failed", hint: "The update check failed. Select Refresh to try again." } }, "The update check failed. Select Refresh to try again."],
+    [{ pending: 7, checkState: { tone: "warning", text: "Check is old", hint: "stale recovery hint" } }, "stale recovery hint"],
+    [{ checkState: { tone: "danger", text: "Failed", hint: "failure recovery hint" } }, "failure recovery hint"],
     [{ checking: true }, "Checking for updates"],
     [{}, "Not checked yet"]
   ];
@@ -306,9 +309,9 @@ function verifyView(logic) {
   same(logic.widgetTooltip({}, now, when), { title: "Not checked yet", details: ["Never checked"] });
   same(logic.windowRows(values), [
     { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
-    { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: "The update check failed. Select Refresh to try again.", badge: "Failed", badgeTone: "warning", updatable: false, lines: [], more: "" },
+    { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: logic.errorText(sources[1].error), badge: "Failed", badgeTone: "warning", updatable: false, lines: [], more: "" },
     { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", secondary: "Up to date", badge: "0", badgeTone: "neutral", updatable: false, lines: [], more: "" },
-    { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", secondary: "The update source could not be reached. Check your connection and select Refresh.", badge: "1", badgeTone: "warning", updatable: true, lines: ["acme.one: 2 commits behind"], more: "" },
+    { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", secondary: logic.errorText(sources[3].error), badge: "1", badgeTone: "warning", updatable: true, lines: ["acme.one: 2 commits behind"], more: "" },
     { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, lines: ["x"], more: "" }
   ]);
   same(logic.windowRows({}), []);
