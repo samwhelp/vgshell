@@ -2410,6 +2410,7 @@ scene_wallpaper-browser() { # MODE
 
 launcher_rows() { ipc smoke launcherRows overlay vgs.launcher; }
 launcher_rows_labels() { launcher_rows | py_reply 'import json,sys; print(json.dumps([r[1] for r in json.load(sys.stdin)]))'; }
+launcher_card_box() { ipc smoke descendantGeometry overlay vgs.launcher | py_reply 'import json,sys; print(json.dumps(next((r["box"] for r in json.load(sys.stdin) if r["type"] == "GlassSurface" and r["visible"]), None)))'; }
 # settled_box HOST ID TYPE TEXT: `same` when two readings of that item's box
 # a frame apart agree, `moving` when they differ.
 settled_box() {
@@ -2447,7 +2448,7 @@ os.replace(path + ".tmp", path)
 PYLAUNCHER
   expect_poll "the launcher result frame has stopped motion" 0 ipc smoke themeValue motion.scale
   take "launcher-$1-results"
-  record_item "launcher-$1-results" "$(ipc smoke layerItemGeometry vgs.launcher GlassSurface entered true)"
+  record_item "launcher-$1-results" "$(launcher_card_box)"
   cp -- "$sandbox/launcher-theme.json" "$theme_file.tmp"
   mv -T -- "$theme_file.tmp" "$theme_file"
   expect_poll "the launcher restores theme motion" "$motion" ipc smoke themeValue motion.scale
