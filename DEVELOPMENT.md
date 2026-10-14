@@ -111,11 +111,13 @@ The maintainer cuts every release from their own machine, with their own gpg key
 
 Both take `--dry-run`, which makes every check and changes nothing outside `dist/`. `scripts/test-release.sh` and `scripts/test-publish-aur.sh` prove them with stub `gh`, `gpg` and `ssh`, in the `cli` area of `scripts/validate`.
 
+At each landing on `main` that changes `packaging/arch/vgshell-git/`, the overseer publishes `vgshell-git` to the AUR through `scripts/publish-aur.sh` on the maintainer's machine. The landing notice names the AUR commit or the refusal. A refusal leaves the publication acceptance box open.
+
 ### Before the first release
 
 - Set `release_key` in `install.sh` to the full upper-case fingerprint of the release signing key, the `fpr` value `gpg --list-keys --with-colons` prints. The release signs `SHA256SUMS` with that key, and the curl installer verifies the signature against the same value. `scripts/release` refuses while it is empty.
 - Log in with `gh auth login`, as an account that may create releases in `vanillagreencom/vgshell`.
-- Register the SSH public key of the AUR account that maintains `vgshell` and `vgshell-git`. The publisher reads the private key from `AUR_SSH_KEY_FILE` and nothing under `~/.ssh`. It pins the AUR's host keys in `packaging/aur-known-hosts`.
+- Register an RSA SSH public key with the AUR account that maintains `vgshell` and `vgshell-git`. The publisher reads the private key from `AUR_SSH_KEY_FILE` and nothing under `~/.ssh`. It pins the AUR's host keys in `packaging/aur-known-hosts`.
 
 ### Versions
 
