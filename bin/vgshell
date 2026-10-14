@@ -257,7 +257,7 @@
 # `vgshell <VERSION>`. `version --json` prints
 # `{"version":"<VERSION>","describe":"X.Y.Z.r<N>.g<hash>"}`, describe null
 # outside a checkout. `version` adds `running=<version> restart=needed|none`
-# from the guarded shell's start reading, or `running=none` with no shell.
+# from the guarded shell's start reading, or `running=none` with no reply.
 # Its JSON adds `running` and `restart`, both null with no shell. `--version`
 # reads only this tree, with --json for its JSON report. Refusals, with
 # nothing on stdout: version=missing or
@@ -1926,8 +1926,7 @@ version_report() { # FORMAT [COMMAND]: loaded is the runner's start reading
     printf '%s\n' "${describe:-$version}"
     return
   fi
-  if [[ ${2:-} == version ]] && pid="$(shell_pid 2>/dev/null)"; then
-    running="$(ipc shell version)" || exit $?
+  if [[ ${2:-} == version ]] && pid="$(shell_pid 2>/dev/null)" && running="$(ipc shell version 2>/dev/null)"; then
     [[ $running =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.r[0-9]+\.g[0-9a-f]+)?$ ]] || refuse 69 "ipc=shell.version reason=malformed-reply"
     restart=needed
     [[ $running != "${describe:-$version}" ]] || restart=none

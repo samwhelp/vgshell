@@ -59,6 +59,7 @@ cat >"$tmp/qs" <<'SH'
 [[ $1 == ipc && $2 == --pid && $4 == call && $5 == shell && $6 == version ]] || exit 1
 printf '%s\n' "$*" >>"$STUB_ARGS"
 printf '%s\n' "$STUB_REPLY"
+exit "${STUB_STATUS:-0}"
 SH
 chmod +x "$tmp/qs"
 env -i PATH="$PATH" sleep 300 &
@@ -70,11 +71,14 @@ checkout_describe="$want_version.r3.g${hash:0:7}"
 version_running_is() { # RUNNING RESTART: empty arguments mean JSON null
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if (d["running"], d["restart"]) == (sys.argv[2] or None, sys.argv[3] or None) else 1)' "$tmp/out" "$1" "$2"
 }
-for state in equal different absent; do
+for state in equal different absent refusing disconnected; do
   running="$checkout_describe" restart=none rt="$rt_version"
+  inst_env=()
   case "$state" in
     different) running=9.8.7.r1.gabcdef0; restart=needed ;;
     absent) running=""; restart=""; rt="$rt_empty" ;;
+    refusing) running=""; restart=""; inst_env+=(STUB_REPLY='Function not found.') ;;
+    disconnected) running=""; restart=""; inst_env+=(STUB_STATUS=1) ;;
   esac
   INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "version text reads $state" "$cfg" "$rt" 0 "running=${running:-none}${restart:+ restart=$restart}" "" version
   check "version keeps its checkout line ($state)" has_line "vgshell $checkout_describe"
@@ -86,6 +90,19 @@ for state in equal different absent; do
   INST_BIN="$checkout/bin/vgshell" INST_REPLY="$running" inst "Fedora's --version --json reads the checkout ($state)" "$cfg" "$rt" 0 "{\"version\":\"$want_version\",\"describe\":\"$checkout_describe\",\"running\":null,\"restart\":null}" "" --version --json
   check "the package forms make no IPC call ($state)" test ! -s "$tmp/args"
 done
+inst_env=()
+
+# Restore the fatal version read in a disposable copy. An older shell's
+# exit-zero client refusal must make the success assertions fail.
+fatal="$tmp/version-fatal"; cp -R -- "$checkout" "$fatal"
+python3 - "$fatal/bin/vgshell" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); text = p.read_text()
+old = ' && running="$(ipc shell version 2>/dev/null)"; then'
+assert text.count(old) == 1
+p.write_text(text.replace(old, '; then\n    running="$(ipc shell version)" || exit $?'))
+PY
+INST_BIN="$fatal/bin/vgshell" INST_REPLY='Function not found.' inst "control: fatal version read rejects the older shell" "$cfg" "$rt_version" 69 "" 'vgshell: refused: ipc=shell.version reason=function-not-found' version
 
 # Route the package forms through the user report in a disposable copy.
 # The package assertions must reject its running-shell reading.

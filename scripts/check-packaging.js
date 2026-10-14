@@ -421,6 +421,47 @@ function pacmanFresh(recipe) {
     return true;
 }
 
+// Execute the recipe's pkgver against a private checkout, never the caller's
+// runtime. The older shell's client answers function-not-found with exit 0.
+function pacmanVersion() {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "check-pkgver-"));
+    scratchDirs.push(scratch);
+    const tree = path.join(scratch, "vgshell");
+    fs.mkdirSync(tree);
+    fs.cpSync(path.join(codeRoot, "bin"), path.join(tree, "bin"), { recursive: true });
+    fs.copyFileSync(path.join(root, "bin/vgshell"), path.join(tree, "bin/vgshell"));
+    fs.copyFileSync(path.join(root, "VERSION"), path.join(tree, "VERSION"));
+    fs.writeFileSync(path.join(scratch, "qs"), '#!/bin/bash\nprintf "%s\\n" "$*" >>"$STUB_ARGS"\nprintf "Function not found.\\n"\n', { mode: 0o755 });
+    const env = {
+        PATH: scratch + ":" + path.dirname(process.execPath) + ":/usr/bin:/bin", HOME: scratch,
+        XDG_RUNTIME_DIR: path.join(scratch, "runtime"), XDG_CONFIG_HOME: path.join(scratch, "config"),
+        VGS_TEST_RUN: "1", TMPDIR: scratch, LC_ALL: "C", STUB_ARGS: path.join(scratch, "ipc-args"),
+        GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_AUTHOR_NAME: "fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+        GIT_COMMITTER_NAME: "fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+    };
+    fs.mkdirSync(env.XDG_RUNTIME_DIR);
+    const setup = childProcess.spawnSync("/bin/bash", ["-c", 'set -e; git init -q "$1"; git -C "$1" add .; git -C "$1" commit -q -m fixture; printf "%s.r1.g%s\\n" "$(cat "$1/VERSION")" "$(git -C "$1" rev-parse --short=7 HEAD)"', "pkgver-fixture", tree], { encoding: "utf8", env });
+    if (setup.error || setup.status !== 0) refuse("pkgver=fixture-failed", setup.stderr || "");
+    for (const state of ["absent", "older"]) {
+        const run = childProcess.spawnSync("/bin/bash", ["-c", `
+set -euo pipefail
+if [[ $3 == older ]]; then
+  sleep 300 &
+  holder=$!
+  trap 'kill "$holder"; wait "$holder" || :' EXIT
+  printf '%s\\n' "$holder" >"$XDG_RUNTIME_DIR/vgshell.lock"
+fi
+source "$1"
+srcdir="$2"
+pkgver
+`, "pkgver-check", path.join(root, "packaging/arch/vgshell-git/PKGBUILD"), scratch, state], { encoding: "utf8", env, timeout: 10000 });
+        if (run.error || run.status !== 0 || run.stdout !== setup.stdout || run.stderr !== "")
+            refuse(`pkgver=failed shell=${state}`, run.error ? run.error.message : run.stdout + run.stderr);
+        if (fs.existsSync(env.STUB_ARGS)) refuse(`pkgver=ipc shell=${state}`);
+    }
+}
+
 // ---- dnf -------------------------------------------------------------------
 
 const DNF_BEGIN = "# begin runtime dependencies";
@@ -723,6 +764,7 @@ for (const [id, channel] of Object.entries(CHANNELS)) {
     judged.push(id);
 }
 licenceRule(licences);
+pacmanVersion();
 // Freshness last, so a missing tool still leaves every other rule judged.
 const notMeasured = [];
 for (const id of judged) {

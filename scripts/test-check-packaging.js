@@ -229,6 +229,15 @@ const where = (recipe = "vgshell") => `channel=pacman recipe=${recipe} scope=cor
 // name | setup(tree) | exit | first line (a function of the tree) | PATH |
 // arguments
 const ROWS = [
+    ["pkgver: a fatal running-shell read is refused with no shell", t => replaceIn(t, ["bin/vgshell"],
+        '  if [[ $1 == loaded ]]; then', '  running="$(ipc shell version)" || exit $?\n  if [[ $1 == loaded ]]; then'),
+        1, () => refused("pkgver=failed shell=absent")],
+    ["pkgver: routing --version through the shell report is refused", t => replaceIn(t, ["bin/vgshell"],
+        'version_report "$format" "$cmd"', 'version_report "$format" version'),
+        1, () => refused("pkgver=failed shell=absent")],
+    ["pkgver: an IPC call with unchanged version output is refused", t => replaceIn(t, ["bin/vgshell"],
+        '  if [[ $1 == loaded ]]; then', '  (ipc shell version) >/dev/null 2>&1 || :\n  if [[ $1 == loaded ]]; then'),
+        1, () => refused("pkgver=ipc shell=older")],
     ["Arch: a required shipped feature left optional is refused", t => {
         edit(t, SRC, "^\\tdepends = tesseract\\n", "");
         edit(t, SRC, "^(pkgbase = vgshell\\n)", "$1\toptdepends = tesseract: planted\n");
