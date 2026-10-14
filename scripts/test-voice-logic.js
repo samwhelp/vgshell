@@ -33,7 +33,7 @@ function verifyStartCorrection(source, manifest) {
   const widgetToggle = widgetSource.match(/^    function toggle\(\) \{\n[\s\S]*?^    \}/m);
   assert.ok(registration && widgetToggle, "the service and widget entry points exist");
   assert.ok(manifest.capabilities.includes("surfaces"), "the service receives the page route");
-  for (const [label, daemon, reads, answer, tab, action] of [
+  for (const [label, daemon, reads, answer, tab, action, tone = "warning"] of [
     ["failed daemon", "failed", readsReady, "refused: dictation=daemon-failed", "Setup", "setup"],
     ["failed setup read", "failed", null, "refused: dictation=daemon-failed", "Setup", "setup"],
     ["missing model", "absent", readsMissing, "refused: dictation=daemon-absent", "Setup", "setup"],
@@ -43,7 +43,7 @@ function verifyStartCorrection(source, manifest) {
     ["ready daemon", "ready", readsReady, "ok", "", ""],
     ["another holder", "ready", readsReady, "refused: dictation=busy holder=acme.dictation", "", ""],
     ["transcribing", "ready", readsReady, "refused: dictation=engine-busy state=transcribing", "", ""],
-    ["starting daemon", "starting", null, "refused: dictation=daemon-starting", "", ""]
+    ["starting daemon", "starting", null, "refused: dictation=daemon-starting", "Setup", "", "info"]
   ]) {
     const pages = [], starts = [], stops = [], warnings = [], handlers = {}, values = {};
     const world = { VoiceLogic: logic, registeredWith: null, voxtypePresent: true,
@@ -76,9 +76,12 @@ function verifyStartCorrection(source, manifest) {
       same(pages, tab === "" ? [] : [["vgs.voice", tab]], label + ": " + entry + " opens the correction for this cause");
       if (answer !== "ok") assert.ok(warnings.some(value => value.endsWith(answer)), label + ": the diagnostic cause remains in the log");
       if (tab !== "") {
-        same([world.setupValue.tone, world.setupValue.action], ["warning", action], label + ": current typed setup replaces stale Ready");
+        same([world.setupValue.tone, world.setupValue.action], [tone, action], label + ": current typed setup replaces stale Ready");
+        if (daemon === "starting") same(world.setupValue.lines, [], label + ": pending setup invents no failure cause");
         const request = pluginLogic.statusActionRequest(manifest, "vgs.voice", true, values, action === "stop" ? "otherService" : "setup");
-        same(request, action === "stop" ? { ok: true, kind: "tui", name: "stop-other" } : { ok: true, kind: "core", name: "dictation-setup" }, label + ": the existing action corrects the reported cause");
+        same(request, action === "stop" ? { ok: true, kind: "tui", name: "stop-other" }
+          : action === "setup" ? { ok: true, kind: "core", name: "dictation-setup" }
+          : { ok: false, answer: "refused: action=setup reason=not-offered" }, label + ": the current setup controls the existing action");
       }
     }
     if (label === "ready daemon") {
@@ -432,6 +435,7 @@ const judgedVoice = pluginLogic.validateManifest(shipped, path.dirname(manifestF
 assert.ok(judgedVoice.ok, "the Voice manifest supplies the correction route");
 verifyStartCorrection(serviceSource, judgedVoice.manifest);
 const startControls = [
+  ["the pending correction is not opened", ' || answer === "refused: dictation=daemon-starting"', ""],
   ["the correction is not opened", "            shell.surfaces.openPage(", "            if (false) shell.surfaces.openPage("],
   ["the correction uses stale Ready", "            refreshSetup();\n            shell.surfaces.openPage(", "            if (false) refreshSetup();\n            shell.surfaces.openPage("],
   ["the foreign daemon opens Setup", 'setupValue.action === "stop" ? "Settings/otherService" : "Setup"', 'setupValue.action === "stop" ? "Setup" : "Setup"']
