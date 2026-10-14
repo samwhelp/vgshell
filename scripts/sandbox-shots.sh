@@ -5,7 +5,7 @@
 #                                 [--size WxH] [--scale N]
 #                                 [--theme-card NAME] [--hidden]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
-#                                 [--dotfiles DIR] [--pages LIST]
+#                                 [--dotfiles DIR] [--pages LIST] [--enable LIST]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #                                 [--title-inventory]
 #       scripts/sandbox-shots.sh --check-desktop-pair BEFORE_DIR AFTER_DIR
@@ -186,6 +186,11 @@
 # corners. catalog-NAME is the tree's catalog package
 # themes/catalog/NAME, so a shot shows a component under any catalog theme;
 # a NAME the catalog lacks is refused as `sandbox-shots: refused: mode=`.
+# --enable LIST is a comma list of plugin ids. In each mode, before its
+# first scene, the run turns each one on and waits until it is built. An id
+# of another shape is refused as `sandbox-shots: refused: enable=<value>`,
+# and one the tree does not ship as
+# `sandbox-shots: refused: enable=<id> tree=<rev or checkout>`.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
@@ -348,6 +353,7 @@ preview_themes=()
 declare -A preview_wallpaper=()
 preview_dotfiles=""
 page_ids=()
+enable_ids=()
 require_window=""
 scenes=()
 title_inventory=false
@@ -363,6 +369,7 @@ while [[ $# -gt 0 ]]; do
     --preview-wallpaper) preview_wallpaper["${2%%=*}"]="${2#*=}"; shift 2 ;;
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --pages) IFS=, read -r -a page_ids <<<"$2"; shift 2 ;;
+    --enable) enable_arg="$2"; shift 2 ;;
     --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
@@ -382,6 +389,12 @@ done
 [[ $scale == 1 || $scale == 2 ]] || { printf 'sandbox-shots: refused: scale=%s\n' "$scale" >&2; exit 2; }
 [[ -z $shot_size || $shot_size =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || { printf 'sandbox-shots: refused: size=%s\n' "$shot_size" >&2; exit 2; }
 [[ $theme_card =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'sandbox-shots: refused: theme-card=%s\n' "$theme_card" >&2; exit 2; }
+# A plugin id has the shape of ID_PATTERN in shell/Core/PluginLogic.js.
+plugin_id='[a-z0-9]+(\.[a-z0-9-]+)+'
+if [[ -n ${enable_arg+set} ]]; then
+  [[ $enable_arg =~ ^$plugin_id(,$plugin_id)*$ ]] || { printf 'sandbox-shots: refused: enable=%s\n' "$enable_arg" >&2; exit 2; }
+  IFS=, read -r -a enable_ids <<<"$enable_arg"
+fi
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
@@ -570,6 +583,9 @@ for scene in "${scenes[@]}"; do
 done
 for mode in "${mode_list[@]}"; do
   [[ $mode != catalog-* || -f $tree/themes/catalog/${mode#catalog-}/theme.json ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
+done
+for id in "${enable_ids[@]}"; do
+  ships_plugin "$id" || { printf 'sandbox-shots: refused: enable=%s tree=%s\n' "$id" "${rev:-checkout}" >&2; exit 2; }
 done
 
 # shellcheck disable=SC2034 # the harness sourced below reads it
@@ -7626,6 +7642,10 @@ park_pointer
 take "00-desktop"
 for mode in "${mode_list[@]}"; do
   set_mode "$mode"
+  for id in "${enable_ids[@]}"; do
+    expect "enabling $id for the run is allowed" ok ipc shell setPluginEnabled "$id" true
+    expect_poll "$id is built for the run" True record_exists "$id"
+  done
   for scene in "${scenes[@]}"; do
     scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
     "scene_$scene" "$mode"

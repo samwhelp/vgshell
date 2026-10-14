@@ -840,10 +840,13 @@ scene_cases=(
   "a checkout without the AI Usage plugin refuses the ai-usage scene" 2 "sandbox-shots: refused: scene=ai-usage tree=checkout" ai-usage
   "a checkout with a catalog package takes its mode" 77 "qml-smoke: status=not-measured" --modes catalog-demo settings
   "a revision without a catalog package refuses its mode" 2 "sandbox-shots: refused: mode=catalog-demo" --rev "$old_rev" --modes catalog-demo manager
+  "a malformed enable list is refused" 2 "sandbox-shots: refused: enable=vgs.themes," --enable vgs.themes, settings
+  "a revision without the polkit plugin refuses enabling it" 2 "sandbox-shots: refused: enable=vgs.polkit tree=$old_rev" --rev "$old_rev" --enable vgs.polkit manager
+  "a checkout with the polkit plugin takes enabling it" 77 "qml-smoke: status=not-measured" --enable vgs.polkit,vgs.themes settings
 )
 # Each case is label, status, line, then its arguments up to the next case,
 # counted by the arguments each row above carries.
-scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1 3 5)
+scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1 3 5 3 5 3)
 # Where each case starts in scene_cases and how many arguments it takes, by
 # label, for the controls below.
 declare -A scene_at scene_argc
@@ -885,6 +888,12 @@ shots_controls=(
   "a catalog mode is looked for in the checkout"
   "-f \$tree/themes/catalog/\${mode#catalog-}/theme.json" "-f \$checkout/themes/catalog/\${mode#catalog-}/theme.json"
   "a revision without a catalog package refuses its mode"
+  "a malformed enable list goes on to the harness"
+  "refused: enable=%s\\n' \"\$enable_arg\" >&2; exit 2; }" "refused: enable=%s\\n' \"\$enable_arg\" >&2; }"
+  "a malformed enable list is refused"
+  "an enable id is not looked for in the tree"
+  "ships_plugin \"\$id\" || { printf 'sandbox-shots: refused: enable=" "true || { printf 'sandbox-shots: refused: enable="
+  "a revision without the polkit plugin refuses enabling it"
 )
 shots_mutant="$tmp/sandbox-shots-mutant.sh"
 for (( i = 0; i < ${#shots_controls[@]}; i += 4 )); do
