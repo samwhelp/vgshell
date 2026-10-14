@@ -222,8 +222,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             textFormat: Text.PlainText
                             text: entry.modelData.detail || ""
-                            color: menu.look.text.foreground
-                            opacity: menu.look.text.detail.opacity
+                            color: menu.look.text.detail.color
                             font.family: menu.look.font.family.sans
                             font.pixelSize: menu.look.text.flyout.detail
                         }

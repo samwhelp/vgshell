@@ -79,19 +79,17 @@ var TOKENS = {
         // A row's detail line and the empty list's message are reading
         // text, at the shell's 13 px floor; the flyout's entries and their
         // detail are chrome, at the 12 px floor
-        // (shell/Commons/Tokens.js).
-        detail: { size: length(13), opacity: share(0.5) },
-        // A notice's description names a step the user takes, so it reads
-        // at 4.5:1 on the card over any wallpaper. Its fade is its colour's
-        // alpha, which leaves the link in it at full strength.
-        notice: color("alpha({text.foreground}, 0.86)"),
-        // That description's page link, underlined: the theme's accent
+        // (shell/Commons/Tokens.js). Detail text and that message read
+        // at 4.5:1 on the card over any wallpaper. The fade is the
+        // colour's alpha, which leaves a link in it at full strength.
+        detail: { size: length(13), color: color("alpha({text.foreground}, 0.86)") },
+        // A notice description's page link, underlined: the theme's accent
         // where it reads at 4.5:1 there, else the accent mixed halfway to
         // the foreground where that reads, else the foreground.
         // scripts/test-theme-logic.js holds both to 4.5:1 in every shipped
         // and catalogued theme.
         link: color("readable({palette.accent}, {card.nearInk}, readable(mix({palette.accent}, {text.foreground}, 0.5), {card.nearInk}, {text.foreground}))"),
-        empty: { size: length(13), opacity: share(0.38) },
+        empty: { size: length(13) },
         flyout: { size: length(12), detail: length(12) }
     },
 

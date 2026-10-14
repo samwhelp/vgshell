@@ -1197,8 +1197,7 @@ Item {
                     visible: root.searching && displayModel.count === 0 && !(root.fileMode && fileSearch.busy) && !root.openWithTarget && !root.requestMode
                     textFormat: Text.PlainText
                     text: "No results"
-                    color: root.look.text.foreground
-                    opacity: root.look.text.empty.opacity
+                    color: root.look.text.detail.color
                     font.family: root.look.font.family.sans
                     font.pixelSize: root.look.text.empty.size
                     horizontalAlignment: Text.AlignHCenter

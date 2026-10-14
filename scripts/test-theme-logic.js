@@ -1797,14 +1797,14 @@ try {
     console.log(`test-theme-logic: glass highlight smallest dE (highlight/pressed) ${shown.map(theme => `${theme.name}=${theme.smallest.map(value => value.toFixed(2)).join("/")}`).join(" ")}`);
 }
 
-// The launcher notice's description and its link are text on the launcher
+// The launcher's detail text and a notice's link are text on the launcher
 // card under the cursor's plate: each reads at 4.5:1 or more there over a
 // black and a white wallpaper, the darkest and lightest the card can lie
 // over, in the shipped theme and every catalog theme. The drawn fill is
 // composed here from the card fill and the plate, never read from the
 // look's own `card.nearInk`. Answers each [theme, role, wallpaper] short
 // of the floor.
-function launcherNoticeShortfalls(judge, launcher) {
+function launcherDetailShortfalls(judge, launcher) {
     const out = [];
     for (const { name, values } of HIGHLIGHT_THEMES) {
         const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values);
@@ -1812,34 +1812,43 @@ function launcherNoticeShortfalls(judge, launcher) {
         const look = result.values;
         for (const wallpaper of ["#000000", "#ffffff"]) {
             const fill = judge.overlay(judge.parseColor(look.highlight.plate), judge.overlay(judge.parseColor(look.card.fill), judge.parseColor(wallpaper)));
-            for (const role of ["link", "notice"])
-                if (judge.contrastRatio(judge.overlay(judge.parseColor(look.text[role]), fill), fill) < judge.READABILITY_FLOOR) out.push([name, role, wallpaper]);
+            for (const [role, ink] of [["link", look.text.link], ["detail", look.text.detail.color]])
+                if (judge.contrastRatio(judge.overlay(judge.parseColor(ink), fill), fill) < judge.READABILITY_FLOOR) out.push([name, role, wallpaper]);
         }
     }
     return out;
 }
 {
     const judge = load(judgeFile);
-    assert.deepEqual(launcherNoticeShortfalls(judge, LAUNCHER), [], "the launcher notice's link and description read at 4.5:1 on the card in every theme");
+    assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "the launcher's detail text and link read at 4.5:1 on the card in every theme");
     // Controls: the link in the theme's accent alone, as LinkText draws it
-    // by default, and the description at the detail line's 0.5 fade.
+    // by default, and the detail text at a 0.5 fade.
     const launcherSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.launcher/Appearance.js"), "utf8");
     const launcherControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "launcher-control-"));
     try {
         for (const [role, needle, replacement] of [
             ["link", /link: color\("readable\(.*\)"\),/g, 'link: color("{palette.accent}"),'],
-            ["notice", /notice: color\("alpha\(\{text\.foreground\}, [0-9.]+\)"\),/g, 'notice: color("alpha({text.foreground}, 0.5)"),']
+            ["detail", /color: color\("alpha\(\{text\.foreground\}, [0-9.]+\)"\) \},/g, 'color: color("alpha({text.foreground}, 0.5)") },']
         ]) {
             assert.equal((launcherSource.match(needle) || []).length, 1, `launcher control "${role}": the text to replace must occur once`);
             const mutant = path.join(launcherControlDir, "Appearance.js");
             fs.writeFileSync(mutant, launcherSource.replace(needle, () => replacement));
-            const short = launcherNoticeShortfalls(judge, load(mutant));
+            const short = launcherDetailShortfalls(judge, load(mutant));
             assert.ok(short.some(row => row[0] === "vgs" && row[1] === role) && short.some(row => row[0] === "catalog/flexoki-light" && row[1] === role), `launcher control "${role}": the planted colour is short in vgs and flexoki-light`);
             assert.ok(short.every(row => row[1] === role), `launcher control "${role}": the other role still reads`);
         }
     } finally {
         fs.rmSync(launcherControlDir, { recursive: true, force: true });
     }
+    // The colour is the whole fade: no launcher view fades detail text or
+    // the empty list's message through an opacity of the look. Control: a
+    // view that does.
+    const fadedSites = sources => sources.filter(([, text]) => /\.text\.(detail|empty)\.opacity\b/.test(text)).map(([name]) => name);
+    const launcherDir = path.join(repo, "shell/plugins/vgs.launcher");
+    const views = fs.readdirSync(launcherDir).filter(name => name.endsWith(".qml")).map(name => [name, fs.readFileSync(path.join(launcherDir, name), "utf8")]);
+    assert.ok(views.some(([, text]) => text.includes(".text.detail.color")), "the launcher views are read");
+    assert.deepEqual(fadedSites(views), [], "no launcher view fades detail text through the look's opacity");
+    assert.deepEqual(fadedSites([["Faded.qml", "opacity: row.look.text.detail.opacity"]]), ["Faded.qml"], "launcher control: a faded detail site is named");
 }
 
 // Each control removes one rule's behaviour from a copy of the judge and

@@ -135,8 +135,7 @@ Item {
                 width: row.openWithHintShown ? Math.max(0, parent.width - hint.implicitWidth - parent.spacing) : parent.width
                 text: row.detail
                 visible: row.detailReference.page === ""
-                color: row.look.text.foreground
-                opacity: row.look.text.detail.opacity
+                color: row.look.text.detail.color
                 font.family: row.look.font.family.sans
                 font.pixelSize: row.look.text.detail.size
                 elide: Text.ElideRight
@@ -146,7 +145,7 @@ Item {
                 width: parent.width
                 role: "itemHint"
                 text: row.detail
-                color: row.look.text.notice
+                color: row.look.text.detail.color
                 linkColor: row.look.text.link
                 onPageActivated: (page, tab) => row.launcher.shell.surfaces.openPage(page, tab)
             }
@@ -161,8 +160,7 @@ Item {
                 Text {
                     textFormat: Text.PlainText
                     text: "open with"
-                    color: row.look.text.foreground
-                    opacity: row.look.text.detail.opacity
+                    color: row.look.text.detail.color
                     font.family: row.look.font.family.sans
                     font.pixelSize: row.look.text.detail.size
                     anchors.verticalCenter: parent.verticalCenter
@@ -180,8 +178,7 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: row.look.chevron.inset
         anchors.verticalCenter: parent.verticalCenter
-        color: row.look.text.foreground
-        opacity: row.look.text.detail.opacity
+        color: row.look.text.detail.color
         font.family: row.look.font.family.sans
         font.pixelSize: row.look.text.detail.size
         elide: Text.ElideRight
