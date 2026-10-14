@@ -147,19 +147,6 @@ Item {
     Store {
         id: store
         onReadyChanged: root.start()
-        onRecovered: archive => root.stateRecovered(archive)
-    }
-
-    function stateRecovered(archive) {
-        const home = Quickshell.env("HOME");
-        let folder = archive.slice(0, archive.lastIndexOf("/"));
-        if (home !== "" && folder.indexOf(home + "/") === 0) folder = "~" + folder.slice(home.length);
-        const sent = shell.notify.send({
-            title: "Notification history reset",
-            message: "Saved notifications and read marks reset.\nDo Not Disturb off. Sound on.\nOld file in " + folder,
-            tone: "warning", urgency: "critical", transient: true
-        });
-        if (sent !== "ok") console.error("notifications: recovery notice " + sent);
     }
 
     // An app's own notification sound is muted in the states in which the

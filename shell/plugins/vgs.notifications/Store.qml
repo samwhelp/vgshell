@@ -12,11 +12,9 @@ import "NotificationLogic.js" as Logic
 // every change. A file from an earlier boot comes back without its toasts
 // and its history (NotificationLogic.fromBoot), and a history entry leaves
 // once it is NotificationLogic.HISTORY_AGE old, at load and when one timer,
-// armed to the oldest entry, fires. A file of the previous version is
+// armed to the oldest entry, fires. A file of any earlier version is
 // rewritten as this one when it is read (NotificationLogic.migrateState),
-// through the same judge. An older version is set aside before a fresh
-// current file replaces it; its settings and notifications are reset.
-// A file the judge refuses or the store
+// through the same judge. A file the judge refuses or the store
 // cannot read, or a boot id it cannot read, is never overwritten: the store
 // keeps working in memory, says why in `problem`, and writes again only
 // after `reset`, which the user asks for by clearing the history. A failed
@@ -64,27 +62,13 @@ Item {
     property bool prepared: false
     property bool dirty: false
     property bool flushQueued: false
-    property string archived: ""
-    signal recovered(string archive)
 
     function hasKey(key) {
         return live.some(e => e.key === key) || history.some(e => e.key === key);
     }
 
     function read(text) {
-        if (Logic.obsoleteState(text)) {
-            enqueue({ argv: ["bash", script, "archive", path], done: (ok, output) => {
-                if (!ok) {
-                    refuse("unreadable", "notifications: state not set aside: file=" + path);
-                    return;
-                }
-                archived = output.trim();
-                status = "absent";
-                changed();
-            } });
-            return;
-        }
-        const moved = Logic.migrateState(text);
+        const moved = Logic.migrateState(text, boot);
         const judged = Logic.parseState(moved.text);
         if (!judged.ok) {
             refuse("corrupt", "notifications: state refused: file=" + path + " reason=" + judged.error);
@@ -170,7 +154,7 @@ Item {
         id: file
         watchChanges: false
         // Quickshell 0.3.1 writes another file and renames it over this one:
-        // the archive's hard link keeps the original bytes even on failure.
+        // a failed write leaves the original bytes intact.
         // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView/
         atomicWrites: true
         // SIGTERM ends the shell with no handler run, so a write left to
@@ -185,12 +169,6 @@ Item {
         onSaved: {
             store.problem = "";
             store.status = "loaded";
-            if (store.archived !== "") {
-                const archive = store.archived;
-                store.archived = "";
-                console.info("notifications: state set aside: file=" + store.path + " archive=" + archive);
-                store.recovered(archive);
-            }
         }
         onSaveFailed: error => {
             store.dirty = true;

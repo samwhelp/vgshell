@@ -82,7 +82,10 @@ const STATE_V3 = fs.readFileSync(path.join(__dirname, "fixtures", "notifications
 // State files the migration leaves as they are, each for the judge to
 // refuse: [label, text, the error].
 const STATE_UNMIGRATED = [
-    ["the second version", stateText({ version: 2, sound: undefined }), "version want=4"],
+    ["zero version", stateText({ version: 0 }), "version want=4"],
+    ["negative version", stateText({ version: -1 }), "version want=4"],
+    ["fractional version", stateText({ version: 1.5 }), "version want=4"],
+    ["string version", stateText({ version: "1" }), "version want=4"],
     ["a later version", stateText({ version: 5 }), "version want=4"],
     ["not JSON", "{ nope", "not-json"],
     ["a list", "[]", "not-object"]
@@ -712,6 +715,30 @@ function verify(logic) {
     same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
     same(logic.parseState(logic.serializeState({ boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
 
+    // Earlier files keep their entries and watermark. Sound had no stored
+    // value before version 3; a supplied value must still survive unchanged.
+    const earlierHistory = [stored(70, 3, { read: true }), stored(45, 4)];
+    for (const [version, fields, sound] of [
+        [1, { boot: undefined, sound: undefined }, true],
+        [2, { sound: undefined }, true],
+        [1, { boot: undefined, sound: false }, false],
+        [2, { sound: false }, false]
+    ]) {
+        const text = stateText({ version, dnd: true, readBefore: 50, live: good.live, history: earlierHistory, ...fields });
+        const converted = logic.migrateState(text, BOOT);
+        same(converted.migrated, true, "earlier state migrates: " + version);
+        const wanted = { boot: BOOT, sound, dnd: true, readBefore: 50, live: good.live, history: earlierHistory };
+        same(logic.parseState(converted.text), { ok: true, state: wanted }, "earlier values survive: " + version);
+        same(logic.fromBoot(logic.parseState(converted.text).state, BOOT), { state: wanted, cleared: 0 }, "migration keeps this boot's entries: " + version);
+        same(logic.migrateState(logic.serializeState(wanted), BOOT).migrated, false, "the next read needs no migration");
+    }
+    for (const [fields, error] of [
+        [{ version: 1, boot: null }, "boot want=string"],
+        [{ version: 2, sound: null }, "sound want=boolean"],
+        [{ version: 1, boot: undefined, history: {} }, "history want=list"],
+        [{ version: 2, extra: true }, "extra unknown"]
+    ]) same(logic.parseState(logic.migrateState(stateText(fields), BOOT).text), { ok: false, error }, "migration leaves defects to the judge");
+
     // The previous version's file as the store reads it: migrated, judged
     // by the one judge, and written back as this version.
     const third = JSON.parse(STATE_V3);
@@ -729,14 +756,6 @@ function verify(logic) {
     same(logic.migrateState(stateText({})), { text: stateText({}), migrated: false }, "this version's file is read as it is");
     const broken = logic.migrateState(stateText({ version: 3, history: {} }));
     same([broken.migrated, logic.parseState(broken.text)], [true, { ok: false, error: "history want=list" }], "a version 3 file with a defect is refused by the same judge");
-    for (const [text, want] of [
-        [JSON.stringify({ version: 1 }), true], [JSON.stringify({ version: 2 }), true],
-        [STATE_V3, false], [stateText({}), false], [stateText({ version: 5 }), false],
-        [JSON.stringify({ version: 0 }), false], [JSON.stringify({ version: -1 }), false],
-        [JSON.stringify({ version: 1.5 }), false], [JSON.stringify({ version: "1" }), false],
-        ["{ nope", false], ["[]", false], ["null", false], ["{}", false]
-    ]) same(logic.obsoleteState(text), want, "only skipped VGS format versions are set aside");
-
     // A start after a reboot: the same boot keeps everything; another boot
     // clears the toasts and the history and keeps Sound, Silence and Mark
     // read.
@@ -1324,13 +1343,11 @@ const CONTROLS = [
     ["the state file keeps its Sound", "        sound: state.sound,\n", ""],
     ["a read state keeps its Sound", "state: { boot: parsed.boot, sound: parsed.sound,", "state: { boot: parsed.boot, sound: true,"],
     ["a new state starts with Sound on", "return { boot: boot, sound: true, dnd: false,", "return { boot: boot, sound: false, dnd: false,"],
-    ["a version 3 file is migrated", " || parsed.version !== 3) return same;", " || true) return same;"],
-    ["only version 3 is migrated", " || parsed.version !== 3) return same;", ") return same;"],
-    ["a migrated file takes this version", "    parsed.version = STATE_VERSION;\n", ""],
-    ["skipped versions are set aside", "parsed.version > 0 && parsed.version < STATE_VERSION - 1", "false"],
-    ["the previous version keeps its migration", "parsed.version < STATE_VERSION - 1", "parsed.version < STATE_VERSION"],
-    ["only integral versions are set aside", "Number.isInteger(parsed.version)", "typeof parsed.version === \"number\""],
-    ["nonpositive versions stay refused", "parsed.version > 0 && ", ""],
+    ["version 1 conversion is required", "if (parsed.version === 1) {", "if (false) {"],
+    ["version 2 conversion is required", "if (parsed.version === 2) {", "if (false) {"],
+    ["version 3 advances to version 4", "if (parsed.version === 3) parsed.version = 4;", ""],
+    ["version 1 keeps a supplied boot", "if (parsed.boot === undefined) parsed.boot = boot;", "parsed.boot = boot;"],
+    ["version 2 keeps supplied Sound", "if (parsed.sound === undefined) parsed.sound = true;", "parsed.sound = true;"],
     ["an Inbox dismissal keeps the entry", 'var kept = mode === "inbox" ? [Object', "var kept = false ? [Object"],
     ["a History dismissal deletes the entry", 'var kept = mode === "inbox" ? [Object', "var kept = true ? [Object"],
     ["a dismissal with no panel open deletes the entry", 'var kept = mode === "inbox" ? [Object', 'var kept = mode !== "history" ? [Object'],
@@ -1546,9 +1563,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const temp = path.join(__dirname, "..", "tmp", "notifications-logic-control-" + process.pid);
-fs.rmSync(temp, { recursive: true, force: true });
-fs.mkdirSync(temp, { recursive: true });
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "notifications-logic-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

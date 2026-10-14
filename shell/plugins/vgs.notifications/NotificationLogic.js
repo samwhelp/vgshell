@@ -1578,11 +1578,9 @@ function parseState(text) {
     return { ok: true, state: { boot: parsed.boot, sound: parsed.sound, dnd: parsed.dnd, readBefore: parsed.readBefore, live: parsed.live.map(withHintRoles), history: parsed.history.map(withHintRoles) } };
 }
 
-// The state file's text as this version stores it: { text, migrated }. The
-// previous version, 3, had no entry marked read (dismissedHistory) and is
-// otherwise this one; its document takes this version's number and keeps
-// every value, for parseState to judge. Any other text comes back as it is.
-function migrateState(text) {
+// Each saved format converts to the next; parseState alone judges the
+// result. Version 1 named no boot, so its entries belong to this read's boot.
+function migrateState(text, boot) {
     var same = { text: text, migrated: false };
     var parsed;
     try {
@@ -1590,22 +1588,21 @@ function migrateState(text) {
     } catch (e) {
         return same;
     }
-    if (!isPlainObject(parsed) || parsed.version !== 3) return same;
-    parsed.version = STATE_VERSION;
-    return { text: JSON.stringify(parsed), migrated: true };
-}
-
-// D107: skipped upgrades set older files aside without reading their form.
-// Only a positive integer format version identifies a VGS-written file.
-function obsoleteState(text) {
-    var parsed;
-    try {
-        parsed = JSON.parse(String(text));
-    } catch (e) {
-        return false;
+    if (!isPlainObject(parsed) || !Number.isInteger(parsed.version)
+        || parsed.version < 1 || parsed.version >= STATE_VERSION) return same;
+    // cb594cd23: version 2 added the kernel boot identifier.
+    if (parsed.version === 1) {
+        if (parsed.boot === undefined) parsed.boot = boot;
+        parsed.version = 2;
     }
-    return isPlainObject(parsed) && Number.isInteger(parsed.version)
-        && parsed.version > 0 && parsed.version < STATE_VERSION - 1;
+    // eb2413bf2: version 3 added Sound, previously always on outside DND.
+    if (parsed.version === 2) {
+        if (parsed.sound === undefined) parsed.sound = true;
+        parsed.version = 3;
+    }
+    // a6d5cdafc: version 4 allowed optional per-entry read marks.
+    if (parsed.version === 3) parsed.version = 4;
+    return { text: JSON.stringify(parsed), migrated: true };
 }
 
 // A stored entry with every hint role, "" for one it leaves out.

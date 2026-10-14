@@ -4,8 +4,6 @@
 # one Process, so a copy never races a sweep of the same directory.
 #
 #   images.sh prepare <dir> <images dir>        create both directories
-#   images.sh archive <state file>            retain its inode under a dated
-#                                               name; print that path
 #   images.sh copy <images dir> <from> <to>...  copy each pair, one line each:
 #                                               copied <to>
 #                                               skipped <to> reason=<why>
@@ -42,22 +40,6 @@ verb="$1"; shift
 export LC_ALL=C
 
 case "$verb" in
-  archive)
-    [[ $# -eq 1 ]] || usage
-    file="$1"
-    [[ -f $file && ! -L $file ]] || { printf 'notifications-images: error=archive-source path=%s\n' "$file" >&2; exit 4; }
-    identity="$(stat -c '%Y-%i' -- "$file")" || { printf 'notifications-images: error=archive-stat path=%s\n' "$file" >&2; exit 4; }
-    stamp="$(date -u -d "@${identity%%-*}" +%Y-%m-%dT%H-%M-%SZ)" || { printf 'notifications-images: error=archive-date path=%s\n' "$file" >&2; exit 4; }
-    archive="${file%.json}.set-aside-$stamp-${identity#*-}.json"
-    # A failed current-file write leaves the same inode here. Reuse its
-    # link after a restart instead of making another archive each time.
-    if [[ ! -L $archive && $file -ef $archive ]]; then
-      printf '%s\n' "$archive"
-      exit 0
-    fi
-    ln -T -- "$file" "$archive" || { printf 'notifications-images: error=archive-link path=%s\n' "$archive" >&2; exit 4; }
-    printf '%s\n' "$archive"
-    ;;
   prepare)
     [[ $# -eq 2 ]] || usage
     mkdir -p -- "$1" "$2" || { printf 'notifications-images: error=mkdir path=%s\n' "$2" >&2; exit 4; }
