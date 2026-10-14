@@ -291,7 +291,7 @@ done; exit 0; fi
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln; do
+for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln stty; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -389,7 +389,7 @@ pipeline() {
   status=0
   "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
-    script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
+    script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
   grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
     sed "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
@@ -412,6 +412,20 @@ none_before() { # PREFIX LINE
 diag_has() { grep -qxF -- "$1" "$state/vgshell/updates/diagnostics.log" 2>/dev/null; }
 out_has() { grep -qF -- "$1" "$tmp/out"; }
 out_lacks() { ! grep -qF -- "$1" "$tmp/out"; }
+# Text assertions read only the final result. row_failed_end separately
+# checks the physical lines, widths, word boundaries and hanging indents.
+result_has() {
+  python3 - "$tmp/out" "$1" <<'PY'
+import pathlib
+import re
+import sys
+
+text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", pathlib.Path(sys.argv[1]).read_text())
+assert "Update result\n" in text, "end block missing"
+end = text.rsplit("Update result\n", 1)[1]
+assert sys.argv[2] in " ".join(end.split()), (sys.argv[2], end)
+PY
+}
 # Whether the first call A comes before the last call B.
 before() { # A B
   local lines i a="" b=""
@@ -455,13 +469,13 @@ row_full() {
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
   assert "no snapshot tool keeps the update going quietly" out_lacks "without a snapshot"
   assert "the log keeps the plan box" grep -qF "Update everything" "$log"
-  assert "a full run lists each source installed" out_has "System: installed"
-  assert "a full run lists each plugin installed" out_has "Plugin acme.one: installed"
+  assert "a full run lists each source installed" result_has "System installed."
+  assert "a full run lists each plugin installed" result_has "Plugin acme.one installed."
   assert "nothing core upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"
   touch "$fix/decline-acme.one"
   pipeline update.sh
   assert "a declined plugin update leaves the exit 0" test "$status" == 0
-  assert "a declined plugin update reads skipped" out_has "Plugin acme.one: skipped, you declined it"
+  assert "a declined plugin update reads skipped" result_has "Plugin acme.one skipped. You declined it."
   assert "a declined plugin update leaves the theme update to run" has_call "vgshell theme update night"
 }
 row_trusted() {
@@ -494,9 +508,9 @@ row_failure() {
   assert "a failed source ends the run with 1" test "$status" == 1
   assert "the plugin update runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell plugin update acme.one"
   assert "the AUR runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell pkg run upgrade --manager aur"
-  assert "the result list names the failed source with its cause line" out_has "mise: failed, error: failed to install crush"
-  assert "an unknown cause gives a next step and the log button" out_has "Next: Update again; if it fails again, the log names the cause. Select Open last log in Updates."
-  assert "the result list names the later source installed" out_has "AUR: installed"
+  assert "the result list names the failed source with its cause line" result_has "mise failed. error: failed to install crush."
+  assert "an unknown cause gives a next step and the log button" result_has "Next: update again; if it fails again, the log names the cause. Select Open last log in Updates."
+  assert "the result list names the later source installed" result_has "AUR installed."
   assert "the failure stays in the developer log" diag_has "updates: failed source=mise exit=9"
   assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
   assert "a failed source is not a stopped run" out_lacks "The update stopped."
@@ -506,37 +520,71 @@ row_failure() {
 # one end block after the shell restart and reboot answer. These wording
 # assertions are the issue's explicit acceptance, including its control.
 row_failed_end() {
-  reset_fix
-  reboot_hook
-  self_json package '"vgshell-git"' true
-  printf '[{"id":"tokyo-night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
-  touch "$fix/busy-tokyo-night" "$fix/build-aur" "$fix/pkgver-paru" "$fix/owner" "$fix/owner-changes" "$fix/running"
-  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r2-1\n' >"$fix/installed-after"
-  echo 1 >"$fix/answer-reboot"
-  pipeline update.sh
-  assert "three failed parts keep the failure exit" test "$status" == 1
-  assert "three failed parts still recheck before the reboot answer" before "vgshell ipc call vgs.updates invoke check " "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
-  assert "the final block names every failed part, cause and action" python3 - "$tmp/out" <<'PY'
+  local columns
+  for columns in 60 80; do
+    reset_fix
+    reboot_hook
+    self_json package '"vgshell-git"' true
+    printf '[{"id":"tokyo-night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
+    touch "$fix/busy-tokyo-night" "$fix/build-aur" "$fix/pkgver-paru" "$fix/owner" "$fix/owner-changes" "$fix/running"
+    printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r2-1\n' >"$fix/installed-after"
+    echo 1 >"$fix/answer-reboot"
+    PIPE_COLUMNS="$columns" pipeline update.sh
+    assert "three failed parts keep the failure exit" test "$status" == 1
+    assert "three failed parts still recheck before the reboot answer" none_before "gum confirm --affirmative=Reboot" "vgshell ipc call vgs.updates invoke check "
+    assert "the final block wraps sentences and aligns every line at $columns columns" python3 - "$tmp/out" "$columns" <<'PY'
 import pathlib
 import re
 import sys
 
 text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", pathlib.Path(sys.argv[1]).read_text()).replace("\r", "")
+columns = int(sys.argv[2])
+indent = 3
 start = text.rfind("Update result\n")
 assert start >= 0, "end block missing"
 assert text.index("Restarting the shell on the updated VGS") < start
 assert text.index("Reboot later to run the updated system.") < start
 end = text[start:]
-expected = (
-    ("Theme tokyo-night", "Another theme change is still running.", "Wait for it to finish, then update again from the Updates panel."),
-    ("VGS package", "The package could not determine its version.", "Update again from the Updates panel."),
-    ("AUR packages", "A package could not be built.", "Update again from the Updates panel."),
-)
-for part, cause, action in expected:
-    assert f"{part}: failed, {cause} Next: {action}" in end, (part, end)
-assert end.rstrip().endswith("3 of 7 parts failed\nFailed parts: Theme tokyo-night, AUR packages, VGS package"), end
+lines = end.splitlines()[1:]
+for line in lines:
+    assert len(line) <= columns - indent, (columns, len(line), line)
+count = lines.index(" " * indent + "3 of 7 parts failed")
+results = {}
+part = None
+for line in lines[:count]:
+    match = re.match(r"^ {3}(\S.*?) (installed|skipped|failed)\.", line)
+    if match:
+        part = match[1]
+        assert part not in results, (part, lines)
+        results[part] = [line[indent:]]
+    else:
+        assert part is not None, line
+        hanging = indent + len(part) + 1
+        assert line.startswith(" " * hanging) and not line[hanging:].startswith(" "), (part, hanging, line)
+        results[part].append(line[hanging:])
+expected = {
+    "System": "System installed.",
+    "Flatpak": "Flatpak installed.",
+    "mise": "mise installed.",
+    "Plugin acme.one": "Plugin acme.one installed.",
+    "Theme tokyo-night": "Theme tokyo-night failed. Another theme change is still running. Next: wait for it to finish, then update again from the Updates panel.",
+    "VGS package": "VGS package failed. The package could not determine its version. Next: update again from the Updates panel.",
+    "AUR packages": "AUR packages failed. A package could not be built. Next: update again from the Updates panel.",
+}
+assert results.keys() == expected.keys(), results
+for part, sentence in expected.items():
+    assert " ".join(results[part]) == sentence, (part, results[part])
+    if " failed. " in sentence:
+        assert len(results[part]) > 1, (part, results[part])
+summary = lines[count + 1:]
+assert summary[0].startswith(" " * indent + "Failed parts: "), summary
+hanging = indent + len("Failed parts: ")
+for line in summary[1:]:
+    assert line.startswith(" " * hanging) and not line[hanging:].startswith(" "), (hanging, line)
+assert " ".join(line.strip() for line in summary) == "Failed parts: Theme tokyo-night, AUR packages, VGS package", summary
 assert "pkgver()" not in end and "theme lock" not in end and "Aborting" not in end, end
 PY
+  done
 }
 # The cause line VGS's own refusals leave, and a step the user said no to.
 # A fetch the plugin update refuses names git's message; `vgshell pkg
@@ -547,25 +595,25 @@ row_cause() {
   reset_fix
   touch "$fix/offline-acme.one"
   pipeline update.sh
-  assert "an offline plugin update is listed with git's message" out_has "Plugin acme.one: failed, fatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org"
+  assert "an offline plugin update is listed with git's message" result_has "Plugin acme.one failed. fatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org."
   assert "an offline plugin update ends the run with 1" test "$status" == 1
   reset_fix
   touch "$fix/rescan-flatpak"
   pipeline update.sh
-  assert "pkg run's closing refusal leaves its manager's line as the cause" out_has "Flatpak: failed, error: failed to commit transaction (conflicting files)"
+  assert "pkg run's closing refusal leaves its manager's line as the cause" result_has "Flatpak failed. error: failed to commit transaction (conflicting files)."
   reset_fix
   touch "$fix/answered-flatpak"
   pipeline update.sh
-  assert "a failure after a question answered yes is listed without the question" out_has "Flatpak: failed, error: failed to commit transaction (conflicting files)"
+  assert "a failure after a question answered yes is listed without the question" result_has "Flatpak failed. error: failed to commit transaction (conflicting files)."
   reset_fix
   touch "$fix/decline-pacman"
   pipeline update.sh
-  assert "a system upgrade answered no reads skipped" out_has "System: skipped, you declined it"
+  assert "a system upgrade answered no reads skipped" result_has "System skipped. You declined it."
   assert "a system upgrade answered no leaves the exit 0" test "$status" == 0
   reset_fix
   touch "$fix/decline-rescan-pacman"
   pipeline update.sh
-  assert "a question answered no before pkg run's closing refusal reads skipped" out_has "System: skipped, you declined it"
+  assert "a question answered no before pkg run's closing refusal reads skipped" result_has "System skipped. You declined it."
 }
 # After a failed or declined system upgrade the AUR step and the vgshell-git
 # rebuild build against the system it left, so they are skipped; every
@@ -576,21 +624,21 @@ row_system_failed() {
   pipeline update.sh
   assert "a failed system upgrade ends the run with 1" test "$status" == 1
   assert "a failed system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
-  assert "a failed system upgrade lists the AUR skipped with its cause" out_has "AUR: skipped, the system upgrade failed, and AUR packages build against it"
-  assert "a later source installs after a failed system upgrade" out_has "mise: installed"
-  assert "a plugin updates after a failed system upgrade" out_has "Plugin acme.one: installed"
+  assert "a failed system upgrade lists the AUR skipped with its cause" result_has "AUR skipped. The system upgrade failed, and AUR packages build against it."
+  assert "a later source installs after a failed system upgrade" result_has "mise installed."
+  assert "a plugin updates after a failed system upgrade" result_has "Plugin acme.one installed."
   reset_fix
   self_json package '"vgshell-git"' true
   touch "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/fail-pacman"
   pipeline update.sh
   assert "a failed system upgrade rebuilds no vgshell-git" no_call "paru -S vgshell-git"
-  assert "a failed system upgrade lists the rebuild skipped" out_has "VGS package: skipped, the system upgrade failed, and AUR packages build against it"
+  assert "a failed system upgrade lists the rebuild skipped" result_has "VGS package skipped. The system upgrade failed, and AUR packages build against it."
   reset_fix
   touch "$fix/decline-pacman"
   pipeline update.sh
   assert "a declined system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
-  assert "a declined system upgrade lists the AUR skipped with its cause" out_has "AUR: skipped, you declined the system upgrade, and AUR packages build against it"
-  assert "a later source installs after a declined system upgrade" out_has "mise: installed"
+  assert "a declined system upgrade lists the AUR skipped with its cause" result_has "AUR skipped. You declined the system upgrade, and AUR packages build against it."
+  assert "a later source installs after a declined system upgrade" result_has "mise installed."
 }
 # A closed window hangs up the step's group; the tee that copies its
 # stderr ignores it, so the step's last line still reaches the terminal
@@ -599,7 +647,7 @@ row_hangup() {
   reset_fix
   touch "$fix/hup-mise"
   pipeline update.sh
-  assert "a hung-up step's last line is its cause" out_has "mise: failed, error: interrupted by a hangup"
+  assert "a hung-up step's last line is its cause" result_has "mise failed. error: interrupted by a hangup."
 }
 # A read the reboot question needs that fails stays in the developer log
 # and warns once.
@@ -771,7 +819,7 @@ row_aur_failure() {
   touch "$fix/fail-paru"
   pipeline update.sh
   assert "a failed AUR step ends the run with 1" test "$status" == 1
-  assert "a failed AUR step with no stderr is listed with its status" out_has "AUR packages: failed, exit 7"
+  assert "a failed AUR step with no stderr is listed with its status" result_has "AUR packages failed. exit 7."
   assert "the credential is dropped after the failed AUR step" before "paru -Sua --devel" "sudo -k"
   rm -f -- "${fix:?}/fail-paru"
   touch "$fix/interrupt-paru"
@@ -986,7 +1034,7 @@ row_review_flagged() {
   assert "a flagged review asks Skip or Install anyway for each package" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip tool-bin, or install it anyway?"
   assert "a skipped repository package is kept out of the system step" has_call "vgshell pkg run upgrade --manager pacman --ignore foo"
   assert "a skipped AUR package is kept out of the AUR step" has_call "vgshell pkg run upgrade --manager aur --ignore tool-bin"
-  assert "a skipped package is listed skipped" out_has "tool-bin: skipped, the review flagged it"
+  assert "a skipped package is listed skipped" result_has "tool-bin skipped. The review flagged it."
   assert "a run that skipped packages exits 0" test "$status" == 0
   settings "paru -Sua --devel" false
   PIPE_PATH="$agents" pipeline update.sh
@@ -997,7 +1045,7 @@ row_review_flagged() {
   assert "Install anyway runs the run to its end" test "$status" == 0
   assert "Install anyway installs the AUR package" has_call "vgshell pkg run upgrade --manager aur"
   assert "Install anyway installs the repository package" has_call "vgshell pkg run upgrade --manager pacman"
-  assert "Install anyway lists nothing skipped" out_lacks "skipped, the review flagged it"
+  assert "Install anyway lists nothing skipped" out_lacks "skipped. The review flagged it."
   # A behind vgshell-git, as row_vgs_git's, is reviewed for its rebuild,
   # and skipping it keeps the rebuild out.
   reset_fix
@@ -1289,6 +1337,9 @@ control unfound-reads-none '    if ! _updates_install_name "$dir/build" "$name";
 control cause-keeps-escapes 'sed -E -e $'"'"'s/\e' 'sed -E -e $'"'"'s/NEVER\e' row_failure
 control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
 control no-failure-next-step ' Next: $_updates_next' '' row_failed_end
+control result-unwrapped '  _vgs_tui_lines lines "$width" "$text"' '  lines=("$text")' row_failed_end
+control result-without-hanging-indent '    printf -v prefix '"'"'%*s'"'"' "${#prefix}" '"'"''"'"'' '    prefix=""' row_failed_end
+control failed-summary-at-left '    _updates_result "$width" '"'"'Failed parts: '"'"' "$failed_parts"' '    printf '"'"'Failed parts: %s\n'"'"' "$failed_parts"' row_failed_end
 control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted
 control declined-fails 'if [[ $_updates_declined == 1 ]]; then' 'if false; then' row_full
 control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_reboot_core

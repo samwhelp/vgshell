@@ -178,27 +178,27 @@ _updates_cause_of() { # FILE
     _updates_cause="${after:-$value}"
   fi
   if [[ $own =~ \[(Y/n|y/N)\]:?[[:space:]]*$ ]]; then _updates_declined=1; fi
-  _updates_next="Update again; if it fails again, the log names the cause. Select Open last log in Updates."
+  _updates_next="update again; if it fails again, the log names the cause. Select Open last log in Updates."
   # VGS's theme refusal and makepkg's build errors can precede a closing
   # line such as Aborting, so map the whole stderr the step supplied.
   case "$out" in
     *"another theme command holds the theme lock"*)
       _updates_cause="Another theme change is still running."
-      _updates_next="Wait for it to finish, then update again from the Updates panel."
+      _updates_next="wait for it to finish, then update again from the Updates panel."
       ;;
     *"A failure occurred in pkgver()"*)
       _updates_cause="The package could not determine its version."
-      _updates_next="Update again from the Updates panel."
+      _updates_next="update again from the Updates panel."
       ;;
     *"A failure occurred in build()"*|*"failed to build"*)
       _updates_cause="A package could not be built."
-      _updates_next="Update again from the Updates panel."
+      _updates_next="update again from the Updates panel."
       ;;
   esac
 }
 
 # Runs one source step, ARGV, and adds its result to _updates_results as
-# `LABEL: <result>`: installed; skipped when the user declined it; failed
+# `LABEL <result>.`: installed; skipped when the user declined it; failed
 # with its cause and next step, else `exit <n>`. _updates_outcome is installed,
 # declined or failed. The run goes on after a failure, so neither errexit
 # nor the ERR trap sees it. Its stderr reaches the terminal and the cause
@@ -216,7 +216,7 @@ _updates_source() { # ID LABEL ARGV...
   wait "$!" || :
   if [[ $status -eq 0 ]]; then
     _updates_outcome=installed
-    _updates_results+=("$label: installed")
+    _updates_results+=("$label installed.")
     return 0
   fi
   if [[ $status -eq 130 ]]; then
@@ -226,7 +226,7 @@ _updates_source() { # ID LABEL ARGV...
   _updates_cause_of "$_updates_cause_file"
   if [[ $_updates_declined == 1 ]]; then
     _updates_outcome=declined
-    _updates_results+=("$label: skipped, you declined it")
+    _updates_results+=("$label skipped. You declined it.")
     return 0
   fi
   _updates_outcome=failed
@@ -234,10 +234,27 @@ _updates_source() { # ID LABEL ARGV...
   if [[ $id == aur ]]; then label="AUR packages"
   elif [[ $label == System ]]; then label="System packages"
   fi
-  _updates_results+=("$label: failed, ${_updates_cause:-exit $status} Next: $_updates_next")
+  local cause="${_updates_cause:-exit $status}"
+  [[ $cause == *[.!?] ]] || cause+="."
+  _updates_results+=("$label failed. $cause Next: $_updates_next")
   _updates_failed_parts+=("$label")
   _updates_failures=$((_updates_failures + 1))
   vgs_tui_warn "$label failed. The rest of the update goes on."
+}
+
+# The shared TUI word wrapper owns line breaks. Reserve PREFIX's columns
+# on every line so continuations start under the text after the part name.
+_updates_result() { # WIDTH PREFIX TEXT [SGR]
+  local width="$1" prefix="$2" text="$3" sgr="${4:-}" line lines=()
+  width=$((width - ${#prefix}))
+  (( width > 0 )) || width=1
+  _vgs_tui_lines lines "$width" "$text"
+  for line in "${lines[@]}"; do
+    printf '%*s%s%s%s' "$_vgs_tui_edge" '' "$sgr" "$prefix" "$line"
+    [[ -z $sgr ]] || printf '\033[0m'
+    printf '\n'
+    printf -v prefix '%*s' "${#prefix}" ''
+  done
 }
 
 # The directory a run writes its log in, and the last run's log in it,
@@ -786,7 +803,7 @@ _updates_review() { # LISTED
       0)
         if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi
         if _updates_in "$name" "${_updates_review_repo[@]}"; then _updates_skip_repo+=("$name"); fi
-        _updates_results+=("$name: skipped, the review flagged it")
+        _updates_results+=("$name skipped. The review flagged it.")
         ;;
       1) echo "Installing $name anyway." ;;
       *) exit "$status" ;;
@@ -1123,8 +1140,8 @@ updates_main() {
   local rebuild_run=0
   if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then rebuild_run=1; fi
   if [[ -n $aur_blocked ]]; then
-    if _updates_in aur "${run[@]}"; then _updates_results+=("AUR: skipped, $aur_blocked"); fi
-    if [[ $rebuild_run == 1 ]]; then _updates_results+=("VGS package: skipped, $aur_blocked"); fi
+    if _updates_in aur "${run[@]}"; then _updates_results+=("AUR skipped. ${aur_blocked^}."); fi
+    if [[ $rebuild_run == 1 ]]; then _updates_results+=("VGS package skipped. ${aur_blocked^}."); fi
   elif [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then
     local guarded=0
     if command -v sudo >/dev/null; then
@@ -1178,15 +1195,26 @@ updates_main() {
   _updates_reboot "${_updates_core[@]}"
   # Plain lines wrap within the window. Keep the result after the restart,
   # recheck and reboot output so the failed parts remain in view.
+  local columns width result prefix
   if [[ ${#_updates_results[@]} -gt 0 ]]; then
+    columns="$(vgs_tui_columns)"
+    width=$((columns - 2 * _vgs_tui_edge))
+    (( width > 0 )) || width=1
     vgs_tui_step "Update result"
-    printf '  %s\n' "${_updates_results[@]}"
+    for result in "${_updates_results[@]}"; do
+      case "$result" in
+        *" failed. "*) prefix="${result%%" failed. "*} " ;;
+        *" skipped. "*) prefix="${result%%" skipped. "*} " ;;
+        *) prefix="${result%" installed."} " ;;
+      esac
+      _updates_result "$width" "$prefix" "${result#"$prefix"}"
+    done
   fi
   if [[ $ended == failed ]]; then
-    vgs_tui_error "$_updates_failures of ${#_updates_results[@]} parts failed"
+    _updates_result "$width" '' "$_updates_failures of ${#_updates_results[@]} parts failed" "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >&2
     local failed_parts=""
     for label in "${_updates_failed_parts[@]}"; do failed_parts+="${failed_parts:+, }$label"; done
-    printf 'Failed parts: %s\n' "$failed_parts"
+    _updates_result "$width" 'Failed parts: ' "$failed_parts"
   fi
   [[ $ended == success ]] || exit 1
 }
