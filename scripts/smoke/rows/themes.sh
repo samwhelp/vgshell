@@ -1427,7 +1427,7 @@ theme_notice_assertion_failures() {
 notes_on "theme readability"
 theme_notice_add() {
   local status=0
-  sandbox_vgshell theme add "$theme_notice_source" >"$sandbox/theme-notice-add.log" || status=$?
+  vgshell_theme add "$theme_notice_source" >"$sandbox/theme-notice-add.log" || status=$?
   printf '%s\n' "$status"
 }
 expect "the user theme adds" 0 theme_notice_add
