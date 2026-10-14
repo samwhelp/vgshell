@@ -599,7 +599,26 @@ fi
 if [[ " ${scenes[*]} " == *" traffic "* ]]; then
   shell_hidden_commands+=(bandwhich)
 fi
+launcher_fixture=false
+if [[ " ${scenes[*]} " == *" launcher "* || " ${scenes[*]} " == *" narrow "* ]]; then
+  launcher_fixture=true
+  harness_scene_only=true
+fi
 source "$checkout/scripts/smoke/harness.sh"
+if [[ $launcher_fixture == true ]]; then
+  # DesktopEntries otherwise reads /usr/share/applications. Plant before
+  # its first load, with no host applications in the capture's data paths.
+  mkdir -p -- "$home/.local/share/applications" "$sandbox/launcher-data"
+  while IFS='|' read -r id name; do
+    printf '[Desktop Entry]\nType=Application\nName=%s\nExec=true\n' "$name" >"$home/.local/share/applications/$id.desktop"
+  done <<'APPS'
+capture-shelly|Shelly
+capture-sunshine|Sunshine
+capture-avahi|Avahi SSH Server Browser
+APPS
+  shell_start_words+=(XDG_DATA_DIRS="$sandbox/launcher-data")
+  start_shell "$repo" "$sandbox/qs.log" || exit 1
+fi
 source "$checkout/scripts/smoke/power-fakes.sh"
 if [[ " ${scenes[*]} " == *" sysmon "* || " ${scenes[*]} " == *" flyout-titles "* ]]; then
   # Presence draws See all; the scene never invokes this stand-in.
@@ -2390,6 +2409,7 @@ scene_wallpaper-browser() { # MODE
 }
 
 launcher_rows() { ipc smoke launcherRows overlay vgs.launcher; }
+launcher_rows_labels() { launcher_rows | py_reply 'import json,sys; print(json.dumps([r[1] for r in json.load(sys.stdin)]))'; }
 # settled_box HOST ID TYPE TEXT: `same` when two readings of that item's box
 # a frame apart agree, `moving` when they differ.
 settled_box() {
@@ -2402,7 +2422,7 @@ settled_box() {
 launcher_file_listed() { launcher_rows | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and any(r[0] == "file" and r[1] == sys.argv[1] for r in json.loads(t)))' "$1"; }
 launcher_listed() { launcher_rows | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 2)'; }
 scene_launcher() { # MODE
-  local second
+  local second motion
   expect "the launcher summons" ok ipc vgs.launcher invoke summon '{}'
   expect_poll "the launcher maps its overlay" 1 layer_count vgs:overlay
   expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
@@ -2410,6 +2430,28 @@ scene_launcher() { # MODE
   # The orbiting edge light: frames a moment apart, each proved to differ
   # from the one before, so the light is seen moving.
   for i in 1 2 3; do sleep 0.3; SHOT_SETTLE_S=1 take "launcher-$1-orbit-$i"; done
+  type_keys sh || fail "typing the fixed application query failed"
+  expect_poll "the launcher shows the fixed search rows" '["Shelly", "Shut down", "Avahi SSH Server Browser", "Sunshine", "Screenshot"]' launcher_rows_labels
+  launcher_rows >"$SHOT_DIR/launcher-$1-results.json"
+  # A resting result comparison must not depend on the caret's blink phase.
+  motion="$(ipc smoke themeValue motion.scale)"
+  cp -- "$theme_file" "$sandbox/launcher-theme.json"
+  python3 - "$theme_file" <<'PYLAUNCHER'
+import json, os, sys
+path = sys.argv[1]
+theme = json.load(open(path))
+theme.setdefault("tokens", {}).setdefault("motion", {})["scale"] = 0
+with open(path + ".tmp", "w") as out:
+    json.dump(theme, out)
+os.replace(path + ".tmp", path)
+PYLAUNCHER
+  expect_poll "the launcher result frame has stopped motion" 0 ipc smoke themeValue motion.scale
+  take "launcher-$1-results"
+  record_item "launcher-$1-results" "$(ipc smoke layerItemGeometry vgs.launcher GlassSurface entered true)"
+  cp -- "$sandbox/launcher-theme.json" "$theme_file.tmp"
+  mv -T -- "$theme_file.tmp" "$theme_file"
+  expect_poll "the launcher restores theme motion" "$motion" ipc smoke themeValue motion.scale
+  type_keys -M ctrl -k a -m ctrl -k BackSpace || fail "clearing the fixed application query failed"
   type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
   expect_poll "the launcher lists its categories" True launcher_listed
   take "launcher-$1-list"
