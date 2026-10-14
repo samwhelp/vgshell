@@ -90,6 +90,16 @@ function runCase(name, file) {
 
 runCase("screensaver logic", LOGIC);
 
+const producer = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const steps = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
+const pluginDir = path.dirname(LOGIC);
+const manifest = producer.validateManifest(JSON.parse(fs.readFileSync(path.join(pluginDir, "manifest.json"), "utf8")), pluginDir).manifest;
+const requirements = producer.requirementRows(manifest, ["ttfx"], {});
+report("ttfx stays required by Screensaver and installs on request", requirements.filter(r => r.name === "ttfx").map(r => [r.optional, r.onRequest, r.packages]), [[false, true, { aur: "ttfx" }]]);
+report("missing ttfx offers a primary install on Setup", [steps.setupTab([], requirements), steps.requirementPrimary(steps.requirementStep(requirements), [])], [true, true]);
+report("Setup requests the missing ttfx install", producer.noticeRequest(manifest, ["ttfx"], {}, "requested", []).commands, ["ttfx"]);
+report("installed ttfx clears the install step", steps.requirementStep(producer.requirementRows(manifest, [], {})), null);
+
 const controls = [
   ["SGR reset is handled", "if (code === 0 || code === 39) {\n            color = \"\";\n        }", "if (false) {\n            color = \"\";\n        }"],
   ["help is not an effect", "if (value === \"help\" || seen[value]) continue;", "if (seen[value]) continue;"],

@@ -11,7 +11,7 @@
   "entryPoints": { "service": "Service.qml", "cover": "Cover.qml" },
   "capabilities": ["idle", "ipc", "manager", "requirements", "session", "shortcut", "status"],
   "requirements": [
-    { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "purpose": "Animates the screensaver text art" },
+    { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "install": "on-request", "purpose": "Animates the screensaver text art" },
     { "command": "magick", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Converts an image into screensaver text art" },
     { "command": "awk", "packages": { "pacman": "gawk", "apt": "gawk", "dnf": "gawk", "nix": "gawk" }, "optional": false, "purpose": "Builds text art from converted image pixels" }
   ],
