@@ -1100,6 +1100,12 @@ var TOKENS = {
         }
     },
 
+    // A link inside a text (LinkText): what its underline, the font's own
+    // line width at rest, gains while the pointer is on the link's words.
+    linkText: {
+        underlineHover: length("{border.thin}")
+    },
+
     bar: {
         height: length(28),
         background: color("{color.background}"),

@@ -6,7 +6,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 520
+    height: 560
 
     function labelOf(item) { return item.children[0]; }
 
@@ -109,6 +109,15 @@ Item {
         width: 360
         text: "Remove key"
         link: "Remove key"
+    }
+    // A link in a look that hands its own link colour.
+    LinkText {
+        id: hosted
+        y: 520
+        width: 360
+        text: "Read the notes in hyprland.lua today."
+        link: "hyprland.lua"
+        linkColor: "#123456"
     }
     FontMetrics { id: font; font: labelOf(inline).font }
     SignalSpy { id: elsewherePages; target: elsewhere; signalName: "pageActivated" }
@@ -333,6 +342,39 @@ Item {
             compare(underlines(linked).length, 2, "each occurrence is underlined");
             compare(underlines(plain).length, 0);
             compare(underlines(missing).length, 0);
+        }
+
+        function test_the_link_and_its_underline_take_the_handed_colour() {
+            verify(!Qt.colorEqual(hosted.linkColor, Theme.color.accent), "the handed colour is not the accent");
+            verify(labelOf(hosted).text.indexOf("<font color=\"" + hosted.linkColor + "\">hyprland.lua</font>") !== -1, labelOf(hosted).text);
+            verify(Qt.colorEqual(underlines(hosted)[0].color, hosted.linkColor), "the underline draws " + underlines(hosted)[0].color);
+            verify(Qt.colorEqual(inline.linkColor, Theme.color.accent), "a link handed no colour draws the accent");
+            verify(Qt.colorEqual(underlines(inline)[0].color, Theme.color.accent));
+        }
+
+        // Hover is the underline's thickness: the resting one plus
+        // `linkText.underlineHover`, while the pointer is on the words. Its
+        // name sorts it before the click tests: after a mouseClick the
+        // runner's moves leave the area's containsMouse set (this file under
+        // scripts/qml-unit.sh on 2026-10-13).
+        function test_hover_thickens_the_underline_only_under_the_pointer() {
+            const rest = Math.max(1, Math.round(font.lineWidth));
+            const run = underlines(inline)[0];
+            verify(Theme.linkText.underlineHover > 0, "the hover token adds thickness");
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(inline, "hoveredLink", false);
+            compare(run.height, rest);
+            mouseMove(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
+            tryCompare(inline, "hoveredLink", true);
+            compare(run.height, rest + Theme.linkText.underlineHover);
+            mouseMove(inline, before.advanceWidth / 2, inline.height / 2);
+            tryCompare(inline, "hoveredLink", false);
+            compare(run.height, rest, "the words before the link draw the resting underline");
+            mouseMove(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
+            tryCompare(inline, "hoveredLink", true);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(inline, "hoveredLink", false);
+            compare(run.height, rest, "the underline is back at rest on exit");
         }
 
         function test_pointer_activates_only_the_link() {

@@ -31,12 +31,15 @@ import qs.Ui
 // under this item, for an owner whose edge the ring must clear.
 // `focusPreview` draws that ring for an owner that keeps the keyboard and
 // names this link as its current one, as a tooltip's item does.
-// Every occurrence is drawn in the accent over its own underline, the
+// Every occurrence is drawn in `linkColor`, the accent unless the look
+// that hosts the text hands its own, over its own underline, the
 // label's `underlineOffset` under each line's baseline, since Qt Quick
 // draws a link's or `<u>`'s underline at the font's underline position,
 // which a descender meets (Qt 6.11 qquickstyledtext.cpp,
 // parseAnchorAttributes; qquicktextnodeengine.cpp, addTextDecorations).
-// The pointer reaches the words on those underlined runs.
+// The pointer reaches the words on those underlined runs, and while it
+// is on them every run grows `linkText.underlineHover` thicker, downward,
+// so the row under the descenders stays clear.
 T.Control {
     id: root
 
@@ -45,6 +48,7 @@ T.Control {
     property string role: "body"
     property bool focusPreview: false
     property alias color: label.color
+    property color linkColor: Theme.color.accent
     property alias wrapMode: label.wrapMode
     property alias horizontalAlignment: label.horizontalAlignment
     readonly property alias lineCount: label.lineCount
@@ -218,7 +222,7 @@ T.Control {
         id: label
         role: root.role
         width: root.width
-        text: root.markup(root.drawn, root.words, Theme.color.accent)
+        text: root.markup(root.drawn, root.words, root.linkColor)
         textFormat: Text.StyledText
     }
 
@@ -229,8 +233,8 @@ T.Control {
             x: modelData.left
             y: label.baselineOffset + modelData.line * root.linePitch + label.underlineOffset
             width: modelData.right - modelData.left
-            height: root.underlineThickness
-            color: Theme.color.accent
+            height: root.underlineThickness + (root.hoveredLink ? Theme.linkText.underlineHover : 0)
+            color: root.linkColor
         }
     }
 
