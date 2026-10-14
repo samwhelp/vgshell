@@ -696,15 +696,19 @@ function verifyReadabilityNotice(judge) {
     assert.equal(judge.readabilityTitle("tokyo-night", null), "tokyo-night: some text may be hard to read");
     assert.equal(judge.readabilityTitle("tokyo-night", "Tokyo Night"), "Tokyo Night: some text may be hard to read");
     assert.equal(judge.readabilityNotice([]), "", "a passing theme has no notice");
-    const worst = { text: "color.textFaint", surface: "color.surface", ratio: 1.25, floor: 4.5 };
-    const better = { text: "color.textFaint", surface: "color.background", ratio: 2.25, floor: 4.5 };
+    const worst = { text: "color.textFaint", surface: "color.surface", ratio: 1.25, floor: judge.READABILITY_FLOOR };
+    const better = { text: "color.textFaint", surface: "color.background", ratio: 2.25, floor: judge.READABILITY_FLOOR };
     const notice = judge.readabilityNotice([worst]);
     assert.equal(judge.readabilityNotice([better, worst, better]), notice, "each role names only its worst surface");
     assert.equal(judge.readabilityNotice([worst, better]), notice, "worst selection does not depend on input order");
-    assert.equal(notice, "Faint text: 1.25:1 on panels.", "one measured line without a repeated introduction");
+    assert.equal(notice, `Faint text on panel backgrounds: contrast 1.25:1, needs ${judge.READABILITY_FLOOR}:1.`, "one measured line states its background and minimum");
+    assert.equal(judge.readabilityNotice([better]), `Faint text on the main background: contrast 2.25:1, needs ${judge.READABILITY_FLOOR}:1.`);
+    assert.equal(judge.readabilityNotice([Object.assign({}, worst, { text: "checkbox.borderColor", floor: judge.BOUNDARY_FLOOR })]),
+        `Checkbox outline on panel backgrounds: contrast 1.25:1, needs ${judge.BOUNDARY_FLOOR}:1.`, "a mark keeps its own minimum");
     assert.ok(notice.includes("1.25:1"), "the notice contains the judged ratio");
     assert.ok(!notice.includes("2.25:1"), "the notice omits stronger surfaces");
     const translucent = Object.assign({}, worst, { surface: "color.surfaceRaised", ratio: null });
+    assert.equal(judge.readabilityNotice([translucent]), `Faint text on raised panel backgrounds: contrast cannot be measured, needs ${judge.READABILITY_FLOOR}:1.`);
     assert.equal(judge.readabilityNotice([better, translucent]), judge.readabilityNotice([translucent]), "an unmeasurable surface takes priority");
     assert.equal(judge.readabilityNotice([translucent, worst]), judge.readabilityNotice([translucent]), "a measurable ratio cannot replace an unmeasurable one");
     // Discover the source table's roles and surfaces, including composites.
@@ -1929,6 +1933,9 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["notice states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."'],
+    ["notice names the main background", '"color.background": "the main background"', '"color.background": "desktop"'],
+    ["notice names panel backgrounds", '"color.surface": "panel backgrounds"', '"color.surface": "panels"'],
     ["notice names its theme", '(displayName === null ? name : displayName) + ": some text may be hard to read"', '": some text may be hard to read"'],
     ["notice uses the display name", 'displayName === null ? name : displayName', 'name'],
     ["notice omits the repeated introduction", 'var lines = [];', 'var lines = ["Some parts may be hard to read."];'],

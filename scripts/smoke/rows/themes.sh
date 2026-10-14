@@ -1417,7 +1417,7 @@ theme_notice_evidence() {
   theme_notice_rows | py_reply 'import json,re,sys
 rows=json.load(sys.stdin)
 lines=rows[0][1].splitlines() if isinstance(rows,list) and len(rows)==1 else []
-print(len(lines)==1 and rows[0][0]=="Faint User: some text may be hard to read" and lines[0]=="Faint text: 1.00:1 on desktop.")'
+print(len(lines)==1 and rows[0][0]=="Faint User: some text may be hard to read" and lines[0]=="Faint text on the main background: contrast 1.00:1, needs 4.5:1.")'
 }
 theme_notice_assertion_failures() {
   (failures=0 behaviour_failures=0

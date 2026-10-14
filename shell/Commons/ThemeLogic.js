@@ -358,23 +358,23 @@ var READABILITY_NAMES = {
     "color.textMuted": "Muted text", "color.textFaint": "Faint text",
     "color.accent": "Accent text", "color.success": "Success text",
     "color.warning": "Warning text", "color.danger": "Error text", "color.info": "Information text",
-    "color.background": "desktop", "color.surface": "panels",
-    "color.surfaceRaised": "raised panels", "color.surfaceSunken": "inset panels",
+    "color.background": "the main background", "color.surface": "panel backgrounds",
+    "color.surfaceRaised": "raised panel backgrounds", "color.surfaceSunken": "inset panel backgrounds",
     "segmented.foreground": "Choice text", "segmented.selectedForeground": "Selected choice text",
-    "segmented.background": "choices", "segmented.selected": "selected choices",
-    "listItem.selectedForeground": "Selected row text", "listItem.selected": "selected rows",
+    "segmented.background": "choice backgrounds", "segmented.selected": "selected choice backgrounds",
+    "listItem.selectedForeground": "Selected row text", "listItem.selected": "selected row backgrounds",
     "checkbox.borderColor": "Checkbox outline", "checkbox.checked": "Selected checkbox",
     "checkbox.mark": "Checkbox mark", "radio.borderColor": "Radio outline", "radio.checked": "Selected radio",
     "textField.borderColor": "Text field outline", "toggle.off": "Switch off track", "toggle.on": "Switch on track",
     "toggle.knobOff": "Switch off knob", "toggle.knobOn": "Switch on knob",
     "segmented.indicatorColor": "Selected choice mark", "dialog.border": "Dialog outline",
-    "dialog.background": "Dialog fill", "color.scrim": "dimmed backdrop",
+    "dialog.background": "Dialog background", "color.scrim": "the dimmed background",
     "carousel.hint": "Theme browser hints", "carousel.hintActive": "Selected theme text",
     "carousel.tabIndicator": "Theme browser tab mark", "carousel.hintDanger": "Theme browser errors",
     "carousel.typed": "Theme search text", "carousel.searchHint": "Theme search hint",
-    "carousel.failurePlate": "theme browser message", "tooltip.foreground": "Tooltip text",
-    "tooltip.detail": "Tooltip details", "tooltip.background": "tooltips",
-    "glass.fill solid": "glass panels", "#000000": "black wallpaper"
+    "carousel.failurePlate": "the theme browser message background", "tooltip.foreground": "Tooltip text",
+    "tooltip.detail": "Tooltip details", "tooltip.background": "tooltip backgrounds",
+    "glass.fill solid": "glass panel backgrounds", "#000000": "black wallpaper"
 };
 var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
 
@@ -384,7 +384,7 @@ function readabilityName(key) {
     if (hasOwn(READABILITY_NAMES, key)) return READABILITY_NAMES[key];
     var badge = /^badge\.tone\.([^.]+)\.(foreground|background)$/.exec(key);
     if (badge !== null && hasOwn(READABILITY_BADGE_NAMES, badge[1]))
-        return READABILITY_BADGE_NAMES[badge[1]] + (badge[2] === "foreground" ? " badge text" : " badges");
+        return READABILITY_BADGE_NAMES[badge[1]] + (badge[2] === "foreground" ? " badge text" : " badge backgrounds");
     throw new Error("theme: unknown readability role=" + key);
 }
 
@@ -404,8 +404,8 @@ function readabilityNotice(shortfalls) {
     var lines = [];
     for (var j = 0; j < roles.length; j++) {
         var shortfall = worst[roles[j]];
-        var ratio = shortfall.ratio === null ? "contrast cannot be measured" : (Math.floor(shortfall.ratio * 100) / 100).toFixed(2) + ":1";
-        var line = readabilityName(shortfall.text) + ": " + ratio + " on " + readabilityName(shortfall.surface) + ".";
+        var ratio = shortfall.ratio === null ? "contrast cannot be measured" : "contrast " + (Math.floor(shortfall.ratio * 100) / 100).toFixed(2) + ":1";
+        var line = readabilityName(shortfall.text) + " on " + readabilityName(shortfall.surface) + ": " + ratio + ", needs " + shortfall.floor + ":1.";
         // PluginLogic.notifyOptions accepts at most 600 message characters.
         // Reserve the final line before adding a role so omission is explicit.
         var remaining = roles.length - j - 1;

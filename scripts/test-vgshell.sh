@@ -1278,7 +1278,7 @@ terminal_readability() {
 import pathlib, re, sys
 text = pathlib.Path(sys.argv[1]).read_text()
 rows = [line for line in text.splitlines() if "Faint text" in line]
-sys.exit(0 if text.splitlines().count("faint: some text may be hard to read") == 1 and "Some parts may be hard to read." not in text and len(rows) == 1 and "desktop" in rows[0] and re.search(r"\b1\.00:1\b", rows[0]) and not re.search(r"color\.|vgshell", rows[0]) else 1)
+sys.exit(0 if text.splitlines().count("faint: some text may be hard to read") == 1 and "Some parts may be hard to read." not in text and rows == ["Faint text on the main background: contrast 1.00:1, needs 4.5:1."] else 1)
 PY
 }
 tinst "a faint user theme adds with no shell" "$readability_cfg" "$rt_empty" 0 "$any_out" "" theme add "$src/faint.git"
