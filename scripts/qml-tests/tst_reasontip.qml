@@ -211,6 +211,7 @@ Item {
 
         property bool named: true
 
+        Rectangle { anchors.fill: parent; color: Theme.color.surface }
         Pane {
             id: headerPane
             anchors.fill: parent
@@ -260,6 +261,7 @@ Item {
             }
             header.visible = false;
             header.named = true;
+            headerPane.switchDisabledReason = "Sign in as the administrator to change this switch.";
             narrow.visible = false;
             marked.visible = false;
             iconed.visible = false;
@@ -433,6 +435,32 @@ Item {
             openReason(control);
             compare(headerFaults(placedBox(tip)), ["covers Tailscale"], "a switch-only anchor's place " + JSON.stringify(placedBox(tip)));
             tip.box = Qt.binding(() => control.lock.reasonBox);
+        }
+
+        function test_a_pane_reason_keeps_its_padding_from_title_ink_data() {
+            return [{ tag: "vgs", theme: "vgs" }, { tag: "flexoki-light", theme: "catalog/flexoki-light" }];
+        }
+
+        function test_a_pane_reason_keeps_its_padding_from_title_ink(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../themes/" + data.theme + "/theme.json"), false);
+            request.send();
+            compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
+            headerPane.switchDisabledReason = "The administrator holds Tailscale until you choose Let my login control Tailscale.";
+            header.visible = true;
+            const tip = openReason(headerPane.headerSwitch);
+            verify(waitForRendering(header));
+            const title = descendants(headerPane).find(item => item.text === "VPN" && item.contentWidth !== undefined && item.visible);
+            verify(title !== undefined, "the header draws its title");
+            const at = title.mapToItem(header, 0, 0), image = grabImage(header), bg = Qt.color(Theme.color.surface);
+            let last = -1;
+            for (let x = Math.floor(at.x); x < Math.ceil(at.x + title.contentWidth); x++)
+                for (let y = Math.floor(at.y); y < Math.ceil(at.y + title.height); y++)
+                    if (Math.abs(image.red(x, y) - Math.round(bg.r * 255)) > 8 || Math.abs(image.green(x, y) - Math.round(bg.g * 255)) > 8 || Math.abs(image.blue(x, y) - Math.round(bg.b * 255)) > 8) last = x;
+            verify(last >= 0, "the title has ink");
+            const gap = placedBox(tip).x - (last + 1);
+            console.log("reason-gap: theme=" + data.tag + " gap=" + gap + " padding=" + Theme.tooltip.paddingX);
+            verify(gap >= Theme.tooltip.paddingX, "the title ink keeps the tooltip padding: " + gap);
         }
 
         // A header switch named as its title draws no label, and its reason

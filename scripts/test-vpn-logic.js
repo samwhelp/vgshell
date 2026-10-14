@@ -19,6 +19,7 @@ const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile), SettingValues: loa
 const core = load(path.join(__dirname, "../shell/Core/PluginLogic.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/manifest.json"), "utf8"));
 const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/Service.qml"), "utf8");
+const readmeSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/README.md"), "utf8").replace(/\r\n/g, "\n");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8");
 // The core's ceiling for one plugin's published status
@@ -26,7 +27,7 @@ const text = name => fs.readFileSync(path.join(fixtures, name), "utf8");
 const STATUS_MAX_BYTES = core.STATUS_MAX_BYTES;
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function suite(logic, service = serviceSource) {
+function suite(logic, service = serviceSource, readme = readmeSource) {
     const read = name => plain(logic.snapshot(0, text(name), ""));
     const running = read("running.json");
     const mullvad = read("mullvad.json");
@@ -191,7 +192,7 @@ function suite(logic, service = serviceSource) {
     const ready = logic.setup({ missing: false, state: "running", service: "ready", operator: "ready" });
     const denied = logic.setup({ missing: false, state: "running", service: "ready", operator: "needed" });
     // The action names its result for the user, and the sentence before it holds none of its words.
-    assert.equal(denied.hint, "Only the administrator can change Tailscale. After this step, VGS connects and disconnects for you without a password.");
+    assert.equal(denied.hint, "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password.");
     assert.equal(manifest.status.setup.actions.allow.label, "Let my login control Tailscale");
     const shown = plain(logic.published(false, running, ready, live));
     assert.deepEqual([shown.state, shown.tone, shown.writable], ["running", "ok", true]);
@@ -215,9 +216,11 @@ function suite(logic, service = serviceSource) {
         assert.ok(!/\btailscale |sudo|vgshell|systemctl/.test(reason), "no command: " + JSON.stringify(reason));
         assert.ok(step === "" || reason.includes(step), "names the step: " + JSON.stringify(reason));
     }
-    // The flyout header's reason wraps in the room between the title and
-    // the switch's name label, which holds two lines of this sentence
-    // (VGS-1660, a nested vpn row run in vgs and flexoki-light).
+    // The item requires one cause wording in the reason, Setup and README.
+    const cause = "The administrator holds Tailscale";
+    assert.equal(logic.lockReason(locked[2][0], ""), cause + ".");
+    assert.equal(denied.hint.split(".")[0], cause);
+    assert.equal(readme.split("\n").find(row => row.startsWith("| " + steps.allow.label + " | ")).split("|")[2].trim(), cause);
     assert.equal(logic.lockReason(locked[2][0], steps.allow.label), "The administrator holds Tailscale until you choose Let my login control Tailscale.");
     const causes = locked.map(([vpn]) => logic.lockReason(vpn, ""));
     assert.equal(new Set(causes).size, causes.length, "each cause says its own why");
@@ -454,7 +457,8 @@ try {
         ["the node in use keeps its city", "!held.row.active && ", ""],
         ["only an https sign-in page opens", "/https:\\/\\/[^\\s\"'<>]+/", "/[a-z]+:\\/\\/[^\\s\"'<>]+/"],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
-        ["the header's reason fits its room", '"The administrator holds Tailscale"', '"Only the administrator can change Tailscale"']
+        ["the header's reason names the agreed cause", ': "The administrator holds Tailscale";', ': "Only the administrator can change Tailscale";'],
+        ["Setup names the agreed cause", '"The administrator holds Tailscale. After this step,', '"Only the administrator can change Tailscale. After this step,']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "VpnLogic.js");
@@ -462,6 +466,10 @@ try {
         assert.throws(() => suite(load(mutant, commons)), undefined, "control: " + name);
         console.log("vpn-logic: control=" + name + " red");
     }
+    const readmeNeedle = "| The administrator holds Tailscale |";
+    assert.equal(readmeSource.split(readmeNeedle).length - 1, 1);
+    assert.throws(() => suite(load(file, commons), serviceSource, readmeSource.replace(readmeNeedle, "| Only the administrator can change Tailscale |")));
+    console.log("vpn-logic: control=README names the agreed cause red");
     const publicationNeedle = "Logic.statusWrites(connection, setup, published, profiles)";
     assert.equal(serviceSource.split(publicationNeedle).length - 1, 1);
     const unboundedService = serviceSource.replace(publicationNeedle,

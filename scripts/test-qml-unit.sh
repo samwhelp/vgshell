@@ -939,6 +939,7 @@ mutations=(
   "a reason grows past its window's content|overlay/Tooltip.qml|Math.min(root.maxWidth + 2 * Theme.tooltip.paddingX, root.clearWidth)|root.maxWidth + 2 * Theme.tooltip.paddingX|tst_reasontip.qml"
   "a pane switch's reason keeps clear of its switch alone|layout/Pane.qml|const x = switchLabel.x - switchLoader.x,|const x = 0,|tst_reasontip.qml"
   "a pane switch's reason wraps past the room its title leaves|layout/Pane.qml|return text > 0 ? Math.min(text, Theme.tooltip.maxWidth) : Theme.tooltip.maxWidth;|return Theme.tooltip.maxWidth;|tst_reasontip.qml"
+  "a pane reason leaves no title-side padding|layout/Pane.qml| - titleEnd - Theme.tooltip.paddingX)| - titleEnd)|tst_reasontip.qml"
   "a reason ignores its holder's box|controls/DisabledReason.qml|            box: root.reasonBox|            box: Qt.rect(0, 0, root.control.width, root.control.height)|tst_reasontip.qml"
   "the slider fill ignores the value|controls/Slider.qml|width: root.position * parent.width|width: parent.width|tst_slider.qml"
   "the mirrored slider fills from the left|controls/Slider.qml|x: root.mirrored ? parent.width - width : 0|x: 0|tst_slider.qml"

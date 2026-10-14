@@ -266,9 +266,9 @@ Item {
                     value: {
                         // Whole pixels, as Tooltip.clearPlace floors the
                         // place's start: a tooltip this wide starts on or
-                        // after the title's end.
+                        // after the title's end plus its own padding.
                         const titleEnd = Math.ceil(Math.max(titleLabel.visible ? titleLabel.x + titleLabel.contentWidth : 0, titleSlot.x + titleSlot.implicitWidth));
-                        const text = Math.floor(switchLabel.x - Theme.tooltip.gap - titleEnd) - 2 * Theme.tooltip.paddingX;
+                        const text = Math.floor(switchLabel.x - Theme.tooltip.gap - titleEnd - Theme.tooltip.paddingX) - 2 * Theme.tooltip.paddingX;
                         return text > 0 ? Math.min(text, Theme.tooltip.maxWidth) : Theme.tooltip.maxWidth;
                     }
                 }

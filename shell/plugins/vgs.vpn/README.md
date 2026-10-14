@@ -24,6 +24,6 @@ The VPN section and the plugin's Settings page offer one step at a time. Enable 
 | Step | When | What it does |
 | --- | --- | --- |
 | Enable | The Tailscale service is off | Starts the service and keeps it on after a restart. |
-| Let my login control Tailscale | Only the administrator can change Tailscale | Lets VGS connect, disconnect and choose an exit node for you without a password. |
+| Let my login control Tailscale | The administrator holds Tailscale | Lets VGS connect, disconnect and choose an exit node for you without a password. |
 
 Check every sets how often VGS reads Tailscale while the flyout and the section are closed: 10, 30 or 60 seconds.
