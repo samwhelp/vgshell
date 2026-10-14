@@ -1124,7 +1124,7 @@ tail -n 1 "$tmp/out" >"$tmp/list.json"
 check "a hand edit of the theme file reports it modified" json_is "$tmp/list.json" 'd["file"]["state"] == "loaded" and d["file"]["name"] == "dusk" and d["file"]["modified"] is True'
 
 tinst "theme apply --json prints the structured result" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply --json nord
-check "the passing user apply includes an empty shortfall field" json_is "$tmp/out" 'd == {"state":"applied","shell":"applied","targets":[{"name":"foot","state":"skipped","reason":"not-detected","dropped":[]}],"theme":"nord","reason":None,"readabilityShortfalls":[]}'
+check "the passing user apply includes an empty shortfall field" json_is "$tmp/out" 'd == {"state":"applied","shell":"applied","targets":[{"name":"foot","state":"skipped","reason":"not-detected","dropped":[]}],"theme":"nord","displayName":None,"reason":None,"readabilityShortfalls":[]}'
 check "a package's own terminal.json is rendered as it is" cmp -s "$themes/nord/terminal.json" "$state/theme/terminal.json"
 
 # A stage a crashed apply left behind is removed, never carried into theme/.
@@ -1278,7 +1278,7 @@ terminal_readability() {
 import pathlib, re, sys
 text = pathlib.Path(sys.argv[1]).read_text()
 rows = [line for line in text.splitlines() if "Faint text" in line]
-sys.exit(0 if len(rows) == 1 and "desktop" in rows[0] and re.search(r"\b1\.00:1\b", rows[0]) and not re.search(r"color\.|vgshell", rows[0]) else 1)
+sys.exit(0 if text.splitlines()[0] == "faint: some text may be hard to read" and "Some parts may be hard to read." not in text and len(rows) == 1 and "desktop" in rows[0] and re.search(r"\b1\.00:1\b", rows[0]) and not re.search(r"color\.|vgshell", rows[0]) else 1)
 PY
 }
 tinst "a faint user theme adds with no shell" "$readability_cfg" "$rt_empty" 0 "$any_out" "" theme add "$src/faint.git"
@@ -1419,7 +1419,7 @@ with_stubs="$stubs:$theme_path"
 foot_line="include=$live/foot.ini"
 
 THEME_PATH="$with_stubs" tinst "an apply a target fails in is partial with exit 3" "$cfg" "$rt_empty" 3 "$any_out" 'vgshell: refused: target=fails reason=placeholder template=fails.conf placeholder="palette.nope"' theme apply --json dusk
-check "the successful apply preserves its target verdicts and adds advice" json_is "$tmp/out" '{k:v for k,v in d.items() if k != "readabilityShortfalls"} == {"state":"partial","shell":"applied","targets":[{"name":"fails","state":"failed","reason":"placeholder","dropped":[]},{"name":"foot","state":"written","reason":None,"dropped":[]},{"name":"off","state":"skipped","reason":"disabled","dropped":[]},{"name":"probe","state":"skipped","reason":"wiring-file-absent","dropped":[]}],"theme":"dusk","reason":None} and isinstance(d["readabilityShortfalls"], list)'
+check "the successful apply preserves its target verdicts and adds advice" json_is "$tmp/out" '{k:v for k,v in d.items() if k != "readabilityShortfalls"} == {"state":"partial","shell":"applied","targets":[{"name":"fails","state":"failed","reason":"placeholder","dropped":[]},{"name":"foot","state":"written","reason":None,"dropped":[]},{"name":"off","state":"skipped","reason":"disabled","dropped":[]},{"name":"probe","state":"skipped","reason":"wiring-file-absent","dropped":[]}],"theme":"dusk","displayName":None,"reason":None} and isinstance(d["readabilityShortfalls"], list)'
 check "the partial apply's shell took the theme" cmp -s "$cfg/vgshell/themes/dusk/theme.json" "$file"
 check "foot's file lands in the state directory with the hex6 encoder" grep -qxF 'urls=222222' "$live/foot.ini"
 check "foot's file takes the shipped slots" grep -qxF 'regular1=f43f5e' "$live/foot.ini"
@@ -1434,7 +1434,7 @@ printf '[general]\nx=1\n' >"$tmp/dotfiles/probe.conf"; chmod 640 "$tmp/dotfiles/
 ln -s -- "$tmp/dotfiles/probe.conf" "$cfg/probe/probe.conf"
 rm -r -- "$tree/themes/targets/fails"
 THEME_PATH="$with_stubs" tinst "a wired probe lands and unchanged foot bytes stay unchanged" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply --json dusk
-check "the successful apply preserves its target verdicts and adds advice" json_is "$tmp/out" '{k:v for k,v in d.items() if k != "readabilityShortfalls"} == {"state":"applied","shell":"unchanged","targets":[{"name":"foot","state":"unchanged","reason":None,"dropped":[]},{"name":"off","state":"skipped","reason":"disabled","dropped":[]},{"name":"probe","state":"written","reason":None,"dropped":[]}],"theme":"dusk","reason":None} and isinstance(d["readabilityShortfalls"], list)'
+check "the successful apply preserves its target verdicts and adds advice" json_is "$tmp/out" '{k:v for k,v in d.items() if k != "readabilityShortfalls"} == {"state":"applied","shell":"unchanged","targets":[{"name":"foot","state":"unchanged","reason":None,"dropped":[]},{"name":"off","state":"skipped","reason":"disabled","dropped":[]},{"name":"probe","state":"written","reason":None,"dropped":[]}],"theme":"dusk","displayName":None,"reason":None} and isinstance(d["readabilityShortfalls"], list)'
 check "the probe's file is rendered with the hex8 encoder" test "$(cat "$live/probe.conf")" == "accent=222222ff slot1=f43f5eff"
 check "the wiring edits a symlinked file through its link" test -L "$cfg/probe/probe.conf"
 check "the include line goes first and the file's own text is kept" test "$(cat "$tmp/dotfiles/probe.conf")" == "source = $live/probe.conf"$'\n[general]\nx=1'

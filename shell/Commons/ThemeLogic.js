@@ -388,6 +388,10 @@ function readabilityName(key) {
     throw new Error("theme: unknown readability role=" + key);
 }
 
+function readabilityTitle(name, displayName) {
+    return (displayName === null ? name : displayName) + ": some text may be hard to read";
+}
+
 function readabilityNotice(shortfalls) {
     var worst = {};
     var roles = [];
@@ -397,7 +401,7 @@ function readabilityNotice(shortfalls) {
         else if (worst[row.text].ratio !== null && (row.ratio === null || row.ratio < worst[row.text].ratio)) worst[row.text] = row;
     }
     if (roles.length === 0) return "";
-    var lines = ["Some parts may be hard to read."];
+    var lines = [];
     for (var j = 0; j < roles.length; j++) {
         var shortfall = worst[roles[j]];
         var ratio = shortfall.ratio === null ? "contrast cannot be measured" : (Math.floor(shortfall.ratio * 100) / 100).toFixed(2) + ":1";

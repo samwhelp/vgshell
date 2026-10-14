@@ -1632,7 +1632,10 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
         : result.targets[droppedRows.length + i]));
     writePending(stateDir, stillPending(result.targets, due), due, key);
     result.state = applyState(result.shell, result.targets);
-    if (shortfalls !== null) result.readabilityShortfalls = shortfalls;
+    if (shortfalls !== null) {
+        result.displayName = row.displayName;
+        result.readabilityShortfalls = shortfalls;
+    }
 }
 
 // The apply's state from its shell and target states: `partial` when a
@@ -1669,7 +1672,7 @@ function report(format, result, run, tail) {
             (t.dropped === undefined || t.dropped.length === 0 ? "" : " dropped=" + t.dropped.join(",")));
         if (result.readabilityShortfalls !== undefined) {
             const notice = logic.readabilityNotice(result.readabilityShortfalls);
-            if (notice !== "") console.log(notice);
+            if (notice !== "") console.log(logic.readabilityTitle(result.theme, result.displayName) + "\n" + notice);
         }
         console.log((result.state === "partial" ? "partial" : "ok") + " " + tail(result));
     }
@@ -2272,6 +2275,7 @@ function add(result, configDir, stage, lock, url) {
     if (!verdict.ok) refuse("package=" + url + " " + refusalFields(verdict), verdict.reason);
     const name = verdict.name;
     result.theme = name;
+    result.displayName = verdict.displayName;
     const { dir, key } = installedPath(configDir, name);
     themeLockChange(key, lock, configDir);
     if (fs.lstatSync(dir, { throwIfNoEntry: false }) !== undefined)
@@ -2287,7 +2291,7 @@ function add(result, configDir, stage, lock, url) {
 function addedLines(result) {
     const lines = ["ok added=" + result.theme + " path=" + result.path + (result.shadows === null ? "" : " shadows=" + result.shadows)];
     const notice = logic.readabilityNotice(result.readabilityShortfalls);
-    if (notice !== "") lines.unshift(notice);
+    if (notice !== "") lines.unshift(logic.readabilityTitle(result.theme, result.displayName) + "\n" + notice);
     return lines;
 }
 

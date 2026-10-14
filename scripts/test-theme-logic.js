@@ -693,13 +693,15 @@ const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
 
 function verifyReadabilityNotice(judge) {
+    assert.equal(judge.readabilityTitle("tokyo-night", null), "tokyo-night: some text may be hard to read");
+    assert.equal(judge.readabilityTitle("tokyo-night", "Tokyo Night"), "Tokyo Night: some text may be hard to read");
     assert.equal(judge.readabilityNotice([]), "", "a passing theme has no notice");
     const worst = { text: "color.textFaint", surface: "color.surface", ratio: 1.25, floor: 4.5 };
     const better = { text: "color.textFaint", surface: "color.background", ratio: 2.25, floor: 4.5 };
     const notice = judge.readabilityNotice([worst]);
     assert.equal(judge.readabilityNotice([better, worst, better]), notice, "each role names only its worst surface");
     assert.equal(judge.readabilityNotice([worst, better]), notice, "worst selection does not depend on input order");
-    assert.equal(notice.split("\n").length, 2, "one introduction and one role line");
+    assert.equal(notice, "Faint text: 1.25:1 on panels.", "one measured line without a repeated introduction");
     assert.ok(notice.includes("1.25:1"), "the notice contains the judged ratio");
     assert.ok(!notice.includes("2.25:1"), "the notice omits stronger surfaces");
     const translucent = Object.assign({}, worst, { surface: "color.surfaceRaised", ratio: null });
@@ -727,7 +729,7 @@ function verifyReadabilityNotice(judge) {
     assert.ok(crowded.length <= 600, "one notice stays within the notifier's message limit");
     const omitted = /^(\d+)\b/.exec(crowded.split("\n").slice(-1)[0]);
     assert.notEqual(omitted, null, "a bounded notice names how many roles remain");
-    assert.equal(crowded.split("\n").length - 2 + Number(omitted[1]), roles.length, "each role is listed or counted");
+    assert.equal(crowded.split("\n").length - 1 + Number(omitted[1]), roles.length, "each role is listed or counted");
     assert.ok(!/color\.|badge\.|segmented\.|carousel\.|vgshell/.test(crowded), "no internal key or command reaches the notice");
 }
 
@@ -1927,6 +1929,9 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["notice names its theme", '(displayName === null ? name : displayName) + ": some text may be hard to read"', '": some text may be hard to read"'],
+    ["notice uses the display name", 'displayName === null ? name : displayName', 'name'],
+    ["notice omits the repeated introduction", 'var lines = [];', 'var lines = ["Some parts may be hard to read."];'],
     ["notice groups each role", "if (!hasOwn(worst, row.text)) { worst[row.text] = row; roles.push(row.text); }", "if (true) { worst[row.text] = row; roles.push(row.text); }"],
     ["notice picks the weakest surface", "row.ratio < worst[row.text].ratio", "row.ratio > worst[row.text].ratio"],
     ["notice message limit", 'lines.concat([line]).join("\\n").length + tail.length > 600', 'lines.concat([line]).join("\\n").length + tail.length > 6000'],

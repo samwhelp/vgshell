@@ -1401,19 +1401,23 @@ rm -r -- "$scenic" "$plain"
 # second send cannot hide behind an early first-card reading.
 # The suppressed-send and duplicate-on-finish controls keep the apply.
 theme_notice_pkg="$installed/faint-user"
-mkdir -p -- "$theme_notice_pkg"
-printf '%s\n' '{"schemaVersion":1,"name":"faint-user","tokens":{"color":{"textFaint":"#000000"}}}' >"$theme_notice_pkg/theme.json"
+theme_notice_source="$sandbox/faint-user-source"
+mkdir -p -- "$theme_notice_source"
+printf '%s\n' '{"schemaVersion":1,"name":"faint-user","displayName":"Faint User","tokens":{"color":{"textFaint":"#000000"}}}' >"$theme_notice_source/theme.json"
+"${shell_env[@]}" git -c core.hooksPath=/dev/null init --quiet "$theme_notice_source"
+"${shell_env[@]}" git -C "$theme_notice_source" add theme.json
+"${shell_env[@]}" git -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Smoke -c user.email=smoke@example.invalid -C "$theme_notice_source" commit --quiet -m fixture
 theme_notice_rows() {
-  ipc smoke modelRows vgs.notifications rows app,body,leaving | py_reply 'import json,sys
+  ipc smoke modelRows vgs.notifications rows app,summary,body,leaving | py_reply 'import json,sys
 rows=json.load(sys.stdin)
-print(json.dumps([r[1] for r in rows if r[0] == "VGS" and r[2] == ""]) if isinstance(rows,list) else "absent")'
+print(json.dumps([[r[1],r[2]] for r in rows if r[0] == "VGS" and r[3] == ""]) if isinstance(rows,list) else "absent")'
 }
 theme_notice_count() { theme_notice_rows | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) if isinstance(rows,list) else "absent")'; }
 theme_notice_evidence() {
   theme_notice_rows | py_reply 'import json,re,sys
 rows=json.load(sys.stdin)
-lines=[line for body in rows for line in body.splitlines() if "Faint text" in line] if isinstance(rows,list) else []
-print(len(rows)==1 and len(lines)==1 and "desktop" in lines[0] and bool(re.search(r"\b1\.00:1\b",lines[0])) and not bool(re.search(r"color\.|vgshell",lines[0])))'
+lines=rows[0][1].splitlines() if isinstance(rows,list) and len(rows)==1 else []
+print(len(lines)==1 and rows[0][0]=="Faint User: some text may be hard to read" and lines[0]=="Faint text: 1.00:1 on desktop.")'
 }
 theme_notice_assertion_failures() {
   (failures=0 behaviour_failures=0
@@ -1421,6 +1425,16 @@ theme_notice_assertion_failures() {
   printf '%s\n' "$failures")
 }
 notes_on "theme readability"
+theme_notice_add() {
+  local status=0
+  sandbox_vgshell theme add "$theme_notice_source" >"$sandbox/theme-notice-add.log" || status=$?
+  printf '%s\n' "$status"
+}
+expect "the user theme adds" 0 theme_notice_add
+expect_poll "the add notifier completes its send" 0 ipc smoke themeNoticeRuns
+expect_poll "the add notice names its theme once and keeps its measurement" True theme_notice_evidence
+notes_first_card "the theme add readability notice"
+notes_clear "theme add readability"
 expect "the probe enables for the readability notice" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the readability probe is built" True service_built
 expect "reads settle before the readability apply" idle theme_idle
@@ -1488,4 +1502,4 @@ expect_poll "the passing theme is displayed" '"vgs"' theme_member current
 expect "the readability probe disables" ok ipc shell setPluginEnabled acme.probe false
 notes_off "theme readability"
 expect "the final readability scans settle" idle theme_idle
-rm -r -- "$theme_notice_pkg"
+rm -r -- "$theme_notice_pkg" "$theme_notice_source"

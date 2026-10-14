@@ -40,7 +40,7 @@ Scope {
         catch (e) { return "refused: theme-completed=shortfall-role"; }
         if (message === "") return "ok";
         return Notifier.send({ id: "core" }, "VGS", {
-            title: "Theme text may be hard to read", message: message,
+            title: ThemeLogic.readabilityTitle(result.theme, result.displayName), message: message,
             tone: "warning", icon: "triangle-alert"
         }, notificationHub);
     }
