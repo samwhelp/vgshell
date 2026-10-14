@@ -1297,7 +1297,7 @@ control aur-reviewed-without-helper '      if [[ -n $aur_binary ]]; then review_
   tmp="$tmp/real-themes"; mkdir -p "$tmp"
   ln -s -- "${tmp%/*}/terminal-input" "$tmp/terminal-input"
   theme_tree
-  for tool in env python3; do
+  for tool in env python3 setsid timeout; do
     tool_bin="$(command -v "$tool")" || exit 77
     ln -s -- "$tool_bin" "$theme_path/$tool"
   done
@@ -1322,6 +1322,11 @@ control aur-reviewed-without-helper '      if [[ -n $aur_binary ]]; then review_
     reset_fix
     settings "" true
     run_real theme outdated --json >"$fix/themes.json"
+    python3 -c 'import json,sys
+rows = {r["id"]: r for r in json.load(open(sys.argv[1]))}
+for name in ("amberbyte", "tokyo-night", "vengeance"):
+    assert name in rows and rows[name]["error"] is None and rows[name]["behind"] > 0, rows.get(name)
+' "$fix/themes.json"
     {
       printf '#!/usr/bin/env bash\nset -euo pipefail\n'
       printf 'PATH=%q\ntmp=%q\n' "$base_path" "$tmp/lock-holder"
