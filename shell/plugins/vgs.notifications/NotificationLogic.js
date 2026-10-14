@@ -26,7 +26,7 @@ var HISTORY_MAX = 100;
 var HISTORY_AGE = 24 * 3600 * 1000;
 var LIVE_MAX = 20;
 // Text a sender supplies is stored up to these lengths, so the state file
-// holds at most (HISTORY_MAX + LIVE_MAX) entries of bounded size.
+// holds at most (STATE_HISTORY_MAX + LIVE_MAX) entries of bounded size.
 var SUMMARY_MAX = 512;
 var BODY_MAX = 4096;
 // On-screen lifetimes, in milliseconds: the low urgency's floor and one
@@ -36,6 +36,9 @@ var LOW_LIFETIME = 5000;
 var MAX_LIFETIME = 30000;
 // The state file's format.
 var STATE_VERSION = 4;
+// cb594cd23 wrote up to 720 history entries. The current file judge keeps
+// that capacity so conversion never discards them; new history uses HISTORY_MAX.
+var STATE_HISTORY_MAX = 720;
 // The entry roles an image can sit in, each owned as a copy by a stored
 // entry, named <key>-<role> in the images directory.
 var IMAGE_ROLES = ["appIcon", "image"];
@@ -1562,7 +1565,7 @@ function parseState(text) {
     if (typeof parsed.dnd !== "boolean") return { ok: false, error: "dnd want=boolean" };
     if (typeof parsed.readBefore !== "number" || !isFinite(parsed.readBefore)) return { ok: false, error: "readBefore want=number" };
     var lists = ["live", "history"];
-    var limits = { live: LIVE_MAX, history: HISTORY_MAX };
+    var limits = { live: LIVE_MAX, history: STATE_HISTORY_MAX };
     var seen = {};
     for (var l = 0; l < lists.length; l++) {
         var list = parsed[lists[l]];

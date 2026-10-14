@@ -108,7 +108,7 @@ const STATE_REFUSED = [
     ["a Silence that is no boolean", stateText({ dnd: "on" }), "dnd want=boolean"],
     ["a read cutoff that is no number", stateText({ readBefore: "0" }), "readBefore want=number"],
     ["a history that is no list", stateText({ history: {} }), "history want=list"],
-    ["a history past its limit", stateText({ history: Array.from({ length: 101 }, (_, i) => stored(1000 + i, i)) }), "history length=101 want<=100"],
+    ["a saved history past its limit", stateText({ history: Array.from({ length: 721 }, (_, i) => stored(1000 + i, i)) }), "history length=721 want<=720"],
     ["a live list past its limit", stateText({ live: Array.from({ length: 21 }, (_, i) => stored(1000 + i, i)) }), "live length=21 want<=20"],
     ["an entry that is no object", stateText({ history: [3] }), "history.0 want=object"],
     ["an entry with an unknown key", stateText({ history: [stored(5, 1, { extra: 1 })] }), "history.0.extra unknown"],
@@ -704,8 +704,6 @@ function verify(logic) {
     same(logic.ownedImages([again.entry, stored(5, 1, { image: "file://" + IMAGES + "/5-1-image" }), stored(6, 1, { image: "file:///elsewhere/6-1-image.png" })]), ["1000-7-appIcon", "5-1-image"]);
 
     // The state file's judge.
-    for (const [label, text, want] of STATE_REFUSED)
-        same(logic.parseState(text), { ok: false, error: want }, "state: " + label);
     const good = { version: 4, boot: BOOT, sound: false, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
     same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history } });
     // An entry stored before senders could add hints has no hint roles,
@@ -738,6 +736,16 @@ function verify(logic) {
         [{ version: 1, boot: undefined, history: {} }, "history want=list"],
         [{ version: 2, extra: true }, "extra unknown"]
     ]) same(logic.parseState(logic.migrateState(stateText(fields), BOOT).text), { ok: false, error }, "migration leaves defects to the judge");
+
+    // cb594cd23's version 2 producer could fill its history with 720 entries.
+    const fullHistory = Array.from({ length: 720 }, (_, i) => unhinted(1000 + i, i));
+    const fullSecond = stateText({ version: 2, sound: undefined, dnd: true, readBefore: 1500, history: fullHistory });
+    const fullWanted = { boot: BOOT, sound: true, dnd: true, readBefore: 1500, live: [], history: Array.from({ length: 720 }, (_, i) => stored(1000 + i, i)) };
+    const fullConverted = logic.parseState(logic.migrateState(fullSecond, BOOT).text);
+    same(fullConverted, { ok: true, state: fullWanted }, "every entry in a full version 2 history survives conversion");
+    same(logic.parseState(logic.serializeState(fullConverted.state)), fullConverted, "the converted full history opens again as current state");
+    for (const [label, text, want] of STATE_REFUSED)
+        same(logic.parseState(text), { ok: false, error: want }, "state: " + label);
 
     // The previous version's file as the store reads it: migrated, judged
     // by the one judge, and written back as this version.
@@ -1336,6 +1344,7 @@ const CONTROLS = [
     ["in-process image dropped", '} else if (value.indexOf("image://") === 0) {\n            out[role] = "";', '} else if (false) {\n            out[role] = "";'],
     ["copy once", "if (source !== copy) copies.push({ from: source, to: copy });", "copies.push({ from: source, to: copy });"],
     ["history limit", "if (list.length > limits[lists[l]]) return", "if (false) return"],
+    ["saved history admits earlier full files", "history: STATE_HISTORY_MAX };", "history: HISTORY_MAX };"],
     ["entry key identity", 'if (value.key !== keyOf(value.timestamp, value.originalId)) return where + ".key want="', 'if (false) return where + ".key want="'],
     ["duplicate key", 'if (seen[list[i].key]) return { ok: false, error: lists[l] + "." + i + ".key duplicate" };', ""],
     ["unknown state key", 'if (["version", "boot", "sound", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return', "if (false) return"],

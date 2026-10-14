@@ -2917,12 +2917,17 @@ expect "notifications stop before the earlier saved files" ok ipc shell setPlugi
 expect_poll "the store is gone before the earlier saved files" False record_exists vgs.notifications
 for saved_version in 1 2; do
   plant_state "d['version'] = $saved_version; d.pop('sound', None); d['dnd'] = True; d['readBefore'] = now - 1500; d['history'] = [entry('Earlier unread', 908, now - 1000), entry('Earlier read', 909, now - 2000)]; d['live'] = []; d.pop('boot', None) if $saved_version == 1 else None"
+  # cb594cd23's version 2 could hold 720 entries, all within this boot's day.
+  if [[ $saved_version == 2 ]]; then
+    plant_state "d['history'] += [entry('Earlier retained %d' % i, 1000 + i, now - 3000 - i) for i in range(718)]"
+  fi
+  saved_history="$(history_summaries)"
   saved_read_before="$(state_at readBefore)"
   saved_migrations="$(log_lines 'notifications: state migrated: ')"
   expect "notifications start over saved version $saved_version" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "saved version $saved_version opens in the store" '"loaded"' note_status store.state
   expect_poll "saved version $saved_version is written as current" 4 state_at version
-  expect "saved version $saved_version keeps every history entry" '["Earlier unread", "Earlier read"]' history_summaries
+  expect "saved version $saved_version keeps every history entry" "$saved_history" history_summaries
   expect "saved version $saved_version keeps Do Not Disturb" true state_at dnd
   expect "saved version $saved_version keeps its prior Sound behavior" true state_at sound
   expect "saved version $saved_version keeps the read watermark" "$saved_read_before" state_at readBefore
@@ -2938,7 +2943,7 @@ for saved_version in 1 2; do
   expect_log "saved version $saved_version migrates once" "$((saved_migrations + 1))" 'notifications: state migrated: '
   restart_notes "after saved version $saved_version migration"
   expect_poll "the next read opens the current file" '"loaded"' note_status store.state
-  expect "the next read keeps every migrated entry" '["Earlier unread", "Earlier read"]' history_summaries
+  expect "the next read keeps every migrated entry" "$saved_history" history_summaries
   expect "the next read keeps the watermark" "$saved_read_before" state_at readBefore
   expect "the next read performs no second migration" "$((saved_migrations + 1))" log_lines 'notifications: state migrated: '
   expect "notifications stop before the next saved file" ok ipc shell setPluginEnabled vgs.notifications false
