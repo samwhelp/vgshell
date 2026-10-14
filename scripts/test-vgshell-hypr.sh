@@ -129,7 +129,6 @@ EOF
 chmod +x "$edit_dir/stub"
 ln -s -- "$edit_dir/stub" "$edit_dir/nvim"
 ln -s -- "$edit_dir/stub" "$edit_dir/code"
-ln -s -- "$edit_dir/stub" "$edit_dir/xdg-open"
 cfg="$tmp/cfg-edit"; mkdir -p "$cfg/hypr"; printf 'return {}\n' >"$cfg/hypr/hyprland.lua"
 inst_env=(EDITOR="stub --wait" EDIT_RECORD="$tmp/edit-argv")
 INST_PATH="$edit_dir:$base_path" inst "edit uses EDITOR split on spaces" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua
@@ -139,14 +138,13 @@ INST_PATH="$edit_dir:$base_path" inst "edit gives a line to an editor that accep
 check "nvim receives +LINE before the path" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "--wait +12 $cfg/hypr/hyprland.lua "
 inst_env=(EDITOR="$edit_dir/code --wait" EDIT_RECORD="$tmp/edit-argv")
 INST_PATH="$edit_dir:$base_path" inst "edit omits the line for another editor" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua 12
-check "code receives no +LINE argument" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "--wait $cfg/hypr/hyprland.lua "
+check "code receives no +LINE or --wait argument" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "$cfg/hypr/hyprland.lua "
 inst_env=(EDIT_RECORD="$tmp/edit-argv")
-INST_PATH="$edit_dir:$base_path" inst "edit falls back to xdg-open" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua
-check "xdg-open receives the absolute file path" test "$(cat "$tmp/edit-argv")" == "$cfg/hypr/hyprland.lua"
+INST_PATH="$edit_dir:$base_path" inst "edit needs a terminal for its editor picker" "$cfg" "$rt_empty" 2 "" "vgs-tui: refused: choose=no-terminal" edit hypr/hyprland.lua
 edit_min="$tmp/edit-min"; mkdir -p "$edit_min"
 for tool in bash readlink dirname id basename; do ln -s -- "$(command -v "$tool")" "$edit_min/$tool"; done
 inst_env=()
-INST_PATH="$edit_min" inst "edit refuses without an opener" "$cfg" "$rt_empty" 1 "" "vgshell: refused: opener=missing" edit hypr/hyprland.lua
+INST_PATH="$edit_min" inst "edit refuses without an editor" "$cfg" "$rt_empty" 1 "" "vgs-tui: refused: editor=missing" edit hypr/hyprland.lua
 INST_PATH="$edit_dir:$base_path" inst "edit refuses an absolute path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=/etc/passwd reason=absolute" edit /etc/passwd
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a parent path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=hypr/../secret reason=parent" edit hypr/../secret
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a missing file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$cfg/hypr/missing.lua" edit hypr/missing.lua
@@ -185,11 +183,11 @@ check "the unconfined mutant removes the outside line" test ! -s "$tmp/outside.l
 unset THEME_BIN
 # shellcheck disable=SC2016
 tree_control edit-parent bin/vgshell '[[ $part != .. ]] || return 3' '[[ $part != .. ]] || return 0'
-inst_env=(EDIT_RECORD="$tmp/edit-argv")
+inst_env=(EDITOR="$edit_dir/nvim" EDIT_RECORD="$tmp/edit-argv")
 INST_BIN="$THEME_BIN" INST_PATH="$edit_dir:$base_path" inst "the edit parent mutant accepts a parent path" "$cfg" "$rt_empty" 0 "" "" edit hypr/../hypr/hyprland.lua
 check "control: the edit parent mutant opens a path with a parent component" grep -qxF -- "$cfg/hypr/../hypr/hyprland.lua" "$tmp/edit-argv"
 # shellcheck disable=SC2016
-tree_control edit-line bin/vgshell 'editor_takes_line "${opener[0]}"' 'true'
+tree_control edit-line bin/lib/tui.sh '_vgs_tui_editor_takes_line "${editor[0]}"' 'true'
 inst_env=(EDITOR="$edit_dir/code --wait" EDIT_RECORD="$tmp/edit-argv")
 INST_BIN="$THEME_BIN" INST_PATH="$edit_dir:$base_path" inst "the edit line mutant opens code with a line" "$cfg" "$rt_empty" 0 "" "" edit hypr/hyprland.lua 12
 check "control: the edit line mutant gives +LINE to code" grep -qxF -- "+12" "$tmp/edit-argv"

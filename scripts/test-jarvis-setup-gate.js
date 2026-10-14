@@ -54,9 +54,8 @@ function runScreen(script, root, scenario) {
         'vgs_tui_close_prompt() { printf "close %s\\n" "$1" >> "$SCREEN_LOG"; }', ""].join("\n"));
     fs.writeFileSync(command, '#!/bin/bash\n[[ $# == 6 && $1 == ipc && $2 == call && $3 == vgs.jarvis && $4 == invoke ]] || exit 2\n'
         + 'printf "%s %s\\n" "$5" "$6" >> "$SCREEN_LOG"\ncase $6 in kind) printf "%s\\n" "$KIND" ;; play) printf "%s\\n" "$PLAY" ;; *) printf "%s\\n" "$FILE" ;; esac\n', { mode: 0o700 });
-    fs.writeFileSync(path.join(root, "gio"), '#!/bin/bash\nprintf "gio %s %s\\n" "$1" "$2" >> "$SCREEN_LOG"\n[[ $GIO == ok ]]\n', { mode: 0o700 });
     const result = cp.spawnSync("/bin/bash", [script], { encoding: "utf8",
-        env: { PATH: root + ":/usr/bin:/bin", VGS_TUI_LIB: library, SCREEN_LOG: log, KIND: "", PLAY: "", FILE: "", CONFIRM: "", GIO: "", ...scenario } });
+        env: { PATH: root + ":/usr/bin:/bin", VGS_TUI_LIB: library, SCREEN_LOG: log, KIND: "", PLAY: "", FILE: "", CONFIRM: "", ...scenario } });
     return { status: result.status, stderr: result.stderr, log: fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [] };
 }
 function verifyPreviewAction(script, root) {
@@ -77,17 +76,35 @@ function verifyPreviewAction(script, root) {
     });
     assert.equal(new Set(causes).size, causes.length, "each refusal key has its own cause");
 }
-// The Edit screen opens the file the service answers with gio, and holds
-// its plain window on the close prompt when it cannot.
+// Edit uses the shared production helper. Only IPC and editors are stand-ins;
+// the close prompt records its status instead of waiting for a key.
 function verifyEditAction(script, root) {
-    const run = scenario => runScreen(script, root, scenario);
-    assert.deepEqual(run({ FILE: "/home/user/Jarvis/AGENTS.md", GIO: "ok" }),
-        { status: 0, stderr: "", log: ["personality-file ", "gio open /home/user/Jarvis/AGENTS.md"] }, "Edit opens the home's AGENTS.md");
-    const failed = run({ FILE: "/home/user/Jarvis/AGENTS.md", GIO: "no" });
-    assert.deepEqual([failed.status, failed.log.at(-1)], [1, "close 1"], "a file gio cannot open holds the window");
-    const homeless = run({ FILE: "refused: home=none", GIO: "ok" });
-    assert.deepEqual([homeless.status, homeless.log], [1, ["personality-file ", "close 1"]], "with no home nothing opens");
-    assert.ok(failed.stderr !== "" && homeless.stderr !== "" && failed.stderr !== homeless.stderr, "each failure says its own cause");
+    const library = path.join(root, "edit-lib"), log = path.join(root, "edit.log");
+    const realLibrary = path.join(__dirname, "..", "bin/lib/tui.sh");
+    fs.writeFileSync(library, 'source "' + realLibrary + '"\nvgs_tui_close_prompt() { printf "close %s\\n" "$1" >> "$SCREEN_LOG"; }\n');
+    fs.writeFileSync(path.join(root, "vgshell"), '#!/bin/bash\n[[ $# == 6 && $1 == ipc && $2 == call && $3 == vgs.jarvis && $4 == invoke && $5 == personality-file && -z $6 ]] || exit 2\nprintf "personality-file\\n" >> "$SCREEN_LOG"\nprintf "%s\\n" "$FILE"\n', { mode: 0o700 });
+    for (const name of ["nvim", "nano", "code", "codium"])
+        fs.writeFileSync(path.join(root, name), '#!/bin/bash\nprintf "' + name + ' %s\\n" "$*" >> "$SCREEN_LOG"\nprintf "editor: error=fixture\\n" >&2\nexit "$EDIT_STATUS"\n', { mode: 0o700 });
+    const file = "/home/user/Jarvis/AGENTS.md";
+    for (const [name, visual, editor, code, expected] of [
+        ["visual", "nvim -R", "nano", 0, "nvim -R " + file],
+        ["editor", "", "nano -w", 0, "nano -w " + file],
+        ["code", "code --wait -w --reuse-window", "nano", 0, "code --reuse-window " + file],
+        ["codium", "", "codium --wait", 0, "codium " + file],
+        ["failed-editor", "nvim", "nano", 4, "nvim " + file],
+        ["homeless", "nvim", "", 1, null]
+    ]) {
+        fs.rmSync(log, { force: true });
+        const result = cp.spawnSync("/bin/bash", [script], { encoding: "utf8", timeout: 5000,
+            env: { PATH: root, VGS_TUI_LIB: library, SCREEN_LOG: log,
+                FILE: expected === null ? "refused: home=none" : file,
+                VISUAL: visual, EDITOR: editor, EDIT_STATUS: String(code), VGS_TEST_RUN: "1" } });
+        assert.equal(result.status, code, name + ": status");
+        const calls = fs.readFileSync(log, "utf8").trim().split("\n");
+        assert.deepEqual(calls, ["personality-file", ...(expected ? [expected] : []), ...(code ? ["close " + code] : [])], name + ": calls");
+        if (expected) assert.equal(result.stderr, "editor: error=fixture\n", name + ": real editor error");
+        else assert.notEqual(result.stderr, "", name + ": missing home cause");
+    }
 }
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
@@ -1799,7 +1816,7 @@ try {
     for (const [name, script, verify, needle, replacement] of [
         ["preview-cost-question", previewAction, verifyPreviewAction, '  cloud) vgs_tui_confirm "This preview uses your cloud voice key and may cost money. Play it?" || exit 0 ;;\n', "  cloud) ;;\n"],
         ["preview-muted-cause", previewAction, verifyPreviewAction, '    "refused: preview=muted") vgs_tui_error "Jarvis is muted. Unmute Jarvis, then try again." ;;\n', ""],
-        ["edit-gio-status", editAction, verifyEditAction, 'gio open "$file" 2>/dev/null || {', 'gio open "$file" 2>/dev/null || true || {'],
+        ["edit-editor-status", editAction, verifyEditAction, 'vgs_tui_edit "$file"', 'vgs_tui_edit "$file" || true'],
         ["edit-close-prompt", editAction, verifyEditAction, "trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt \"$status\"' EXIT\n", ""]
     ]) {
         const source = fs.readFileSync(script, "utf8");

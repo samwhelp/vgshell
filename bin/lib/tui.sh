@@ -37,6 +37,8 @@
 #                                    theme; yes under VGS_TUI_UNATTENDED=1
 #   vgs_tui_choose|input|filter [GUM_ARG...]
 #                                    gum choose, input or filter
+#   vgs_tui_edit FILE [LINE]         VISUAL, then EDITOR, else a choice of
+#                                    installed editors; the editor's status
 #   vgs_tui_gum_env ARRAY            set ARRAY to NAME=VALUE for each exported
 #                                    colour or bold variable gum reads, an empty
 #                                    colour, gum's no colour, included, and TERM and
@@ -331,6 +333,44 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
 vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
 vgs_tui_input() { _vgs_tui_terminal input || return; _vgs_tui_prompt_gap; gum input "$@"; }
 vgs_tui_filter() { _vgs_tui_terminal filter || return; _vgs_tui_prompt_gap; gum filter "$@"; }
+
+_vgs_tui_editor_takes_line() { # EDITOR_ARGV0
+  # These terminal editors accept +LINE before the path.
+  case "${1##*/}" in
+    vi|vim|nvim|nano|emacs|emacsclient|micro|kak|ne|joe|mg) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Editor variables are argv words, never shell code. VS Code's --wait (-w)
+# waits for the file to close (src/vs/platform/environment/node/argv.ts),
+# so omit it for the graphical launch: the floating terminal closes once
+# the launcher returns, while launch errors keep their stderr and status.
+vgs_tui_edit() { # FILE [LINE]
+  local file="$1" selected="${VISUAL:-${EDITOR:-}}" name word
+  local editor=() installed=() launch=()
+  if [[ -z $selected ]]; then
+    for name in nvim vim nano micro hx vi code codium code-insiders vscodium gvim; do
+      command -v "$name" >/dev/null 2>&1 && installed+=("$name")
+    done
+    if [[ ${#installed[@]} == 0 ]]; then
+      _vgs_tui_refuse 1 "editor=missing" "No text editor is installed."
+      return
+    fi
+    selected="$(vgs_tui_choose --header "Choose an editor" -- "${installed[@]}")" || return
+  fi
+  read -r -a editor <<<"$selected"
+  [[ ${#editor[@]} -gt 0 ]] || { _vgs_tui_refuse 2 "editor=empty"; return; }
+  name="${editor[0]##*/}"
+  for word in "${editor[@]:1}"; do
+    case "$name:$word" in
+      code:--wait|code:-w|codium:--wait|codium:-w|code-insiders:--wait|code-insiders:-w|vscodium:--wait|vscodium:-w) ;;
+      *) launch+=("$word") ;;
+    esac
+  done
+  if [[ -n ${2:-} ]] && _vgs_tui_editor_takes_line "${editor[0]}"; then launch+=("+$2"); fi
+  "${editor[0]}" "${launch[@]}" "$file"
+}
 
 vgs_tui_gum_env() { # ARRAY
   local -n _vgs_tui_words="$1"

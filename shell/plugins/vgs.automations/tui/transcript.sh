@@ -16,8 +16,8 @@ if [[ $path != /* || ! -f $path ]]; then
 fi
 
 vgs_tui_step "Opening run output"
-if [[ -n ${EDITOR:-} ]]; then
-  "$EDITOR" "$path"
+if [[ -n ${VISUAL:-${EDITOR:-}} ]]; then
+  vgs_tui_edit "$path"
 else
   ${PAGER:-less} "$path"
 fi

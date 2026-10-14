@@ -1025,6 +1025,120 @@ control gum-drops-empty 'then _vgs_tui_words+=("$name=${!name}"); fi' 'then [[ -
 check "the gum-drops-empty mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
 LIB="$lib"
 
+# The editor contract runs on an isolated PATH. The stand-ins receive argv
+# and inherited stdin/stdout/stderr. A pseudo-terminal lets the actual choice
+# prompt run; no installed editor or desktop service can be reached.
+python3 - "$lib" "$tmp" "$BASH" "$(command -v script)" <<'PY' || failures=$((failures + 1))
+import os, pathlib, shlex, subprocess, sys
+
+library, scratch, bash, terminal = sys.argv[1:]
+root = pathlib.Path(scratch) / "editors"
+root.mkdir()
+tools = root / "tools"
+tools.mkdir()
+file = root / "a file.md"
+file.write_text("personality\n")
+program = '#!' + bash + '''
+printf '%s\\n' "${0##*/}" "$@" > "$EDIT_CALLS"
+printf 'editor: output=value\\n'
+printf 'editor: error=fixture\\n' >&2
+exit "$EDIT_EXIT"
+'''
+for name in ["nvim", "vim", "nano", "code", "codium", "editor"]:
+    target = tools / name
+    target.write_text(program)
+    target.chmod(0o700)
+(tools / "gum").write_text('#!' + bash + '''
+printf '%s\\n' "$@" > "$EDIT_CHOICE"
+[[ $EDIT_CANCEL == 0 ]] || exit "$EDIT_CANCEL"
+printf '%s\\n' "$EDIT_PICK"
+''')
+(tools / "gum").chmod(0o700)
+empty = root / "empty"
+empty.mkdir()
+calls, choice = root / "calls", root / "choice"
+# name, VISUAL, EDITOR, choice, exit, expected argv, expected status
+rows = [
+    ("visual", "nvim -R", "vim", "", 0, ["nvim", "-R"], 0),
+    ("editor", "", "nano -w", "", 0, ["nano", "-w"], 0),
+    ("literal", "editor $(touch) ;", "", "", 0, ["editor", "$(touch)", ";"], 0),
+    ("absolute", str(tools / "nvim") + " -R", "", "", 0, ["nvim", "-R"], 0),
+    ("failure", "", "editor", "", 4, ["editor"], 4),
+    ("missing-command", "missing-editor", "vim", "", 0, None, 127),
+    ("code", "code --wait --reuse-window -w", "vim", "", 0, ["code", "--reuse-window"], 0),
+    ("codium", "", "codium -w --wait --new-window", "", 0, ["codium", "--new-window"], 0),
+    ("pick", "", "", "vim", 0, ["vim"], 0),
+    ("cancel", "", "", "cancel", 0, None, 130),
+    ("none-installed", "", "", "none", 0, None, 1),
+]
+def verify(subject):
+    for name, visual, editor, pick, code, expected, status in rows:
+        calls.unlink(missing_ok=True)
+        choice.unlink(missing_ok=True)
+        environment = dict(PATH=str(empty if pick == "none" else tools), VISUAL=visual, EDITOR=editor,
+            EDIT_CALLS=str(calls), EDIT_CHOICE=str(choice), EDIT_EXIT=str(code), EDIT_PICK=pick,
+            EDIT_CANCEL="130" if pick == "cancel" else "0", SHELL=bash, TERM="xterm", VGS_TEST_RUN="1")
+        snippet = "set -euo pipefail; source " + shlex.quote(str(subject)) + "; vgs_tui_edit " + shlex.quote(str(file))
+        command = [bash, "-c", snippet]
+        if pick not in ["", "none"]:
+            command = [terminal, "-qec", shlex.join(command), "/dev/null"]
+        result = subprocess.run(command, env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+        assert result.returncode == status, (name, result.returncode, result.stderr)
+        actual = calls.read_text().splitlines() if calls.exists() else None
+        assert actual == (expected + [str(file)] if expected else None), (name, actual)
+        if expected:
+            if pick:
+                offered = choice.read_text().splitlines()
+                assert offered[0] == "choose"
+                assert offered[offered.index("--") + 1:] == ["nvim", "vim", "nano", "code", "codium"]
+            else:
+                assert not choice.exists(), name
+                assert result.stdout == b"editor: output=value\n", name
+                assert result.stderr == b"editor: error=fixture\n", name
+        if name == "missing-command":
+            assert b"missing-editor" in result.stderr
+    return True
+verify(library)
+print("test-tui: editor-cases=" + str(len(rows)) + " passed=true")
+# Run transcripts are a paging view. They use the same helper only when
+# an editor is known; with neither editor variable, PAGER keeps its role.
+pager = tools / "less"
+pager.write_text(program)
+pager.chmod(0o700)
+transcript = pathlib.Path(library).parents[2] / "shell/plugins/vgs.automations/tui/transcript.sh"
+def verify_transcript(subject):
+    for visual, editor, expected in [("nvim -R", "nano", ["nvim", "-R"]), ("nvim -R", "", ["nvim", "-R"]), ("", "nano -w", ["nano", "-w"]), ("", "", ["less"])]:
+        environment = dict(PATH=str(tools), VISUAL=visual, EDITOR=editor, PAGER="less", VGS_TUI_LIB=library,
+            EDIT_CALLS=str(calls), EDIT_EXIT="0", VGS_TEST_RUN="1")
+        result = subprocess.run([bash, str(subject), str(file)], env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+        assert calls.read_text().splitlines() == expected + [str(file)]
+verify_transcript(transcript)
+print("test-tui: transcript-editor-and-pager passed=true")
+transcript_source = transcript.read_text()
+needle = 'vgs_tui_edit "$path"'
+assert transcript_source.count(needle) == 1
+mutant = root / "transcript-drops-editor.sh"
+mutant.write_text(transcript_source.replace(needle, ':'))
+try:
+    verify_transcript(mutant)
+except AssertionError:
+    print("test-tui: control=transcript-drops-editor rejected=true")
+else:
+    raise AssertionError("transcript editor control passed")
+source = pathlib.Path(library).read_text()
+needle = 'selected="${VISUAL:-${EDITOR:-}}"'
+assert source.count(needle) == 1
+mutant = root / "editor-ignores-visual.sh"
+mutant.write_text(source.replace(needle, 'selected="${EDITOR:-${VISUAL:-}}"'))
+try:
+    verify(mutant)
+except AssertionError:
+    print("test-tui: control=editor-ignores-visual rejected=true")
+else:
+    raise AssertionError("editor choice control passed")
+PY
+
 # The template's control: a copy that turns every confirm status into success.
 copy_with swallowed-confirm "$template" 'vgs_tui_confirm "Continue?" || status=$?' 'vgs_tui_confirm "Continue?" || exit 0'
 check "the swallowed-confirm mutant fails a template row" test "$(run_template_rows "$copy" quiet && echo green || echo red)" == red

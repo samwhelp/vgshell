@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
 # The vgs.notifications `open` floating TUI: opens the file a notification's
 # x-vgs-open hint names, when its x-vgs-click hint is `open`
-# (shell/plugins/vgs.notifications/developer.md § Hints). It runs $EDITOR on the file,
-# split on white space so `code --wait` works, in this terminal, so a
-# terminal editor has a window; with EDITOR unset or empty it hands the
-# file to xdg-open. The path is absolute, so no editor reads it as an
-# option.
+# (shell/plugins/vgs.notifications/developer.md § Hints). The shared TUI
+# helper chooses the user's editor. The path is absolute, so no editor
+# reads it as an option.
 #
 #   open.sh <absolute path>
 #
-# Exits with the editor's or xdg-open's status. Presented refusals keep their
+# Exits with the editor's status. Presented refusals keep their
 # keyed line in $XDG_STATE_HOME/vgshell/notifications/diagnostics.log and show
 # a plain explanation. Outside the presenter, the keyed line goes to stderr.
 # Keys: `notifications: refused: tui=missing`, exit 2, outside the
 # presenter; `notifications: refused: argument=<count>`, exit 2;
 # `notifications: refused: path=<path> reason=relative`, exit 2;
 # `notifications: refused: file=unreadable path=<path>`, exit 1;
-# `notifications: refused: opener=missing`, exit 1, with EDITOR unset and
-# no xdg-open. The TUI's presentation is `plain`, since the editor owns the
+# The TUI's presentation is `plain`, since the editor owns the
 # window: a failure holds the window on vgs_tui_close_prompt, so the user
 # reads it before it closes.
 set -Eeuo pipefail
@@ -30,7 +27,7 @@ refuse() { # STATUS FIRST_LINE [ENGLISH...]
       printf 'VGS could not save the error details.\n' >&2
     fi
     case "$2" in
-      file=unreadable*|opener=missing) shift 2; printf '%s\n' "$@" >&2 ;;
+      file=unreadable*) shift 2; printf '%s\n' "$@" >&2 ;;
       *) printf 'The file request is invalid. Open Notifications and try again.\n' >&2 ;;
     esac
     exit "$status"
@@ -49,10 +46,4 @@ trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt "$status"' EXIT
 file="$1"
 [[ $file == /* ]] || refuse 2 "path=$file reason=relative"
 [[ -f $file && -r $file ]] || refuse 1 "file=unreadable path=$file" "The file is missing or cannot be read."
-if [[ -n ${EDITOR:-} ]]; then
-  read -r -a editor <<<"$EDITOR"
-  "${editor[@]}" "$file"
-  exit
-fi
-command -v xdg-open >/dev/null || refuse 1 "opener=missing" "Open Notifications in Plugins. Select Install under Requirements to add the file opener."
-xdg-open "$file"
+vgs_tui_edit "$file"

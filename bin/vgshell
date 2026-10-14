@@ -634,15 +634,6 @@ refuse_edit() { # STATUS KEYED_LINE [ENGLISH...]
   exit "$status"
 }
 
-editor_takes_line() { # EDITOR_ARGV0
-  local name="${1##*/}"
-  # These terminal editors accept +LINE before the path.
-  case "$name" in
-    vi|vim|nvim|nano|emacs|emacsclient|micro|kak|ne|joe|mg) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 edit_path_valid() { # PATH
   local path="$1" part rest
   [[ -n $path ]] || return 1
@@ -658,10 +649,10 @@ edit_path_valid() { # PATH
 }
 
 vgs_edit() {
-  local rel="${1:-}" line="${2:-}" file path_status opener=()
+  local rel="${1:-}" line="${2:-}" file path_status
+  # shellcheck source=lib/tui.sh
+  source "${VGS_TUI_LIB:-$root/bin/lib/tui.sh}"
   if [[ -n ${VGS_TUI_LIB:-} ]]; then
-    # shellcheck source=bin/lib/tui.sh
-    source "$VGS_TUI_LIB"
     trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt "$status"' EXIT
   fi
   if [[ $# -eq 0 ]]; then refuse_edit 2 "edit=path reason=missing"; fi
@@ -680,17 +671,7 @@ vgs_edit() {
   fi
   file="$config_home/$rel"
   [[ -f $file && -r $file ]] || refuse_edit 1 "file=unreadable path=$file" "The file is missing or cannot be read."
-  if [[ -n ${EDITOR:-} ]]; then
-    read -r -a opener <<<"$EDITOR"
-    if [[ -n $line && ${#opener[@]} -gt 0 ]] && editor_takes_line "${opener[0]}"; then
-      "${opener[@]}" "+$line" "$file"
-    else
-      "${opener[@]}" "$file"
-    fi
-    exit
-  fi
-  command -v xdg-open >/dev/null || refuse_edit 1 "opener=missing" "Set EDITOR or install xdg-open."
-  xdg-open "$file"
+  vgs_tui_edit "$file" "$line"
 }
 
 # Prints the pid the lock file records, or returns 69 after the refusal.

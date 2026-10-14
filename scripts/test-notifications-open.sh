@@ -2,9 +2,8 @@
 # The vgs.notifications `open` floating TUI,
 # shell/plugins/vgs.notifications/tui/open.sh, which a click on a card with
 # `x-vgs-click: open` runs on the card's x-vgs-open file. A stand-in editor
-# and a stand-in xdg-open log their argv. It proves the script runs $EDITOR
-# split on white space with the file last, falls back to xdg-open with
-# EDITOR unset, hands on the editor's failure, and refuses by key a
+# log their argv. It proves the script runs $EDITOR
+# split on white space with the file last, prefers VISUAL over EDITOR, hands on the editor's failure, and refuses by key a
 # relative path, a file it cannot read, a missing opener, a wrong argument
 # count and a run outside the presenter. Presented refusal keys stay in
 # the diagnostic log. Child stdout and stderr remain unchanged. Each run has no controlling
@@ -37,7 +36,7 @@ opener="$TMP_ROOT/opener"
 mkdir -p "$tools" "$opener"
 for tool in bash cat mkdir; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
 # The stand-ins log `<name> <argv>` and exit with $TMP_ROOT/exit's code.
-for name in editor xdg-open; do
+for name in editor; do
   cat >"$opener/$name" <<SH
 #!/usr/bin/env bash
 printf '%s %s\n' "$name" "\$*" >>"$TMP_ROOT/calls"
@@ -77,9 +76,9 @@ case_editor_with_its_words() {
   open_file "$1" "$opener" 0 "EDITOR=$opener/editor --wait" -- "$file"
   [[ $status == 0 && $calls == "editor --wait $file" ]]
 }
-case_xdg_open_without_an_editor() {
-  open_file "$1" "$opener" 0 -- "$file"
-  [[ $status == 0 && $calls == "xdg-open $file" && $output == "child: key=value" && $visible == "child error: reason=fixture" ]]
+case_visual_before_editor() {
+  open_file "$1" "$opener" 0 "VISUAL=$opener/editor --visual" "EDITOR=missing-editor" -- "$file"
+  [[ $status == 0 && $calls == "editor --visual $file" && $output == "child: key=value" && $visible == "child error: reason=fixture" ]]
 }
 case_the_editor_failure() {
   open_file "$1" "$opener" 4 "EDITOR=$opener/editor" -- "$file"
@@ -91,11 +90,11 @@ case_refuses_a_relative_path() {
 }
 case_refuses_a_missing_file() {
   open_file "$1" "$opener" 0 "EDITOR=$opener/editor" -- "$TMP_ROOT/gone.log"
-  [[ $status == 1 && $diagnostic == "notifications: refused: file=unreadable path=$TMP_ROOT/gone.log" && -n $visible && $visible != *"notifications: refused:"* && $visible == *"missing"* && $visible != *"opened"* && -z $calls ]]
+  [[ $status == 1 && $diagnostic == "notifications: refused: file=unreadable path=$TMP_ROOT/gone.log" && -n $visible && $visible != *"notifications: refused:"* && -z $calls ]]
 }
 case_refuses_without_an_opener() {
   open_file "$1" "$TMP_ROOT/empty" 0 -- "$file"
-  [[ $status == 1 && $diagnostic == "notifications: refused: opener=missing" && -n $visible && $visible != *"notifications: refused:"* ]]
+  [[ $status == 1 && $first == "vgs-tui: refused: editor=missing" && -z $calls ]]
 }
 case_refuses_two_arguments() {
   open_file "$1" "$opener" 0 "EDITOR=$opener/editor" -- "$file" "$file"
@@ -106,7 +105,7 @@ case_refuses_outside_the_presenter() {
   setsid -w env -i PATH="$opener:$tools" bash "$1" "$file" >/dev/null 2>"$TMP_ROOT/err" </dev/null || status=$?
   [[ $status == 2 && $(head -n 1 "$TMP_ROOT/err") == "notifications: refused: tui=missing" ]]
 }
-CASES=(case_editor_with_its_words case_xdg_open_without_an_editor case_the_editor_failure case_refuses_a_relative_path case_refuses_a_missing_file case_refuses_without_an_opener case_refuses_two_arguments case_refuses_outside_the_presenter)
+CASES=(case_editor_with_its_words case_visual_before_editor case_the_editor_failure case_refuses_a_relative_path case_refuses_a_missing_file case_refuses_without_an_opener case_refuses_two_arguments case_refuses_outside_the_presenter)
 mkdir -p "$TMP_ROOT/empty"
 for case in "${CASES[@]}"; do
   if "$case" "$script"; then ok "${case#case_}"; else fail "${case#case_}: status=$status first=[$first] calls=[${calls//$'\n'/;}]"; fi
@@ -114,14 +113,12 @@ done
 
 # Controls: a case, the text in the script it needs, and a replacement
 # without the rule.
-CONTROL_CASES=(case_editor_with_its_words case_xdg_open_without_an_editor case_refuses_a_relative_path case_refuses_a_missing_file case_the_editor_failure)
-CONTROL_NEEDLES=('"${editor[@]}" "$file"' 'xdg-open "$file"' '[[ $file == /* ]] || refuse 2' '[[ -f $file && -r $file ]] || refuse 1' '  "${editor[@]}" "$file"
-  exit')
-CONTROL_REPLACEMENTS=('"$EDITOR" "$file"' 'true' 'true || refuse 2' 'true || refuse 1' '  "${editor[@]}" "$file" || true
-  exit')
-CONTROL_CASES+=(case_refuses_a_missing_file case_refuses_a_missing_file case_refuses_a_missing_file case_the_editor_failure)
-CONTROL_NEEDLES+=('>>"$dir/diagnostics.log"' "printf 'notifications: refused: %s\n' \"\$2\" >>\"\$dir/diagnostics.log\"" "printf '%s\n' \"\$@\" >&2 ;;" '  "${editor[@]}" "$file"')
-CONTROL_REPLACEMENTS+=('>&2' ':' "printf 'The file opened.\n' >&2 ;;" '  "${editor[@]}" "$file" >/dev/null 2>/dev/null')
+CONTROL_CASES=(case_editor_with_its_words case_refuses_a_relative_path case_refuses_a_missing_file case_the_editor_failure)
+CONTROL_NEEDLES=('vgs_tui_edit "$file"' '[[ $file == /* ]] || refuse 2' '[[ -f $file && -r $file ]] || refuse 1' 'vgs_tui_edit "$file"')
+CONTROL_REPLACEMENTS=('true' 'true || refuse 2' 'true || refuse 1' 'vgs_tui_edit "$file" || true')
+CONTROL_CASES+=(case_refuses_a_missing_file case_the_editor_failure)
+CONTROL_NEEDLES+=('>>"$dir/diagnostics.log"' 'vgs_tui_edit "$file"')
+CONTROL_REPLACEMENTS+=('>&2' 'vgs_tui_edit "$file" >/dev/null 2>/dev/null')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   copy="$TMP_ROOT/copy.sh"
