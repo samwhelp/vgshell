@@ -2302,32 +2302,46 @@ bg_state_names() { printf '{"schemaVersion":1,"current":"%s","stamp":"row","them
 background_image_on() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print(" ".join([r[0][0] or "-", r[0][1]]) if len(r)==1 else "images=%d" % len(r))'; }
 background_source_size() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print("%dx%d" % tuple(int(v) for v in r[0][4]) if len(r)==1 else "images=%d" % len(r))'; }
 
-# shell_output_scale, which scripts/sandbox-shots.sh sets for --scale, is
-# the first monitor's scale when the first shell starts. 1, the default,
-# leaves the monitor as the host sized it. 2 holds it at double its mode
-# and scale 2 for the whole run, so the layout keeps its logical size and
-# the shell draws in device pixels. The scale is set before the shell
-# starts: a shell already running when the scale changes keeps drawing its
-# windows at the old ratio.
-# shell_output_mode is the mode the run holds at scale 2, read before the
-# shell starts, and empty at scale 1: a row that leaves the hold for its
-# own returns to it, never to a mode it reads after a reset.
+# shell_output_scale is the first shell's density, 1 or 2. Capture callers
+# without shell_output_size keep the host's logical layout. Validation
+# supplies shell_output_size and marks its acquired bottom hold for the
+# sandbox lifetime, so a row's release cannot discard that layout.
+# shell_output_mode records the acquired device mode at scale 2 for capture
+# callers whose scenes temporarily leave their density hold.
 shell_output_mode=""
 case "${shell_output_scale:=1}" in
-  1) ;;
-  2)
-    if ! scaled_output="$(first_name)" || ! shell_output_mode="$(hidpi_mode_of "$scaled_output")"; then
-      printf 'qml-smoke: shell-output-scale=2 not-held output=%s reason=mode-unread\n' "${scaled_output:-unread}"
-      exit 1
-    fi
-    hold_mode "the nested compositor holds $scaled_output at double its mode and scale 2 before the shell starts" "$scaled_output" "$shell_output_mode" 2
-    if [[ ${#mode_hold[@]} -eq 0 ]]; then
-      printf 'qml-smoke: shell-output-scale=2 not-held output=%s reason=hold-not-taken\n' "$scaled_output"
-      exit 1
-    fi
-    ;;
+  1|2) ;;
   *) printf 'qml-smoke: refused: shell-output-scale=%s\n' "$shell_output_scale"; exit 2 ;;
 esac
+if [[ -n ${shell_output_size:-} || $shell_output_scale == 2 ]]; then
+  if ! scaled_output="$(first_name)"; then
+    printf 'qml-smoke: startup-output=unreadable reason=monitor-unread\n'
+    exit 1
+  fi
+  if [[ -n ${shell_output_size:-} ]]; then
+    shell_output_mode="$((${shell_output_size%x*} * shell_output_scale))x$((${shell_output_size#*x} * shell_output_scale))"
+  elif ! shell_output_mode="$(hidpi_mode_of "$scaled_output")"; then
+    printf 'qml-smoke: shell-output-scale=2 not-held output=%s reason=mode-unread\n' "$scaled_output"
+    exit 1
+  fi
+  hold_mode "the nested compositor takes its startup mode before the shell starts" "$scaled_output" "$shell_output_mode" "$shell_output_scale"
+  if [[ ${#mode_hold[@]} -eq 0 ]]; then
+    printf 'qml-smoke: startup-output=%s reason=hold-not-taken\n' "$scaled_output"
+    exit 1
+  fi
+  if [[ -n ${shell_output_size:-} ]]; then
+    mode_hold_run_base=true
+    if ! startup_reading="$(mode_scale_of "$scaled_output")"; then
+      printf 'qml-smoke: startup-output=%s reason=monitor-unread\n' "$scaled_output"
+      exit 1
+    fi
+    [[ $startup_reading == "${mode_hold[1]}" ]] || mode_unavailable "$scaled_output" "${mode_hold[1]}" "got=[$startup_reading]"
+    startup_device="${startup_reading% scale=*}"
+    startup_scale="${startup_reading##*scale=}"
+    printf 'qml-smoke: startup-output=%s device=%s scale=%s logical=%sx%s\n' "$scaled_output" "$startup_device" "$startup_scale" \
+      "$((${startup_device%x*} / startup_scale))" "$((${startup_device#*x} / startup_scale))"
+  fi
+fi
 # The shader-cost runner uses this sandbox without loading product services.
 if [[ ${harness_scene_only:-false} != true ]]; then
   start_shell "$repo" "$sandbox/qs.log" || exit 1

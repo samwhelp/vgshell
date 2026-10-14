@@ -93,6 +93,9 @@ print(json.dumps([e for e in json.loads(errors) if e]))'
 # host keeps configuring the window.
 mode_attempts=3
 mode_hold_parents=()
+# The harness marks its acquired bottom hold for the sandbox lifetime.
+# Its mode and rule stay in the same stack as every temporary row hold.
+mode_hold_run_base=false
 # take_mode NAME MODE SCALE: output NAME takes the rule already written
 # to mode_hold_file. A config-only reload applies monitor rules directly.
 # hl.monitor through eval only schedules their application on render.preChecks
@@ -156,7 +159,6 @@ hold_mode() {
   local row_class=hold
   if [[ ${#mode_hold[@]} -gt 0 ]]; then
     previous_rule="$(cat -- "$mode_hold_file")" || { fail "$label: the held rule is unreadable"; return 0; }
-    mode_hold_parents+=("${mode_hold[0]}" "${mode_hold[1]}" "$mode_hold_window" "$previous_rule")
   fi
   if window="$(mode_scale_of "$output")"; then window="${window% scale=*}"; else window=""; fi
   if [[ ${#mode_hold[@]} -gt 0 && $output == "${mode_hold[0]}" ]]; then window="$mode_hold_window"; fi
@@ -166,6 +168,9 @@ hold_mode() {
     return 0
   fi
   if taken="$(take_mode "$output" "$3" "${4:-1}")"; then
+    if [[ -n $previous_rule ]]; then
+      mode_hold_parents+=("${mode_hold[0]}" "${mode_hold[1]}" "$mode_hold_window" "$previous_rule")
+    fi
     mode_hold=("$output" "$want")
     mode_hold_window="$window"
     ok "$label: $output reads $want, $taken"
@@ -252,7 +257,7 @@ held_mode_host_sized() {
 # parent's rule, mode, scale and reserved area. Without a parent, remove
 # the hold file and give NAME the caller's MODE at SCALE, 1 by default,
 # with no reserved area. Read both before the rows go on, whether or not
-# the inner hold took.
+# the inner hold took. A marked run base stays held when no parent remains.
 release_mode() {
   local taken status=0
   if [[ ${#mode_hold_parents[@]} -gt 0 ]]; then
@@ -261,7 +266,7 @@ release_mode() {
     mode_hold_window="${mode_hold_parents[top + 2]}"
     printf '%s\n' "${mode_hold_parents[top + 3]}" >"$mode_hold_file" || fail "$1: the outer hold file is not restored"
     mode_hold_parents=("${mode_hold_parents[@]:0:top}")
-  else
+  elif [[ $mode_hold_run_base != true ]]; then
     mode_hold=()
     mode_hold_window=""
     # A reload needs the base rule even without frame callbacks. Remove

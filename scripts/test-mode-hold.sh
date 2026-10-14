@@ -9,7 +9,9 @@
 # 5 s polls instant. Each case pins the exit status, the tallies, mode
 # resets among them, the hold's state as held_mode_state reads it, the
 # window size the hold records, the rules applied and the typed
-# not-measured diagnostic. A second table runs
+# not-measured diagnostic. Startup and capture cases execute their source
+# operations and require a checked monitor before the shell stand-in runs.
+# A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
 # pins its output and exit status. A third runs held_mode_host_sized, whether
 # a taken hold reads the host window's own size, over the stub monitor. The
@@ -40,13 +42,31 @@ run_case() {
   local file="$1" label call reply plan want_status want_rules dir out status=0 got_state got_rules
   IFS='|' read -r label call reply plan want_status want_rules <<<"$2"
   dir="$(mktemp -d "$tmp/case.XXXXXX")" || { printf '        %s: scratch=mktemp-failed\n' "$label"; return 1; }
-  out="$(env -i PATH="$PATH" bash -c '
+  python3 - "$repo/scripts/smoke/harness.sh" "$repo/scripts/qml-smoke.sh" "$repo/scripts/sandbox-shots.sh" "$dir/startup.sh" "$dir/capture.sh" "$call" <<'PYEXTRACT' || return 1
+import pathlib,sys
+harness,entry,capture,startup,out=map(pathlib.Path,sys.argv[1:6])
+text=harness.read_text()
+parts=[]
+for name in ("unscaled_mode_of", "hidpi_mode_of"):
+    start=text.index(name+"() {")
+    parts.append(text[start:text.index("\n}\n",start)+3])
+size=[line for line in entry.read_text().splitlines() if line.startswith("shell_output_size=")]
+assert len(size)==1
+if sys.argv[6].startswith("capture-"): size=[]
+start=text.index('# shell_output_scale is')
+end=text.index('# The one live layer',start)
+startup.write_text("\n".join(parts)+"\n"+"\n".join(size)+"\n"+text[start:end])
+text=capture.read_text()
+start=text.index('if [[ -n $shot_size ]]; then')
+out.write_text(text[start:text.index("\nfi\n",start)+4])
+PYEXTRACT
+  out="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
 source "$2"
 # The stub state carries a prefix: a local of the subject shadows a global
 # of the same name inside every function it calls, the stub hypr included.
-stub_dir="$3"; stub_reply="$4"; stub_call="$6"
+repo="$1"; stub_dir="$3"; stub_reply="$4"; stub_call="$6"
 IFS=, read -r -a stub_plan <<<"$5"
 mode_hold_file="$stub_dir/monitor-hold.lua"
 rt_dir="$stub_dir"
@@ -58,7 +78,14 @@ py_reply() { python3 -c "$@"; }
 # as the host'\''s configure leaves it. The last entry stands for every
 # later rule. Before any rule, the output reads its own mode at scale 1.
 hypr() {
-  local rules=0 reading rule command separator="" commands=()
+  local rules=0 reading rule command effective_reply="$stub_reply" separator="" commands=()
+  if [[ $effective_reply == error-once ]]; then
+    effective_reply=ok
+    if [[ ! -e $stub_dir/error-sent && $1 == --batch ]]; then
+      : >"$stub_dir/error-sent"
+      effective_reply=error
+    fi
+  fi
   [[ -f $stub_dir/rules ]] && rules="$(wc -l <"$stub_dir/rules")"
   if [[ $1 == --batch ]]; then
     IFS=";" read -r -a commands <<<"$2"
@@ -68,10 +95,10 @@ hypr() {
       printf "%s" "$separator"
       case "$command" in
         "reload config-only")
-          if [[ $stub_reply == config-error ]]; then printf "ok"; else printf "%s" "$stub_reply"; fi
-          [[ $stub_reply != ok ]] || tail -n 1 "$mode_hold_file" >>"$stub_dir/rules" ;;
+          if [[ $effective_reply == config-error ]]; then printf "ok"; else printf "%s" "$effective_reply"; fi
+          [[ $effective_reply != ok ]] || tail -n 1 "$mode_hold_file" >>"$stub_dir/rules" ;;
         j/configerrors)
-          if [[ $stub_reply == config-error ]]; then printf "[\"invalid rule\"]"; else printf "[]"; fi ;;
+          if [[ $effective_reply == config-error ]]; then printf "[\"invalid rule\"]"; else printf "[]"; fi ;;
         *) return 1 ;;
       esac
       separator=$'\''\n\n\n'\''
@@ -84,6 +111,7 @@ hypr() {
     return 0
   fi
   reading="1755x933 scale=1"
+  case "$stub_call" in startup-*|run-base*|capture-*) reading="1250x720 scale=1" ;; esac
   if ((rules > 0)); then
     reading="${stub_plan[rules - 1]:-${stub_plan[-1]}}"
     if [[ $reading == take ]]; then
@@ -96,8 +124,62 @@ hypr() {
   printf "[{\"name\": \"WAYLAND-1\", \"width\": %s, \"height\": %s, \"scale\": %s}]\n" \
     "${reading%%x*}" "$(r="${reading#*x}"; echo "${r% scale=*}")" "${reading##*scale=}"
 }
+first_name() { echo WAYLAND-1; }
+start_shell() {
+  local reading
+  reading="$(mode_scale_of WAYLAND-1)" || exit 1
+  case "$stub_call" in
+    capture-*)
+      if [[ $shell_output_scale == 1 ]]; then [[ $reading == "1250x720 scale=1" ]];
+      else [[ $reading == "2500x1440 scale=2" ]]; fi || exit 1
+      [[ $mode_hold_run_base == false ]] || exit 1 ;;
+    *)
+      if [[ $shell_output_scale == 1 ]]; then [[ $reading == "1755x933 scale=1" ]];
+      else [[ $reading == "3510x1866 scale=2" ]]; fi || exit 1
+      [[ $mode_hold_run_base == true && $mode_hold_window == 1250x720 ]] || exit 1 ;;
+  esac
+  printf "shell-started reading=[%s]\n" "$reading"
+}
+startup() {
+  shell_output_scale="$1"
+  sandbox="$stub_dir"
+  source "$stub_dir/startup.sh"
+}
+check_base() {
+  [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_window == 1250x720 && ${#mode_hold_parents[@]} -eq 0 && $(held_mode_state) == held ]] || failures=$((failures + 1))
+  cmp -s -- "$mode_hold_file" "$stub_dir/base.lua" || failures=$((failures + 1))
+}
 status=0
 case "$stub_call" in
+  startup-1|startup-2) startup "${stub_call#startup-}" ;;
+  run-base|run-base-error)
+    startup 2
+    cp -- "$mode_hold_file" "$stub_dir/base.lua"
+    release_mode "the protected base release" WAYLAND-1 1250x720
+    check_base
+    hold_mode "reserved parent" WAYLAND-1 3510x1866 2 155
+    cp -- "$mode_hold_file" "$stub_dir/reserved.lua"
+    [[ ${#mode_hold_parents[@]} -eq 4 ]] || failures=$((failures + 1))
+    if [[ $stub_call == run-base-error ]]; then stub_reply=error-once; fi
+    hold_mode "nested child" WAYLAND-1 1440x900 1 40
+    if [[ $stub_call != run-base-error ]]; then release_mode "nested release" WAYLAND-1 1250x720; fi
+    [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_window == 1250x720 && ${#mode_hold_parents[@]} -eq 4 && $(held_mode_state) == held ]] || failures=$((failures + 1))
+    cmp -s -- "$mode_hold_file" "$stub_dir/reserved.lua" || failures=$((failures + 1))
+    release_mode "reserved release" WAYLAND-1 1250x720
+    check_base
+    release_mode "final protected release" WAYLAND-1 1250x720
+    check_base ;;
+  capture-1|capture-2|capture-size-1|capture-size-2)
+    # Capture has no validation size assignment. Run the same density block.
+    startup "${stub_call##*-}"
+    if [[ $stub_call == capture-size-* ]]; then
+      main_name=WAYLAND-1 scale="$shell_output_scale" shot_size=1600x900
+      source "$stub_dir/capture.sh"
+      if [[ $scale == 1 ]]; then want="1600x900 scale=1"; else want="3200x1800 scale=2"; fi
+      [[ $(mode_scale_of WAYLAND-1) == "$want" && ${mode_hold[1]} == "$want" && ${#mode_hold_parents[@]} -eq 0 && $mode_hold_run_base == false ]] || failures=$((failures + 1))
+      release_mode "capture release" WAYLAND-1 1250x720
+    elif [[ $shell_output_scale == 2 ]]; then release_mode "density release" WAYLAND-1 1250x720; fi ;;
+
   hold-after-behaviour|hold-after-geometry|hold-after-render)
     row_class="${stub_call#hold-after-}"
     fail "product failure"
@@ -144,10 +226,19 @@ printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s fi
   got_state="$(grep -m 1 '^result ' <<<"$out")" || got_state=""
   got_rules=0; [[ -f $dir/rules ]] && got_rules="$(wc -l <"$dir/rules")"
   local want_exit=0
+  case "$call" in
+    startup-*|run-base*)
+      if [[ $want_status != qml-smoke:* ]]; then
+        [[ $out == *"logical=1755x933"*$'\n'"shell-started reading="* ]] || return 1
+      else [[ $out != *shell-started* ]] || return 1; fi ;;
+  esac
   if [[ $want_status == 'qml-smoke: failed='* ]]; then
     want_exit=1
     got_state="$(grep '^qml-smoke: failed=' <<<"$out")" || got_state=""
     [[ $out != *'status=not-measured'* && $out != *'result '* ]] || return 1
+  elif [[ $want_status == 'qml-smoke: startup-output='* ]]; then
+    want_exit=1
+    got_state="$(grep '^qml-smoke: startup-output=' <<<"$out")" || got_state=""
   elif [[ $want_status == qml-smoke:* ]]; then
     want_exit=77
     got_state="$(grep '^qml-smoke: status=not-measured ' <<<"$out")" || got_state=""
@@ -184,6 +275,20 @@ cases=(
   "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
   "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
   "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|6"
+  "startup takes validation mode at density 1 from the host floor|startup-1|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 1755x933 scale=1] window=[1250x720] state=held file=present|1"
+  "startup takes validation mode at density 2 from the host floor|startup-2|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|1"
+  "startup recovers one delayed host configure|startup-2|ok|1250x720 scale=1,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|2"
+  "startup refuses a readable mode after its bound|startup-1|ok|1250x720 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[1755x933 scale=1] attempts=3 got=[1250x720 scale=1]|3"
+  "startup fails an unreadable monitor before shell launch|startup-1|ok|unreadable|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|3"
+  "startup fails a reload error before shell launch|startup-1|error|take|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|0"
+  "startup fails configuration errors before shell launch|startup-1|config-error|take|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|0"
+  "run base and complete reserved parents survive nested release|run-base|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|7"
+  "nested acquisition recovers a delayed host reset and restores reserved parents|run-base|ok|take,take,take,1250x720 scale=1,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|8"
+  "failed nested acquisition restores the reserved parent without a phantom stack entry|run-base-error|ok|take|status=0 failures=1 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|6"
+  "capture density 1 keeps the host layout without a run base|capture-1|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
+  "capture density 2 releases its ordinary hold|capture-2|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
+  "capture explicit size at density 1 keeps ordinary release|capture-size-1|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
+  "capture explicit size at density 2 keeps ordinary release|capture-size-2|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|4"
 )
 for row in "${cases[@]}"; do
   if run_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -195,7 +300,7 @@ done
 scale_case() {
   local label mode want got status=0
   IFS='|' read -r label mode want <<<"$2"
-  got="$(env -i PATH="$PATH" bash -c '
+  got="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
 source "$2"
@@ -231,7 +336,7 @@ done
 sized_case() {
   local label held window reading want got status=0
   IFS='|' read -r label held window reading want <<<"$2"
-  got="$(env -i PATH="$PATH" bash -c '
+  got="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
 source "$2"
@@ -269,7 +374,7 @@ done
 base_case() {
   local label output held_output held want got status=0
   IFS='|' read -r label output held_output held want <<<"$2"
-  got="$(env -i PATH="$PATH" bash -c '
+  got="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
 source "$2"
@@ -310,6 +415,7 @@ mutate() {
 # Rows: label | text | replacement | the case label that must go red. A
 # field holds no `|`, the separator.
 controls=(
+  "release discards the protected run base|elif [[ \$mode_hold_run_base != true ]]; then|else|run base and complete reserved parents survive nested release"
   "configuration errors are accepted|[[ \$reply != '[]' ]]|[[ \$reply == never ]]|configuration errors fail instead of being excused"
   "an unreadable output is excused|[[ \$got != unreadable ]]|true|an unreadable output fails instead of being excused"
   "an unavailable mode excuses an earlier product failure|if [[ \$failures -gt 0 ]]; then|if false; then|an unavailable mode preserves an earlier product failure"

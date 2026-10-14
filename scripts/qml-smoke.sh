@@ -319,6 +319,9 @@ fi
 # needs one present stands its own stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
 shell_hidden_commands=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex)
+# The Bar's width checks need a validation layout independent of the host.
+# shellcheck disable=SC2034 # the harness sourced below reads it
+shell_output_size=1755x933
 source "$repo/scripts/smoke/harness.sh"
 
 # smoke_row (harness.sh) sources each row and fails one whose output holds
