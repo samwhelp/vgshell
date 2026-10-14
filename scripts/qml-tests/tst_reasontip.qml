@@ -448,8 +448,8 @@ Item {
             compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
             headerPane.switchDisabledReason = "The administrator holds Tailscale until you choose Let my login control Tailscale.";
             header.visible = true;
-            const tip = openReason(headerPane.headerSwitch);
             verify(waitForRendering(header));
+            const tip = openReason(headerPane.headerSwitch);
             const title = descendants(headerPane).find(item => item.text === "VPN" && item.contentWidth !== undefined && item.visible);
             verify(title !== undefined, "the header draws its title");
             const at = title.mapToItem(header, 0, 0), image = grabImage(header), bg = Qt.color(Theme.color.surface);
