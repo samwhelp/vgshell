@@ -51,6 +51,8 @@
 # The actual Nearby rowsChanged observer checks stable keys and presentation,
 # publications at the configured 500 ms cadence, and the held middle
 # scroll offset through 10 s of churn, including loss of the focused tail.
+# Radio 12 then keeps a changed name while the other radios still churn.
+# Its displayed name must change without moving the selected row or scroll.
 # Each rule has its own disposable production mutation. Cadence is a view
 # contract, not a machine latency budget. State polling uses expect_poll.
 # inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
@@ -197,6 +199,17 @@ d=json.load(sys.stdin); times=d["publications"]; gaps=[b-a for a,b in zip(times,
 print(json.dumps({"publications":len(times),"minGapMs":min(gaps) if gaps else None,"gapsMs":gaps}))
 '
 }
+bt_settled_name_rule() {
+  ipc smoke bluetoothObservation | py_reply 'import json,sys
+d=json.load(sys.stdin); samples=d["samples"]; target="02:56:00:00:00:0C"; settled="Settled Nearby Radio 12"
+if not samples or target not in samples[0]["keys"]:
+    print("not-observed"); raise SystemExit
+base=samples[0]; names=dict(zip(base["keys"],base["names"])); final=dict(zip(samples[-1]["keys"],samples[-1]["names"]))
+good=names[target]!=settled and final.get(target)==settled and base["focusedKey"]==target and base["focusedRowKey"]==target and base["contentY"]>0
+good=good and all(s["keys"]==base["keys"] and s["focusedKey"]==target and s["focusedRowKey"]==target and s["contentY"]==base["contentY"] and all(k==target or names[k]==n for k,n in zip(s["keys"],s["names"])) for s in samples)
+print("kept" if good else "rejected")
+'
+}
 bt_trace_ready() {
   ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if len(d["publications"])>=3 else "waiting")'
 }
@@ -238,6 +251,12 @@ bt_stability() {
   expect_poll "the expanded section lists 32 radios" 32 bt_nearby_count window vgs.bluetooth
   expect_poll "the expanded opening height includes its Nearby content" fits bt_opening_rule vgs.bluetooth
   ipc smoke bluetoothOpeningHeight vgs.bluetooth
+  expect "the settled-name observer attaches" observing ipc smoke bluetoothObserve window vgs.bluetooth
+  expect "radio 12 receives focus before its rename" 02:56:00:00:00:0C ipc smoke bluetoothFocus 12
+  expect "the settled-name view rests at its midpoint" middle bt_middle
+  bt_churn_run window vgs.bluetooth settled-name 8
+  expect "a continuously present radio adopts its settled name without moving order, focus or scroll" kept bt_settled_name_rule
+  expect "the settled-name observer ends" ended ipc smoke bluetoothObserveEnd
   bt_churn_run window vgs.bluetooth remove-tail 10
   expect "Nearby order and names stay stable under churn" kept bt_observation_rule order
   expect "list publication stays within its cadence" kept bt_observation_rule cadence

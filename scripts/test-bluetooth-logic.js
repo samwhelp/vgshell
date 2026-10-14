@@ -590,6 +590,61 @@ function verifyNearby(logic) {
     assert.equal(state.nearby.at(-1).key, "many-256", "a waiting discovery joins after capacity opens");
 }
 
+function verifyNearbyNames(logic) {
+    const address = "02:56:00:00:00:0C";
+    const initial = "Nearby Radio 12";
+    const device = name => ({ address, name, deviceName: name, state: "Disconnected" });
+    const update = (name, state, now) => logic.deviceRows(name === null ? [] : [device(name)], d => d.state, {}, state, now, false);
+    const cases = [
+        ["continuous rename", [
+            [500, "Settled Nearby Radio 12", initial, "before"],
+            [3499, "Settled Nearby Radio 12", initial, "before"],
+            [3500, "Settled Nearby Radio 12", "Settled Nearby Radio 12", "adopt"],
+        ]],
+        ["candidate changes again", [
+            [500, "First candidate", initial, "before"],
+            [2500, "Second candidate", initial, "before"],
+            [5499, "Second candidate", initial, "before"],
+            [5500, "Second candidate", "Second candidate", "adopt"],
+        ]],
+        ["return to displayed name cancels the hold", [
+            [500, "Candidate", initial, "before"],
+            [1500, initial, initial, "cancel"],
+            [2000, "Candidate", initial, "before"],
+            [4999, "Candidate", initial, "before"],
+            [5000, "Candidate", "Candidate", "adopt"],
+        ]],
+        ["absence restarts candidate hold", [
+            [500, "Candidate", initial, "before"],
+            [1000, null, initial, "gone"],
+            [2500, "Candidate", initial, "before"],
+            [5499, "Candidate", initial, "before"],
+            [5500, "Candidate", "Candidate", "adopt"],
+        ]],
+        // A new MAC-only device is hidden. This retained address row is
+        // reached through real deviceRows calls: named, alias lost, resolved.
+        ["named to address to resolved", [
+            [500, address, initial, "before"],
+            [3500, address, address, "adopt"],
+            [4000, "Resolved Radio", address, "before"],
+            [6999, "Resolved Radio", address, "before"],
+            [7000, "Resolved Radio", "Resolved Radio", "adopt"],
+        ]],
+    ];
+    for (const [label, events] of cases) {
+        let state = update(initial, { mine: [], nearby: [] }, 0);
+        for (const [now, name, expected, boundary] of events) {
+            state = update(name, state, now);
+            same(state.nearby.map(row => row.key), [address], "Nearby rename retains its row: " + label);
+            const message = boundary === "adopt" ? "Nearby adopts a settled rename at its boundary"
+                : boundary === "before" ? "Nearby holds a changed name before its boundary" : "Nearby rename: " + label;
+            assert.equal(state.nearby[0].text, expected, message + ": " + label);
+            if (boundary === "cancel" || boundary === "gone" || boundary === "adopt")
+                assert.equal(state.nearby[0].pendingName, undefined, "Nearby clears completed or interrupted name hold: " + label);
+        }
+    }
+}
+
 function verify(logic) {
     verifyRfkill(logic);
     verifyView(logic);
@@ -600,6 +655,7 @@ function verify(logic) {
     verifyPrompts(logic);
     verifyDevices(logic);
     verifyNearby(logic);
+    verifyNearbyNames(logic);
     verifyBar(logic);
     verifyPlacement(logic, manifestFile);
 }
@@ -684,7 +740,10 @@ const controls = [
     ["a rename is held to BlueZ's length", 'if (utf8Bytes(value) > ALIAS_MAX_BYTES) return { refused: "too-long" };', "", "a long name is refused as too long"],
     ["a nameless nearby device is hidden", "if (!known && !namesItself(d) && !own(oldByKey, String(d.address))) continue;", "", "nearby: only devices that name themselves"],
     ["Nearby holds its order", "    return { mine: mine, nearby: held };", "    if (oldRows.length > 0) held.reverse();\n    return { mine: mine, nearby: held };", "nearby keeps device order under alias and RSSI churn"],
-    ["Nearby holds its presentation", "            fresh.text = old.text;", "", "nearby keeps its presented name and icon"],
+    ["Nearby holds its presentation", "                    fresh.text = old.text;", "", "nearby keeps its presented name and icon"],
+    ["Nearby does not adopt a candidate at once", "if (now - pending.since < NEARBY_NAME_HOLD_MS)", "if (false)", "nearby keeps its presented name and icon"],
+    ["Nearby does not freeze a settled name", "if (now - pending.since < NEARBY_NAME_HOLD_MS)", "if (true)", "Nearby adopts a settled rename at its boundary"],
+    ["absence interrupts the candidate hold", "                delete missing.pendingName;\n", "", "Nearby clears completed or interrupted name hold"],
     ["My Devices leaves Nearby for its timer", "    if (mineOnly) return { mine: mine, nearby: previous.nearby };\n", "", "My Devices publication retains the same Nearby rows"],
     ["Nearby holds a vanished row", "if (now - missingSince < NEARBY_GRACE_MS)", "if (false)", "vanished Nearby row stays through grace"],
     ["Nearby expires a vanished row", "if (now - missingSince < NEARBY_GRACE_MS)", "if (true)", "vanished Nearby row leaves at grace expiry"],

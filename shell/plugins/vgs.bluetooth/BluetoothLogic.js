@@ -596,8 +596,9 @@ function deviceAt(devices, address) {
 // Plain rows of DEVICES, Quickshell BluetoothDevice objects, for the lists:
 // { mine, nearby }, My Devices sorted by name, in the shape a qs.Ui DeviceList
 // takes ({ key, text, secondary, iconName, battery }) plus `connected`,
-// `trusted`, `pairing`, `state`, `failed` and `busy`. A row holds
-// primitives alone, so no delegate keeps a device object BlueZ may remove
+// `trusted`, `pairing`, `state`, `failed` and `busy`. A row holds plain
+// values, including a pending name and its start time, so no delegate
+// keeps a device object BlueZ may remove
 // while it is built; actions find the device by address, the key. `mine`
 // is every paired, bonded or trusted device; `nearby` every other device
 // that names itself and is not the LE twin of a listed device, so one
@@ -608,6 +609,10 @@ function deviceAt(devices, address) {
 var NEARBY_GRACE_MS = 3000;
 var NEARBY_LIMIT = 256;
 var DEVICE_REFRESH_MS = 500;
+// Adopt a changed name at the next full publication after the same
+// candidate has held for 3 s; each new candidate restarts that hold.
+// scripts/test-bluetooth-logic.js exercises the boundary with injected time.
+var NEARBY_NAME_HOLD_MS = 3000;
 
 function deviceRows(devices, stateOf, attempts, previous, now, mineOnly) {
     var oldRows = previous.nearby;
@@ -652,9 +657,15 @@ function deviceRows(devices, stateOf, attempts, previous, now, mineOnly) {
         var old = oldRows[o], fresh = current[old.key];
         if (own(yours, old.key)) continue;
         if (fresh !== undefined) {
-            // BlueZ aliases and icons can churn during discovery. Keep the
-            // presented identity until the row leaves; action state stays live.
-            fresh.text = old.text;
+            if (fresh.text !== old.text) {
+                var pending = old.pendingName !== undefined && old.pendingName.text === fresh.text
+                    ? old.pendingName : { text: fresh.text, since: now };
+                if (now - pending.since < NEARBY_NAME_HOLD_MS) {
+                    fresh.pendingName = pending;
+                    fresh.text = old.text;
+                }
+            }
+            // Discovery can change the icon without changing the device.
             fresh.iconName = old.iconName;
             held.push(fresh);
             delete current[old.key];
@@ -662,6 +673,8 @@ function deviceRows(devices, stateOf, attempts, previous, now, mineOnly) {
             var missingSince = old.missingSince === undefined ? now : old.missingSince;
             if (now - missingSince < NEARBY_GRACE_MS) {
                 var missing = Object.assign({}, old, { missingSince: missingSince });
+                // Absence gives no evidence that a candidate stayed unchanged.
+                delete missing.pendingName;
                 held.push(missing);
             }
         }

@@ -28,10 +28,13 @@ one line and exiting 1 with `world=failed reason=<key>` on a D-Bus error:
   calls PATH METHOD           how many times METHOD was called on PATH.
   add-nearby COUNT            plant COUNT named radios at 02:56:00:00:00:XX.
                               Prints `nearby=COUNT`.
-  churn-nearby COUNT SECONDS [remove-tail]
+  churn-nearby COUNT SECONDS [remove-tail|settled-name]
                               change Alias, Name and RSSI every 50 ms for
                               SECONDS. Prints JSON with rounds and seconds.
                               `remove-tail` removes the last radio after 2 s.
+                              `settled-name` holds radio 12 at
+                              `Settled Nearby Radio 12` after 2 s while
+                              the other radios keep changing their names.
   remove-nearby COUNT         remove those radios. Prints `removed=COUNT`.
   remove-device MAC           remove one device. Prints `removed`.
 
@@ -214,6 +217,8 @@ def drive(bus, verb, args):
                     continue
                 rank = i if rounds % 2 else count - i
                 label = f"{rank:02d} Nearby Radio {i:02d} phase {rounds:04d}"
+                if args[2:] == ["settled-name"] and i == 12 and time.monotonic() - started >= 2:
+                    label = "Settled Nearby Radio 12"
                 target.UpdateProperties(DEVICE, {"Alias": dbus.String(label), "Name": dbus.String(label), "RSSI": dbus.Int16(-40 - rounds % 40)})
             rounds += 1
             time.sleep(0.05)
