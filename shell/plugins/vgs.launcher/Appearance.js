@@ -81,6 +81,16 @@ var TOKENS = {
         // detail are chrome, at the 12 px floor
         // (shell/Commons/Tokens.js).
         detail: { size: length(13), opacity: share(0.5) },
+        // A notice's description names a step the user takes, so it reads
+        // at 4.5:1 on the card over any wallpaper. Its fade is its colour's
+        // alpha, which leaves the link in it at full strength.
+        notice: color("alpha({text.foreground}, 0.86)"),
+        // That description's page link, underlined: the theme's accent
+        // where it reads at 4.5:1 there, else the accent mixed halfway to
+        // the foreground where that reads, else the foreground.
+        // scripts/test-theme-logic.js holds both to 4.5:1 in every shipped
+        // and catalogued theme.
+        link: color("readable({palette.accent}, {card.nearInk}, readable(mix({palette.accent}, {text.foreground}, 0.5), {card.nearInk}, {text.foreground}))"),
         empty: { size: length(13), opacity: share(0.38) },
         flyout: { size: length(12), detail: length(12) }
     },
@@ -95,7 +105,15 @@ var TOKENS = {
     card: {
         // The card's glass fill, handed to GlassSurface of qs.Ui, which
         // draws the rest of the glass (Theme.glass).
-        fill: color("alpha(#151515, 0.78)"),
+        base: color("#151515"),
+        opacity: share(0.78),
+        fill: color("alpha({card.base}, {card.opacity})"),
+        // The card as drawn under a row's text nearest that text's ink:
+        // over a white wallpaper under the dark card and a black one under
+        // the light card, with the cursor's plate on it and without that
+        // plate's top sheen. A row's detail line that reads at 4.5:1 on it
+        // reads so over any wallpaper, with the cursor on the row or off it.
+        nearInk: color("mix(mix(#ffffff, {card.base}, {card.opacity}), {text.foreground}, {highlight.strength})"),
         width: length(640),
         // Half the header plus the padding, 17 + 18: the bare search field
         // is a pill.
@@ -206,7 +224,8 @@ var TOKENS = {
     },
 
     highlight: {
-        plate: ink(0.095),
+        strength: share(0.095),
+        plate: color("alpha({text.foreground}, {highlight.strength})"),
         border: ink(0.09),
         sheen: ink(0.035),
         sheenEnd: ink(0),
@@ -261,7 +280,9 @@ var LIGHT = {
         shadow: "alpha(#000000, 0.08)"
     },
     card: {
-        fill: "alpha(#efefef, 0.8)"
+        base: "#efefef",
+        opacity: 0.8,
+        nearInk: "mix(mix(#000000, {card.base}, {card.opacity}), {text.foreground}, {highlight.strength})"
     },
     row: {
         divider: "alpha({text.foreground}, 0.08)"
@@ -273,7 +294,7 @@ var LIGHT = {
         bottomActive: "alpha({text.foreground}, 0.057)"
     },
     highlight: {
-        plate: "alpha({text.foreground}, 0.08)"
+        strength: 0.08
     },
     // The edge light is white, brighter than the card's #efefef fill, so the
     // edge catches light as it does in dark mode. The reference's grey for

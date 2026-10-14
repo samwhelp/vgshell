@@ -144,9 +144,10 @@ Item {
             LinkText {
                 visible: row.detailReference.page !== ""
                 width: parent.width
-                role: "hint"
+                role: "itemHint"
                 text: row.detail
-                color: row.look.text.foreground
+                color: row.look.text.notice
+                linkColor: row.look.text.link
                 onPageActivated: (page, tab) => row.launcher.shell.surfaces.openPage(page, tab)
             }
             Row {
