@@ -582,7 +582,8 @@ function matchesQuery(entry, query) {
     return true;
 }
 
-// Lower is better: the match tier, then depth, then file order.
+// Lower is better: the match tier, then depth, then file order for menu
+// entries. DesktopEntries can reorder applications, so their ties use path.
 function searchScore(items, entry, query) {
     var needle = String(query || "").toLowerCase().trim();
     var label = entry.label.toLowerCase();
@@ -599,7 +600,7 @@ function searchScore(items, entry, query) {
     // App rows come last in file order, so they would lose every tie;
     // they outrank an equal match inside their tier instead.
     if (entry.kind === "app") score -= 5;
-    return score * 1000 + depthFor(items, entry.id) * 25 + entry.order;
+    return score * 1000 + depthFor(items, entry.id) * 25 + (entry.kind === "app" ? 0 : entry.order);
 }
 
 // The rows for a query under `active`: matches directly under it first,
@@ -615,7 +616,7 @@ function searchRows(items, itemOrder, active, query, missing) {
         var row = displayRow(items, itemOrder, entry, parentPathFor(items, entry.id), searchScore(items, entry, query), "", missing);
         (entry.parent === active ? current : deeper).push(row);
     }
-    var bySearch = function (a, b) { return a.score !== b.score ? a.score - b.score : a.path.localeCompare(b.path); };
+    var bySearch = function (a, b) { return a.score !== b.score ? a.score - b.score : a.path.localeCompare(b.path) || (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0); };
     current.sort(bySearch);
     deeper.sort(bySearch);
     if (current.length > 0 && deeper.length > 0)

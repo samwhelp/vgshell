@@ -344,6 +344,17 @@ function verify(model, menu = shippedMenu) {
     const zen = model.mergeMenuSources([], model.parseMenu(menuText({ install: { label: "Install" }, "install.zen": { label: "Zen", run: ["true"] }, apps: { provider: "apps" } })).entries);
     const zenApps = model.swapProviderRows(zen.items, zen.itemOrder, "apps", [model.appRow("apps", { id: "zen", name: "Zen Browser" })]);
     same(model.searchRows(zenApps.items, zenApps.itemOrder, "root", "zen", []).map(r => [r.kind, r.label]), [["app", "Zen Browser"], ["action", "Zen"]], "an app named with the whole word beats an exact menu label");
+    const tiedApps = [
+        { id: "sunshine", name: "Sunshine" },
+        { id: "avahi", name: "Avahi SSH Server Browser" },
+        { id: "ssh-b", name: "SSH Client" },
+        { id: "ssh-a", name: "SSH Client" }
+    ];
+    for (const apps of [tiedApps, [...tiedApps].reverse()]) {
+        const tied = model.swapProviderRows(zen.items, zen.itemOrder, "apps", apps.map(app => model.appRow("apps", app)));
+        same(model.searchRows(tied.items, tied.itemOrder, "root", "sh", []).map(r => r.itemId),
+            ["apps.ssh-a", "apps.ssh-b", "apps.avahi", "apps.sunshine"], "application ties ignore source order and use path, then id");
+    }
     const reboot = model.searchRows(again.items, again.itemOrder, "root", "reb", []);
     same(reboot.map(r => [r.label, r.detail, r.section]), [["Reboot", "Power", ""]]);
     const re = model.searchRows(again.items, again.itemOrder, "root", "re", []);
@@ -429,6 +440,8 @@ verify(load(file));
 // Each control removes one rule from a copy of the model and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["application source order cannot rank a tie", '(entry.kind === "app" ? 0 : entry.order)', 'entry.order'],
+    ["equal application names use id", 'a.path.localeCompare(b.path) || (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0)', 'a.path.localeCompare(b.path)'],
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(String(reason)))', 'if (false)'],
     ["diagnostics stay out of display text", 'function fileErrorText(reason) {', 'function fileErrorText(reason) { return String(reason);'],
     ["unknown item key", "if (ITEM_KEYS.indexOf(keys[i]) === -1) return at", "if (false) return at"],
