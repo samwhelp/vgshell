@@ -457,8 +457,8 @@ expect_poll "the stand-ins from the after-kill shell are gone" "$dictation_none"
 copy_tree dictation-controls
 dictation_edits=true
 edit_tree dictation-controls shell/Core/DictationModel.js \
-  '        } else if (alt.word !== "stopped") {' \
-  '        } else if (false) {' || dictation_edits=false
+  '            s.elsewhere = alt.word !== "stopped";' \
+  '            s.elsewhere = false;' || dictation_edits=false
 edit_tree dictation-controls shell/Core/DictationModel.js \
   '        setTimer(t, effects, "cap", (t.maxSecs - CAP_MARGIN_S) * 1000);
 ' '' || dictation_edits=false
