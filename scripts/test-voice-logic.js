@@ -9,6 +9,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
 const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
+const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
 // Typed setup readings published by the core, after its single probe chain.
@@ -22,24 +23,35 @@ const lent = (daemon, phase, holder) => ({ daemon: daemon, phase: phase, holder:
 // while no completed setup reading exists.
 function verifyRefreshSetup(logic, source) {
   const found = source.match(/^    function refreshSetup\(\) \{\n[\s\S]*?^    \}/m);
-  assert.ok(found, "the service declares the setup publisher");
+  const publisher = source.match(/^    function publishSetup\(\) \{\n[\s\S]*?^    \}/m);
+  assert.ok(found, "the service declares the setup refresh");
+  assert.ok(publisher, "the service declares the setup publisher");
   const ready = logic.setupState(readsReady, "ready");
   for (const [label, initial, states] of [
-    ["cold read failure", { tone: "info", action: "" }, [["failed", null, "warning", "setup"]]],
+    ["cold read failure", { tone: "info", action: "" }, [["starting", null, "info", ""], ["failed", null, "warning", "setup"]]],
     ["restart read failure", ready, [["starting", null, "info", ""], ["failed", null, "warning", "setup"]]],
     ["restart completes", ready, [["starting", null, "info", ""], ["ready", readsReady, "ok", ""]]]
   ]) {
     const published = [];
     const world = { VoiceLogic: logic, voxtypePresent: true, dictationState: null, daemon: "", setupValue: initial };
-    world.publishSetup = () => published.push(world.setupValue);
-    const refresh = vm.runInNewContext("(" + found[0] + ")", world);
+    world.publish = (key, value) => {
+      assert.equal(key, "setup", label + ": the setup status is published");
+      assert.equal(pluginLogic.statusValueFits("state", value), true, label + ": the real status judge accepts the published value");
+      published.push(value);
+    };
+    world.publishModel = () => {};
+    vm.runInNewContext(found[0] + "\n" + publisher[0], world);
     for (const [daemon, setup, tone, action] of states) {
       world.daemon = daemon;
       world.dictationState = { daemon, setup };
       const before = published.length;
-      refresh();
+      world.refreshSetup();
       assert.equal(published.length, before + 1, label + ": the new core state is published");
       same([world.setupValue.tone, world.setupValue.action], [tone, action], label + ": current setup replaces the prior value");
+      const value = published[published.length - 1];
+      same([value.tone, value.text, value.action || ""], [tone, world.setupValue.text, action], label + ": the current setup reaches the status record");
+      if (world.setupValue.lines.length === 0) assert.equal(Object.hasOwn(value, "lines"), false, label + ": pending setup omits empty lines");
+      else same(value.lines, Array.from(world.setupValue.lines), label + ": the status keeps the setup detail lines");
     }
   }
 }
@@ -274,6 +286,11 @@ try {
   fs.writeFileSync(copy, serviceSource.replace(needle, "        if (dictationState.setup === null) return;\n" + needle));
   assert.throws(() => verifyRefreshSetup(load(file), fs.readFileSync(copy, "utf8")), assert.AssertionError,
     "control: retaining old setup while readings are null must fail publication");
+  const lines = "        if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;";
+  assert.equal(serviceSource.split(lines).length, 2, "the empty-lines control text occurs once");
+  fs.writeFileSync(copy, serviceSource.replace(lines, "        value.lines = setupValue.lines;"));
+  assert.throws(() => verifyRefreshSetup(load(file), fs.readFileSync(copy, "utf8")), assert.AssertionError,
+    "control: publishing empty pending lines must fail the real status judge");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
@@ -282,7 +299,6 @@ try {
 // requirement notice in place of the script, which then opens the screen
 // once it is found. Only Stop the other voxtype needs systemctl: the core
 // runs voxtype, and no user unit does.
-const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const manifestFile = path.join(repo, "shell", "plugins", "vgs.voice", "manifest.json");
 const logic = load(file);
 // The screens that run voxtype.
@@ -362,4 +378,4 @@ delete stored.sounds.feedback.held;
 stored.sounds.feedback.default = "own";
 assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
 
-console.log(`test-voice-logic: ok controls=${controls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length + 1}`);
+console.log(`test-voice-logic: ok controls=${controls.length + VOXTYPE_TUIS.length + 2 + manifestControls.length + 1}`);

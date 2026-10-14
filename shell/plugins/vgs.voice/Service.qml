@@ -159,7 +159,8 @@ Item {
     // The published value names the manifest's action that applies, and
     // none once set up; a hidden one keeps the entry off the page.
     function publishSetup() {
-        const value = setupValue.hidden ? { hidden: true } : { tone: setupValue.tone, text: setupValue.text, lines: setupValue.lines };
+        const value = setupValue.hidden ? { hidden: true } : { tone: setupValue.tone, text: setupValue.text };
+        if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;
         if (setupValue.action !== "") value.action = setupValue.action;
         publish("setup", value);
         publishModel();

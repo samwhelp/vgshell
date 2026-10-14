@@ -592,7 +592,7 @@ expect_poll "a missing model starts neither daemon nor follower" "daemon=0 follo
 expected_errors+=('WARN qml: voice: start refused: dictation=daemon-absent')
 expect "a start with a missing model is refused" "refused: dictation=daemon-absent" voice_toggle
 touch -- "$voice_installed"
-expect "the holder rereads setup after installing the model" ok ipc smoke invokeInstance service vgs.voice restartDaemon
+expect "the holder rereads setup after installing the model" ok ipc smoke invokeInstance service vgs.voice restartDaemon ""
 expect_poll "the core lends Voice dictation and starts its daemon" "ready running vgs.voice" dictation_lent
 expect_poll "one daemon and one follower run, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
 expect_poll "Voice reads the core's daemon ready" "ready idle -" voice_state
