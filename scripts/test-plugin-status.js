@@ -103,10 +103,10 @@ function suite(ctx, check) {
         { ok: true, kind: "install", commands: ["gum", "unshare", "python3"] });
     // A script that declares no `requires` needs every required command, more
     // than an offer may name: its held notice still lists and requires them.
-    const taskHeld = ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "task", jarvisRequired);
-    const taskNotice = ctx.noticeHeld(jarvis, jarvisRequired, {}, taskHeld.commands);
+    const sessionHeld = ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "start-session", jarvisRequired);
+    const sessionNotice = ctx.noticeHeld(jarvis, jarvisRequired, {}, sessionHeld.commands);
     check("a script without requires holds Jarvis's full required list in its notice",
-        [taskHeld.kind, taskNotice.answer, taskNotice.commands, taskNotice.required], ["install", "ok", jarvisRequired, jarvisRequired]);
+        [sessionHeld.kind, sessionNotice.answer, sessionNotice.commands, sessionNotice.required], ["install", "ok", jarvisRequired, jarvisRequired]);
     const jarvisNotice = ctx.noticeRequest(jarvis, jarvisRequired, {}, "requested");
     check("the existing all-missing request accepts Jarvis's full required list",
         [jarvisNotice.answer, jarvisNotice.commands, jarvisNotice.required], ["ok", jarvisRequired, jarvisRequired]);

@@ -166,7 +166,7 @@
     "accounts": { "script": "tui/accounts.sh", "title": "Jarvis accounts", "requires": ["gum", "node", "secret-tool", "busctl", "setpriv", "ss"],
       "entry": { "label": "Accounts", "icon": "users", "group": "Jarvis" } },
     "start-session": { "script": "tui/start-session.sh", "title": "Start Jarvis", "presentation": "plain" },
-    "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain" },
+    "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain", "requires": ["python3", "node"] },
     "task-view": { "script": "tui/task-view.sh", "title": "Jarvis coding task", "presentation": "plain", "requires": ["tmux"] },
     "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}},
     "setup-fleet": { "script": "tui/setup-fleet.sh", "title": "Set up Jarvis agent fleet", "requires": ["gum", "node", "git", "kendex"] }
