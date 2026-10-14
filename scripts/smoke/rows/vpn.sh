@@ -647,8 +647,11 @@ expect_poll "control: the unavailable import reaches the fixture terminal" "$(wo
 expect_run_end "control: unavailable import fixture ends" vgs.vpn/import-wireguard
 expect "control: System closes" ok ipc shell hide window vgs.system
 device_reply tailscale 0 "" get operator
+expect "the unmarked Setup control resets its earlier errors" ok ipc shell setPluginEnabled vgs.vpn false
 rescan "the unmarked Setup control needs Allow again"
+expect "the unmarked Setup control starts with clean status" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the unmarked Setup control offers Allow" allow vpn_setup
+expect_poll "the unmarked Setup control has no other problem text" '""' vpn_value problem
 expect "the unmarked Setup control opens its flyout" ok ipc shell summon panel vgs.vpn '{"source":"smoke"}'
 expect_poll "the unmarked Setup control opens the switch reason" "$vpn_reason" vpn_switch_tip
 expect "control: unmarked Setup makes the reason cover connection text" covers vpn_tip_cover_word panel
