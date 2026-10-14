@@ -113,8 +113,8 @@ function verifyUserReadability(check, root, verb) {
             assert.equal(Object.hasOwn(JSON.parse(proc.stdout), "readabilityShortfalls"), false, kind + ": no user advice");
         }
         for (const [verb, needle, replacement] of [
-            ["add", "    result.readabilityShortfalls = shortfalls;", "    // The control drops the add verdict's shortfall field."],
-            ["apply", "    if (shortfalls !== null) result.readabilityShortfalls = shortfalls;", "    // The control drops the apply verdict's shortfall field."]
+            ["add", "\n    result.readabilityShortfalls = shortfalls;", "\n    // The control drops the add verdict's shortfall field."],
+            ["apply", "\n        result.readabilityShortfalls = shortfalls;", "\n        // The control drops the apply verdict's shortfall field."]
         ]) {
             assert.equal(source.split(needle).length, 2, verb + ": control matches once");
             const mutant = source.replace(needle, replacement);
