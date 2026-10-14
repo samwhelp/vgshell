@@ -1297,6 +1297,10 @@ control aur-reviewed-without-helper '      if [[ -n $aur_binary ]]; then review_
   tmp="$tmp/real-themes"; mkdir -p "$tmp"
   ln -s -- "${tmp%/*}/terminal-input" "$tmp/terminal-input"
   theme_tree
+  for tool in env python3; do
+    tool_bin="$(command -v "$tool")" || exit 77
+    ln -s -- "$tool_bin" "$theme_path/$tool"
+  done
   mv -- "$tree/bin/vgshell" "$tree/bin/vgshell.real"
   cp -- "$pipeline_command" "$tree/bin/vgshell"
   stubs="$pipeline_stubs"
