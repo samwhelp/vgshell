@@ -85,13 +85,16 @@ for engine in brands:
         elif engine == "parakeet":
             language = "Multiple languages" if "v3" in name else "English"
         elif engine in ("whisper", "openvino"):
-            if ".en" in name or name.startswith("distil-large-v2"):
+            # https://huggingface.co/distil-whisper/distil-large-v3:
+            # the distilled large models support English speech only.
+            if ".en" in name or name.startswith("distil-large-"):
                 language = "English"
         elif engine == "paraformer":
             language = "Chinese + English" if name.endswith("-zh") else "English"
             label = "Chinese" if name.endswith("-zh") else "English"
         elif engine == "dolphin":
-            language = "Chinese + English"
+            # https://github.com/DataoceanAI/Dolphin lists no English.
+            language = "Eastern languages + Chinese dialects"
         elif engine == "sensevoice":
             language = "Chinese, English, Japanese, Korean, Cantonese"
         elif engine == "cohere":
