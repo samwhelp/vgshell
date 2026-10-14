@@ -101,12 +101,15 @@ Item {
         property var updates: []
         property var opens: []
         property var enables: []
+        property var acts: []
+        property string actionReply: "ok"
         function rescan() { return "ok"; }
         function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return "ok"; }
         function viewPage(id) {}
         function installRequirements(id) { installs = installs.concat([id]); return "ok"; }
         function update(id) { updates = updates.concat([id]); return "ok"; }
         function openTui(id, name) { opens = opens.concat([[id, name]]); return "ok"; }
+        function act(id, key) { acts = acts.concat([[id, key]]); return actionReply; }
     }
     QtObject { id: fakeCompositor; function readWindows(done) {} }
     QtObject {
@@ -126,7 +129,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.actionReply = "ok"; }
         function opened() {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
@@ -243,6 +246,30 @@ Item {
             compare(shown(window, Field).filter(field => field.label === "Tools").length, 1);
             compare(shown(window, Badge).map(chip => chip.text), ["Done"]);
             compare(shown(window, RowAction).length, 0);
+        }
+        function test_status_reply_stays_with_its_entry_data() {
+            return [{ tag: "completed Setup step", id: "acme.done", key: "model", tab: "Setup" },
+                { tag: "offered Setup step", id: "acme.todo", key: "model", tab: "Setup" },
+                { tag: "optional Settings feature", id: "acme.optional", key: "featureState", tab: "Settings" }];
+        }
+        function test_status_reply_stays_with_its_entry(data) {
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, data.tab);
+            const line = () => descendants(pageOf(window)).find(item => item.entry !== undefined && item.entry !== null && item.entry.key === data.key && item.action !== undefined);
+            verify(line() !== undefined);
+            const failure = "refused: action=" + data.key + " reason=not-offered";
+            ignoreWarning("settings: " + data.id + "/" + data.key + " " + failure);
+            window.keep(window.stepKey(data.id, data.key), failure);
+            compare(line().error, window.replyOf(data.id, data.key), "a refusal reads under its entry even without an offered link");
+            if (data.id === "acme.done") {
+                fakeManager.plugins = fakeManager.plugins.map(row => row.id === data.id ? Object.assign({}, row, { status: PluginLogic.statusRows(root.stepped, root.todo) }) : row);
+            }
+            tryVerify(() => line() !== undefined && line().action !== null);
+            const action = descendants(line()).find(item => item instanceof RowAction && item.visible);
+            verify(action !== undefined);
+            action.clicked();
+            compare(fakeManager.acts, [[data.id, data.key]], "the primary action uses its status entry's manager route");
+            compare(fakeManager.opens, [], "the primary status action keeps its own reply owner");
+            compare(line().error, "", "a successful retry clears the same entry's refusal");
         }
         function test_required_credential_chips_and_masked_actions_follow_setup_rules() {
             const window = opened(); window.openPlugin("acme.keys", Qt.OtherFocusReason, "Setup");

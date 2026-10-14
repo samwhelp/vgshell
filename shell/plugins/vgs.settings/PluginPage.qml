@@ -148,7 +148,8 @@ FocusScope {
     // and the notice's under the plugin's id, which the page head reads
     // too, so the pressed line reads it beside its button.
     function replyFor(button, entry) {
-        if (button === null || row === null || panel === null) return "";
+        if (row === null || panel === null) return "";
+        if (button === null) return entry === null ? "" : panel.replyOf(row.id, entry.key);
         if (button.kind === "tui") return panel.replyOf(row.id, panel.tuiKey(button.name));
         if (button.kind === "enable" || button.kind === "tools") return panel.replyOf(row.id);
         return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
@@ -808,7 +809,7 @@ FocusScope {
                                             entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
                                             action: page.row === null ? null : tools ? Steps.requirementStep(page.row.requirements).button
-                                                : entry === null ? null : Steps.lineAction(Steps.stepButton(page.row.tuis, entry), Steps.stepOpen(entry), page.plugin)
+                                                : entry === null ? null : Steps.lineAction(Steps.stepButton(entry), Steps.stepOpen(entry), page.plugin)
                                             asideAction: entry === null || tools || !page.plugin.enabled ? null : Steps.asideButton(entry)
                                         }
                                     }

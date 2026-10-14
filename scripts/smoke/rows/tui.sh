@@ -330,7 +330,7 @@ expect_poll "a disabled plugin holds no tui capability" False tui_held
 # open, and the refusal reads under the buttons.
 settings_page_open acme.tui
 settings_tab_click Settings || fail "the click on Settings for More settings failed"
-expect_poll "a disabled plugin's page draws its Settings links" '["More settings", "Say hello"]' setup_drawn
+expect_poll "a disabled plugin's page draws its Settings links with their reason" '["More settings", "Say hello", "Turn on TUI first"]' setup_drawn
 expect "a disabled plugin's Settings link takes no press" "drawn absent" setup_button "Say hello"
 forget_record
 expected_errors+=('settings: acme\.tui/tui:hello refused: tui=hello reason=disabled')

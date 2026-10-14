@@ -29,7 +29,7 @@
 # a calendar day opens in the profile chosen.
 # The disabled Jarvis page's Home folder field, fed by the homes Jarvis
 # publishes, offers only Custom… while Jarvis publishes none, and its Voice
-# field, fed by the voices Jarvis publishes, draws nothing then. Its Voice
+# field retains its attached guidance while voices are unreported. Its Voice
 # provider field offers ElevenLabs in words.
 # The window takes the shown page's height on each page or tab change at
 # its top-left corner, and every listed plugin's Details ends inside it or
@@ -354,7 +354,8 @@ home_field() { ipc smoke invokeInstance window vgs.settings fieldChoice "{\"id\"
 home_state() { home_field home | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[m["label"] for m in d["model"]], d["value"], d["enabled"]]))'; }
 expect_poll "the disabled Jarvis page's Home folder field offers only Custom\u2026, unset" '[["Custom\u2026"], "", false]' home_state
 expect "control: a field the Jarvis page lacks reads absent" absent home_field homeFolder
-expect "the disabled Jarvis page draws no Voice field while Jarvis publishes no voices" absent home_field voice
+voice_unreported() { home_field voice | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["enabled"], d["shown"]]))'; }
+expect "the disabled Jarvis page keeps Voice for its attached guidance, with no choices reported" '[[], false, "Not reported"]' voice_unreported
 # The ElevenLabs option, by its stored value, as the field draws it.
 voice_provider() { home_field voiceProvider | py_reply 'import json,sys; print(json.dumps([o["label"] for o in json.load(sys.stdin)["model"] if o["value"] == sys.argv[1]]))' "$1"; }
 expect_poll "the Jarvis page's Voice provider field offers ElevenLabs in words, not as its stored value" '["ElevenLabs"]' voice_provider elevenlabs
@@ -678,6 +679,7 @@ path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture now declares its missing command required"
 expect "the fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
+expect "the restarted fixture republishes its offered check" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Check failed","action":true}'
 expect_poll "Settings offers the steps whose screen lacks the required command" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
 settings_setup
 expect_poll "the Token line draws its step beside its own hint" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
@@ -726,6 +728,7 @@ JS
 large_commands="$(printf '%s\n' "$large_notice" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[1]))')" || fail "the full-required-list commands could not be read"
 rescan "the status fixture carries Jarvis's full required list as absent stand-ins"
 expect "the large-list fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
+expect "the restarted fixture republishes its offered check" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Check failed","action":true}'
 expect_poll "the large-list fixture offers the setup steps" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
 forget_record
 settings_press --type RowAction "Review all missing or outdated tools" || fail "the large-list Install all missing could not be pressed"

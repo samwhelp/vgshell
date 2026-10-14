@@ -51,7 +51,7 @@ function setupSections(tuis, status, requirements) {
     var items = [];
     ordered.forEach(function (entry) {
         items.push({ key: entry.key, slot: entry.key + ":" + stepRank(entry), keys: false, entry: entry,
-            label: entry.label, step: true, button: stepButton(tuis, entry), aside: asideButton(entry) });
+            label: entry.label, step: true, button: stepButton(entry), aside: asideButton(entry) });
         status.filter(function (keyList) { return keyList.step === entry.key; }).forEach(function (keyList) {
             items.push({ key: keyList.key, slot: keyList.key, keys: true, entry: keyList, label: keyList.label, step: false, button: null, aside: null });
         });
@@ -74,13 +74,13 @@ function setupNeeds(status, requirements, enabled) {
 }
 function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
 // The action ENTRY's line offers while the plugin is on: { kind, key,
-// name, label, tone, enabled, reason }, kind `tui` for an action that opens
-// a listed screen, whose reply is the screen's, else `status`; null while
-// none is offered.
-function stepButton(tuis, entry) {
+// name, label, tone, enabled, reason }. A primary status action always
+// uses the status route, including when it opens a TUI, so its refusal
+// and the successful retry belong to the same entry. Null while none is
+// offered.
+function stepButton(entry) {
     if (entry.action === null || !entry.action.offered) return null;
-    var tui = entry.action.tui === "" ? undefined : tuis.find(function (row) { return row.name === entry.action.tui; });
-    return { kind: tui === undefined ? "status" : "tui", key: entry.key + " " + entry.action.label, name: tui === undefined ? "" : tui.name,
+    return { kind: "status", key: entry.key + " " + entry.action.label, name: entry.action.tui,
         label: entry.action.label, tone: entry.action.tone, enabled: true, reason: "" };
 }
 function asideButton(entry) {
@@ -149,7 +149,7 @@ function featureRow(field, row, plugin) {
         var entry = entryOf(key);
         if (entry === null) return;
         lines.push({ slot: kind + " " + key, kind: kind, label: label, key: key, hint: head ? description : "", lines: [],
-            action: lineAction(stepButton(row.tuis, entry), head, plugin), aside: plugin.enabled ? asideButton(entry) : null, more: [] });
+            action: lineAction(stepButton(entry), head, plugin), aside: plugin.enabled ? asideButton(entry) : null, more: [] });
         head = false;
     }
     if (field.own !== "") entryLine("own", field.own, acting ? spec.label : "");

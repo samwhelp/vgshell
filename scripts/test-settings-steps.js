@@ -29,7 +29,7 @@ const schema = {
 };
 const entry = (label, more) => Object.assign({ label: label, icon: "wrench", group: "Fixture" }, more);
 const tui = {
-    required: { entry: entry("Set model"), requires: [] },
+    required: { entry: entry("Set model"), requires: ["required-a"] },
     feature: { entry: entry("Configure feature", { setting: "feature" }), requires: [] },
     configure: { entry: entry("Configure", { settings: true }), requires: [] },
     task: { entry: entry("Sign in"), requires: ["optional-tool"] },
@@ -135,17 +135,37 @@ function verify(logic, producer) {
     // Account's Sign in opens a screen that needs a missing optional tool;
     // the step offers it, and its press asks for the tool first.
     const signIn = rows(Object.assign({}, allDone, { account: { tone: "warning", text: "Signed out", action: "signIn" } })).find(entry => entry.key === "account");
-    const signInButton = logic.stepButton(screens, signIn);
-    same([signInButton === null ? null : [signInButton.label, signInButton.enabled, signInButton.name], signIn.hint.includes(REVIEW)],
-        [["Sign in", true, "task"], false], "on: a step whose screen lacks an optional tool offers its own action");
+    const signInButton = logic.stepButton(signIn);
+    same([signInButton === null ? null : [signInButton.label, signInButton.enabled, signInButton.kind], signIn.hint.includes(REVIEW)],
+        [["Sign in", true, "status"], false], "on: a step whose screen lacks an optional tool offers its own action");
     const byHand = rows(Object.assign({}, allDone, { home: blocked })).find(entry => entry.key === "home");
-    same([logic.stepButton(screens, byHand), logic.stepView(byHand, String, on).hint], [null, status.home.hint], "on: a by-hand step draws its explanation");
+    same([logic.stepButton(byHand), logic.stepView(byHand, String, on).hint], [null, status.home.hint], "on: a by-hand step draws its explanation");
     const waiting = logic.stepView(rows({}).find(entry => entry.key === "home"), String, on);
     same(waiting.lines, [logic.waitingLine(on.name)], "on, unreported: the step names the wait");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, Object.assign({}, on, { error: "This plugin could not start." })).lines,
         ["This plugin could not start."], "on, unreported after a failed build: the step names the failure");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, off).lines, [], "off: an unreported step names no wait");
     same(items(sections).find(item => item.key === "model").button, null, "unoffered required action draws nowhere");
+    // Rescans restart the smoke publisher. Its absent check is unreported,
+    // not an offered action blocked by a tool. The action owner reads only
+    // the published state; missing tools are handled on its press.
+    for (const [name, key, values, missing, plugin, want] of [
+        ["required tool present", "model", { model: { tone: "warning", text: "Needs setup", action: true } }, [], on, ["status", true]],
+        ["required tool missing", "model", { model: { tone: "warning", text: "Needs setup", action: true } }, ["required-a"], on, ["status", true]],
+        ["optional tool missing", "account", { account: { tone: "warning", text: "Signed out", action: "signIn" } }, ["optional-tool"], on, ["status", true]],
+        ["required tool outdated", "model", { model: { tone: "warning", text: "Needs setup", action: true } }, [], on, ["status", true]],
+        ["reported without action", "model", { model: blocked }, ["required-a"], on, null],
+        ["completed", "model", { model: ready }, ["required-a"], on, null],
+        ["unreported after rescan", "model", {}, ["required-a"], on, null],
+        ["by-hand explanation", "home", { home: blocked }, ["required-a"], on, null],
+        ["disabled", "model", {}, ["required-a"], off, ["enable", true]]
+    ]) {
+        const current = page(values, missing);
+        if (name === "required tool outdated") current.requirements = outdated;
+        const currentEntry = current.status.find(entry => entry.key === key);
+        const button = logic.lineAction(logic.stepButton(currentEntry), logic.stepOpen(currentEntry), plugin);
+        same(button === null ? null : [button.kind, button.enabled], want, "step action owner: " + name);
+    }
 
     // Settings lines: [name, field, published values, missing tools, the
     // plugin, what its lines offer]. A line that holds work offers a press;
@@ -221,11 +241,12 @@ const controls = [
     ["pending Tools follow completed steps", 'if (!tools.done && firstDone !== -1)', 'if (false)', "pending Tools precede completed required steps"],
     ["keys leave their required step", 'keyList.step === entry.key', 'false', "optional entries never draw on Setup"],
     ["unoffered action is drawn", 'entry.action === null || !entry.action.offered', 'entry.action === null', "unoffered required action draws nowhere"],
-    ["a set-up row draws its declared action dead", 'action: lineAction(stepButton(row.tuis, entry), head, plugin)', 'action: lineAction(stepButton(row.tuis, entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)', "Settings: on: an action row whose feature is set up offers nothing"],
+    ["a primary status action uses a separate screen reply", 'return { kind: "status", key: entry.key', 'return { kind: "tui", key: entry.key', "on: a step whose screen lacks an optional tool offers its own action"],
+    ["a set-up row draws its declared action dead", 'action: lineAction(stepButton(entry), head, plugin)', 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)', "Settings: on: an action row whose feature is set up offers nothing"],
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
     ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "off: every To do step offers Turn on Fixture"],
-    ["an action row's head offers no Turn on", 'action: lineAction(stepButton(row.tuis, entry), head, plugin)', 'action: lineAction(stepButton(row.tuis, entry), false, plugin)', "Settings: off: an action row with its own state"],
+    ["an action row's head offers no Turn on", 'action: lineAction(stepButton(entry), head, plugin)', 'action: lineAction(stepButton(entry), false, plugin)', "Settings: off: an action row with its own state"],
     ["a tools row offers no Turn on", 'var enable = head && !plugin.enabled;', 'var enable = false;', "Settings: off: an action row with only tools, one missing"],
     ["Review takes no press while the plugin is off", 'var review = tools.some(requirementApplies) ? reviewButton() : null;', 'var review = tools.some(requirementApplies) ? Object.assign(reviewButton(), { enabled: plugin.enabled }) : null;', "Settings: off: an action row with only tools, one missing"],
     ["Review draws while every tool is present", 'var review = tools.some(requirementApplies) ? reviewButton() : null;', 'var review = reviewButton();', "Settings: off: an action row with only tools, all present"],

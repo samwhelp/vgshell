@@ -1606,6 +1606,7 @@ mutations=(
   "a clicked tile group shows its ring|controls/TileGroup.qml|root.visualFocus)|root.activeFocus)|tst_tilegroup.qml"
   "every tile draws the ring|controls/TileGroup.qml|visible: tile.current && (|visible: (|tst_tilegroup.qml"
   "segments keep their own widths in a set width|controls/SegmentedControl.qml|width: root.segmentShare > 0 ? root.segmentShare : implicitWidth|width: implicitWidth|tst_segmented.qml"
+  "a completed status entry loses its refusal|../plugins/vgs.settings/PluginPage.qml|if (button === null) return entry === null ? \"\" : panel.replyOf(row.id, entry.key);|if (button === null) return \"\";|tst_settings_setup.qml"
   "a required Setup page has no tab|../plugins/vgs.settings/PluginPage.qml|const names = hasSetup ? [\"Settings\", \"Setup\", \"Details\"] : [\"Settings\", \"Details\"];|const names = [\"Settings\", \"Details\"];|tst_settings_setup.qml"
   "an optional page gains Setup|../plugins/vgs.settings/PluginPage.qml|const names = hasSetup ? [\"Settings\", \"Setup\", \"Details\"] : [\"Settings\", \"Details\"];|const names = [\"Settings\", \"Setup\", \"Details\"];|tst_settings_setup.qml"
   "removed Setup falls back to Settings|../plugins/vgs.settings/PluginPage.qml|const shown = names.indexOf(tab) !== -1 ? tab : \"Details\";|const shown = names.indexOf(tab) !== -1 ? tab : \"Settings\";|tst_settings_setup.qml"

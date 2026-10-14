@@ -2008,10 +2008,10 @@ suite(load(LOGIC), load(CONFIG), report);
     const stepsTemp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-steps-control-"));
     try {
         const source = fs.readFileSync(STEPS, "utf8");
-        const needle = "action: lineAction(stepButton(row.tuis, entry), head, plugin)";
+        const needle = "action: lineAction(stepButton(entry), head, plugin)";
         report("control: the dead-action Steps.js text occurs once", source.split(needle).length - 1, 1);
         const copy = path.join(stepsTemp, "Steps.js");
-        fs.writeFileSync(copy, source.replace(needle, 'action: lineAction(stepButton(row.tuis, entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)'));
+        fs.writeFileSync(copy, source.replace(needle, 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)'));
         let red = 0;
         featureRowsHold(load(LOGIC), load(copy), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
         report("control: a page judge that draws dead actions fails the shipped rows", red > 0, true);
