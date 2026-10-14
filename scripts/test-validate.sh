@@ -539,6 +539,7 @@ settings_core_prefix=$'node scripts/test-vpn-logic.js\nnode scripts/test-plugin-
 settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\nnode scripts/test-displays-logic.js\n'
 settings_values_plugin_rows="${settings_plugin_rows%$'node scripts/test-displays-logic.js\n'}"
+settings_plugin_rows+=$'node scripts/test-screensaver-logic.js\n'
 settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
 settings_reply_row='node scripts/test-settings-reply.js'
 settings_steps_row='node scripts/test-settings-steps.js'
@@ -546,6 +547,7 @@ cases=(
   "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
   "sysmon-logic|shell/plugins/vgs.sysmon/SysmonLogic.js|logic|node scripts/test-sysmon-logic.js"
+  "screensaver-manifest|shell/plugins/vgs.screensaver/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-screensaver-logic.js'
   "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-timestamp.js\nnode scripts/test-updates-logic.js\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js\nnode scripts/test-cloud-sync-logic.js'
   "nmcli-shared|shell/Commons/Nmcli.js|logic|node scripts/test-network-logic.js"$'\nnode scripts/test-vpn-logic.js'
   "vpn-import|shell/plugins/vgs.vpn/tui/import-wireguard.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
@@ -559,7 +561,7 @@ cases=(
   "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|"$'node scripts/test-jarvis-setup-gate.js\nnode scripts/test-settings-reply.js'
   "settings-reply-input|shell/Commons/Reply.js|logic|node scripts/test-settings-reply.js"
   "settings-reply-suite|scripts/test-settings-reply.js|logic|node scripts/test-settings-reply.js"
-  "settings-steps-input|shell/plugins/vgs.settings/Steps.js|logic|node scripts/test-jarvis-setup-gate.js"$'\n'"$settings_steps_row"
+  "settings-steps-input|shell/plugins/vgs.settings/Steps.js|logic|node scripts/test-screensaver-logic.js"$'\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_steps_row"
   "settings-steps-suite|scripts/test-settings-steps.js|logic|$settings_steps_row"
   "settings-reply-key-label|shell/Ui/controls/BindField.qml|logic|$settings_reply_row"
   "settings-reply-launcher|shell/plugins/vgs.launcher/Service.qml|logic|$settings_reply_row"
@@ -569,7 +571,7 @@ cases=(
   "settings-reply-layer-binding|shell/Core/HyprlandLayer.qml|logic|"$'node scripts/test-hyprland-layer.js\n'"$settings_reply_row"
   "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"$'\nnode scripts/test-voice-logic.js'
   "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
-  "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_values_plugin_rows"$'node scripts/test-bluetooth-logic.js\nnode scripts/test-displays-logic.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_values_plugin_rows"$'node scripts/test-bluetooth-logic.js\nnode scripts/test-displays-logic.js\nnode scripts/test-screensaver-logic.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "catalog-judge|themes/catalog/index.json|tools|node scripts/check-catalog-wallpaper-names.js"$'\nnode scripts/test-vgshell-theme-judge.js'
