@@ -219,28 +219,19 @@ FocusScope {
     Keys.onReturnPressed: pressFocused()
     Keys.onEnterPressed: pressFocused()
     Keys.onEscapePressed: event => { if (modal && !busy) rejected(); else event.accepted = false; }
+    Keys.onTabPressed: event => { if (modal) cycle(event.modifiers & Qt.ShiftModifier ? -1 : 1); else event.accepted = false; }
+    Keys.onBacktabPressed: event => { if (modal) cycle(-1); else event.accepted = false; }
 
-    // A Shortcut takes the key before the focused item, which would walk
-    // Qt's own chain from an action. A window Shortcut matches while its
-    // window is active (Qt 6.11.2 qquickshortcutcontext.cpp,
-    // QQuickShortcutContext::matcher, which Qt Quick Templates installs).
-    // A Quickshell popup that grabs the focus is Qt's focus window while it
-    // shows, so both match there: each Tab in the Network flyout's dialog
-    // activated this one (network smoke row with a log line here, 2026-10-13).
-    Shortcut {
-        sequences: ["Tab"]
-        enabled: root.modal && root.activeFocus
-        onActivated: root.cycle(1)
-    }
-
-    // One sequence: a key press that matches two sequences of this Shortcut
-    // arrives as an ambiguous match, which emits activatedAmbiguously and
-    // not activated. A us keyboard's Shift+Tab reads as both Shift+Tab and
-    // Backtab; a Backtab that carries Shift is also tried as Shift+Tab.
-    Shortcut {
-        sequence: "Shift+Tab"
-        enabled: root.modal && root.activeFocus
-        onActivated: root.cycle(-1)
+    // Keys handles its specific signals before native Tab navigation (Qt 6 Keys).
+    // Use the delivered key because a popup's shortcut map can miss Tab.
+    Instantiator {
+        model: root.modal ? root.cycleStops() : []
+        delegate: Connections {
+            required property Item modelData
+            target: modelData.Keys
+            function onTabPressed(event) { root.cycle(event.modifiers & Qt.ShiftModifier ? -1 : 1); }
+            function onBacktabPressed(event) { root.cycle(-1); }
+        }
     }
 
     GlassSurface {

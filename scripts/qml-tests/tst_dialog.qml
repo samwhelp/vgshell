@@ -285,6 +285,46 @@ Item {
             }
         }
 
+        function test_cycle_tracks_added_and_destroyed_stops_and_releases_connections() {
+            let fixture = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDialog { actions: [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}] }', root);
+            try {
+                fixture.takeFocus();
+                const wiring = Array.from(fixture.resources).find(object => typeof object.objectAt === "function" && object.count > 0 && "target" in object.objectAt(0));
+                verify(wiring !== undefined, "the modal dialog connects its stops");
+                const actionCount = fixture.buttons().length;
+                compare(wiring.count, actionCount);
+                const added = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nTextField { activeFocusOnTab: true }', fixture);
+                tryCompare(wiring, "count", actionCount + 1);
+                added.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Tab);
+                compare(fixture.buttons()[0].activeFocus, true);
+                added.forceActiveFocus(Qt.TabFocusReason);
+                added.destroy();
+                tryCompare(wiring, "count", actionCount);
+                fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Tab);
+                compare(fixture.buttons()[0].activeFocus, true);
+                fixture.modal = false;
+                tryCompare(wiring, "count", 0);
+                fixture.modal = true;
+                tryCompare(wiring, "count", actionCount);
+                fixture.visible = false;
+                compare(wiring.count, actionCount, "a retained hidden card retains only its own connections");
+                fixture.visible = true;
+                // A host can close its dialog when the next stop takes focus.
+                const closer = Qt.createQmlObject('import QtQuick\nConnections { property Item card: null; property var wiring; target: card === null ? null : card.buttons()[0]; function onActiveFocusChanged() { if (target.activeFocus) card.destroy(); } }', root);
+                closer.card = fixture;
+                closer.wiring = wiring;
+                fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Tab);
+                tryCompare(closer, "card", null);
+                tryCompare(closer, "target", null);
+                tryCompare(closer, "wiring", null);
+                fixture = null;
+                closer.destroy();
+            } finally { if (fixture !== null) fixture.destroy(); }
+        }
+
         // A us keyboard reports Shift+Tab as Backtab with Shift held; a
         // keymap whose Tab key has one level, as wtype's, as Tab with Shift.
         function test_shift_tab_steps_back_in_either_form_data() {
