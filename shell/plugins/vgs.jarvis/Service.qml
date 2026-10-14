@@ -201,6 +201,7 @@ Item {
             : answer;
         const values = Gate.readiness(merged);
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
+        values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
         values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice), shell.requirements.missing);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);

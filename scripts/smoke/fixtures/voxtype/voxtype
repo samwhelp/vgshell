@@ -37,6 +37,9 @@
 # voice_* variables and sources this file: the config and info verbs then
 # answer from the row's files.
 set -u
+# Setup reads the shipped file through voxtype's global --config option
+# before the copy is permitted. This fixture has one configured engine.
+if [[ ${1:-} == --config ]]; then shift 2; fi
 control="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 run="${XDG_RUNTIME_DIR:-$control}/voxtype"
 lock="$run/voxtype.lock"
@@ -223,6 +226,7 @@ case "$*" in
   'config get audio.max_duration_secs') max_secs ;;
   'config get audio.device') printf '%s\n' default ;;
   'config get engine') printf '%s\n' parakeet ;;
+  'config get parakeet.model') printf '%s\n' parakeet-tdt-0.6b-v3 ;;
   'config get output.mode') printf '%s\n' type ;;
   'config get output.auto_submit') printf '%s\n' false ;;
   'config get text.smart_auto_submit') printf '%s\n' false ;;
@@ -238,10 +242,16 @@ case "$*" in
     [[ -e $voice_feedback_dropped ]] || printf '%s\n' "$4" >"$voice_feedback"
     ;;
   'info models --json')
-    if [[ -e ${voice_installed:-} ]]; then installed=true; else installed=false; fi
+    if [[ -e ${voice_installed:-$control/voxtype-model-installed} ]]; then installed=true; else installed=false; fi
     printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":%s,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}\n' "$installed"
     ;;
-  'setup --download --model parakeet-tdt-0.6b-v3 --no-post-install') printf '%s\n' "$*" >>"$control/voxtype-setup.log" ;;
-  'info engines --json') printf '%s\n' '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]' ;;
+  'setup --download --model parakeet-tdt-0.6b-v3 --no-post-install')
+    printf '%s\n' "$*" >>"$control/voxtype-setup.log"
+    touch -- "${voice_installed:-$control/voxtype-model-installed}"
+    ;;
+  'info engines --json')
+    if [[ -e $control/voxtype-engine-missing ]]; then compiled=false; else compiled=true; fi
+    printf '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":%s,"active":true}]\n' "$compiled"
+    ;;
   *) ;;
 esac

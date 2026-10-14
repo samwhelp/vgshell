@@ -17,7 +17,30 @@ if ! command -v voxtype >/dev/null; then
   vgs_tui_error "Dictation needs voxtype. Install it from the plugin's Settings page."
   exit 1
 fi
+# --config selects the shipped defaults without writing them (voxtype
+# 1.1.0 src/cli/root.rs and src/app/config_get.rs, a read-only command).
+config_read=()
 if [[ ! -e $config_file && ! -L $config_file ]]; then
+  config_read=("$root/config/voxtype/config.toml")
+fi
+engine="$(vgs_voxtype_value engine "${config_read[@]}")"
+model="$(vgs_voxtype_value "$engine.model" "${config_read[@]}")"
+compiled="$(vgs_voxtype_compiled "$engine")"
+installed="$(vgs_voxtype_installed "$engine" "$model")"
+if [[ $compiled != yes ]]; then
+  vgs_tui_step "The active build cannot use the $engine speech engine."
+fi
+if [[ $installed != yes ]]; then
+  vgs_tui_step "The $model speech model is not installed."
+  question="Download the $model speech model and set up dictation?"
+else
+  vgs_tui_step "The $model speech model is already installed."
+  question="Set up dictation with the $model speech model?"
+fi
+status=0
+vgs_tui_confirm "$question" || status=$?
+case "$status" in 0) ;; 1) exit 130 ;; *) exit "$status" ;; esac
+if [[ ${#config_read[@]} != 0 ]]; then
   vgs_tui_step "Copying dictation defaults"
   mkdir -p -- "$config_dir"
   cp -R -- "$root/config/voxtype/." "$config_dir/"
@@ -31,16 +54,12 @@ assert text.count(token) == 1
 path.write_text(text.replace(token, json.dumps(sys.argv[2], ensure_ascii=False)))
 PY
 fi
-engine="$(vgs_voxtype_value engine)"
-model="$(vgs_voxtype_value "$engine.model")"
-status=0
-vgs_tui_confirm "Download and set up the $model speech model?" || status=$?
-case "$status" in 0) ;; 1) exit 0 ;; *) exit "$status" ;; esac
-compiled="$(vgs_voxtype_compiled "$engine")"
 if [[ $compiled != yes ]]; then
   vgs_tui_step "Enabling the speech engine"
   "$root/bin/vgshell-system" apply voxtype-engine
 fi
-vgs_tui_step "Downloading the speech model"
-voxtype setup --download --model "$model" --no-post-install
+if [[ $installed != yes ]]; then
+  vgs_tui_step "Downloading the speech model"
+  voxtype setup --download --model "$model" --no-post-install
+fi
 vgs_tui_success "Dictation is ready."

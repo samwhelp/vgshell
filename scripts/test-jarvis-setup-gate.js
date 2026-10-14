@@ -825,7 +825,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
@@ -1529,6 +1529,7 @@ function verify(gate) {
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
     verifyListRead(require(providersFile), fs.readFileSync(accountsFile, "utf8"));
     verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
+    verifyDictationSetup(gate);
     verifyElevenLabsRow(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyVoiceRoute(gate, fs.readFileSync(serviceFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
@@ -1673,6 +1674,8 @@ const CONTROLS = [
     ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
     ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)" },',
         '"speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Setup in Settings > Voice](page:vgs.voice/Setup)", action: "dictation" },', "another voxtype"],
+    ["the holder omits a missing engine name", 'if (!setup.compiled) lines.push(', 'if (false) lines.push(', "the holder names"],
+    ["the holder omits a missing model name", 'if (!setup.installed) lines.push(', 'if (false) lines.push(', "the holder names"],
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
     ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
@@ -2317,7 +2320,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
             values[key] = value;
             return "ok";
         } } };
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: { modelAccess: { kind: "checking" } },
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, dictationState: state === null ? null : Object.assign({ setup: null }, state), accountReader: { modelAccess: { kind: "checking" } },
             localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
@@ -2339,6 +2342,23 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
             label + ": the start the service refuses itself");
     }
+}
+
+// Missing prerequisite names are the configured values, from the core's
+// published setup result. No holder runs an inventory probe of its own.
+function verifyDictationSetup(gate) {
+    const value = gate.DICTATION["speech=dictation-absent"];
+    for (const [compiled, installed, names] of [
+        [false, true, ["engine-fixture"]], [true, false, ["model-fixture"]],
+        [false, false, ["engine-fixture", "model-fixture"]]
+    ]) {
+        const shown = gate.dictationSetup(value, { setup: { engine: "engine-fixture", model: "model-fixture", compiled, installed } });
+        assert.equal(shown.action, "dictation");
+        assert.equal(shown.tone, "warning");
+        for (const name of names) assert.ok(shown.hint.includes(name), "the holder names " + name);
+    }
+    assert.equal(gate.dictationSetup(value, { setup: { compiled: true, installed: true } }), value);
+    assert.equal(gate.dictationSetup(value, null), value);
 }
 
 // The service's dictation start against a stand-in of the core that, as
@@ -2527,7 +2547,7 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     assert.ok(publishSetup, "Service.qml declares publishSetup");
     const values = {};
     const calls = [];
-    const context = { Gate: gate, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
+    const context = { Gate: gate, dictationState: null, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
         voiceStep: gate.readiness({ kind: "checking" }).setupVoice, sessionStart: { result: null },
         shell: { settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, set: (key, value) => { values[key] = value; return "ok"; } } } };
     context.localRuntime = { setupCause: "", republish: () => calls.push(plain(context.voiceStep)) };

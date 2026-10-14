@@ -9,11 +9,7 @@ Item {
 
     property var shell: null
     property var registeredWith: null
-    // What the running probe chain has read so far, by stage, for
-    // VoiceLogic.setupState.
-    property var setupRead: ({})
     property var setupValue: ({ tone: "info", text: "Not checked", action: "", engine: VoiceLogic.DEFAULT_ENGINE, model: VoiceLogic.DEFAULT_MODEL })
-    property string probeStage: "idle"
     // The core's one recording and its voxtype daemon, as the `dictation`
     // capability lends them (D106): a new copy after each change.
     readonly property var dictationState: shell === null ? null : shell.dictation.state
@@ -135,6 +131,7 @@ Item {
         ownDictation = shown.own;
         if (shown.phase !== dictation) publishDictation(shown.phase);
         publishModel();
+        refreshSetup();
     }
 
     // The core retires a disabled plugin's status record, then lets go of
@@ -295,43 +292,8 @@ Item {
             publishSetup();
             return;
         }
-        if (probeProcess.running) return;
-        setupRead = ({ present: true });
-        startProbe(VoiceLogic.PROBE_STAGES[0]);
-    }
-
-    // The command of each probe stage, VoiceLogic.PROBE_STAGES. The model's
-    // key names the engine the engine stage read.
-    function probeCommand(stage) {
-        switch (stage) {
-        case "version": return ["voxtype", "--version"];
-        case "engine": return ["voxtype", "config", "get", "engine", "--json"];
-        case "model": return ["voxtype", "config", "get", VoiceLogic.configValue(setupRead.engine || "", VoiceLogic.DEFAULT_ENGINE) + ".model", "--json"];
-        case "models": return ["voxtype", "info", "models", "--json"];
-        case "engines": return ["voxtype", "info", "engines", "--json"];
-        }
-        throw new Error("voice: probe stage " + JSON.stringify(stage) + " is not one of " + VoiceLogic.PROBE_STAGES.join(", "));
-    }
-
-    function startProbe(stage) {
-        probeStage = stage;
-        probeProcess.command = probeCommand(stage);
-        probeProcess.running = true;
-    }
-
-    // Each stage's stdout is kept under its name. The state reads the
-    // daemon's word as it is when the chain ends.
-    function runNextProbe(out) {
-        const read = Object.assign({}, setupRead);
-        read[probeStage] = out;
-        setupRead = read;
-        const next = VoiceLogic.PROBE_STAGES[VoiceLogic.PROBE_STAGES.indexOf(probeStage) + 1];
-        if (next !== undefined) {
-            startProbe(next);
-            return;
-        }
-        probeStage = "idle";
-        setupValue = VoiceLogic.setupState(setupRead, daemon);
+        if (dictationState.setup === null) return;
+        setupValue = VoiceLogic.setupState(dictationState.setup, daemon);
         publishSetup();
     }
 
@@ -388,20 +350,4 @@ Item {
         }
     }
 
-    Process {
-        id: probeProcess
-        property var completion: null
-        stdout: StdioCollector { id: probeOut }
-        stderr: StdioCollector { id: probeErr }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const stage = root.probeStage;
-            const out = probeOut.text;
-            const err = probeErr.text.trim();
-            completion = null;
-            if (err !== "") console.warn("voice: probe=" + stage + " " + err);
-            root.runNextProbe(out);
-        }
-    }
 }

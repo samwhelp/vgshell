@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
 # voxtype's JSON config and compiled-engine readings, shared by dictation
 # setup and the system-step probe. Invalid readings fail the caller.
-vgs_voxtype_value() { # KEY
+vgs_voxtype_value() { # KEY [CONFIG]
   local json
-  json="$(voxtype config get "$1" --json)" || return
+  local -a config=()
+  [[ $# == 1 ]] || config=(--config "$2")
+  json="$(voxtype "${config[@]}" config get "$1" --json)" || return
   python3 -c 'import json,sys
 v=json.load(sys.stdin)
 if isinstance(v,dict): v=v["value"]
 if not isinstance(v,str) or not v: raise ValueError("config value is not a string")
 print(v)' <<<"$json"
+}
+
+# The inventory is voxtype's installed flag, not a guessed model path.
+vgs_voxtype_installed() { # ENGINE MODEL
+  local json
+  json="$(voxtype info models --json)" || return
+  python3 -c 'import json,sys
+data=json.load(sys.stdin)
+engines=data["engines"]
+if not isinstance(engines,dict): raise ValueError("engines is not an object")
+rows=engines.get(sys.argv[1],{}).get("models",[])
+if not isinstance(rows,list): raise ValueError("models is not a list")
+print("yes" if any(isinstance(r,dict) and r.get("name")==sys.argv[2] and r.get("installed") is True for r in rows) else "no")' "$1" "$2" <<<"$json"
 }
 vgs_voxtype_compiled() { # ENGINE
   local json

@@ -9,14 +9,9 @@ const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
-const modelsReady = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}';
-const modelsMissing = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}';
-const enginesReady = '[{"name":"whisper","compiled":true,"active":false},{"name":"parakeet","compiled":true,"active":true}]';
-const enginesMissing = '[{"name":"whisper","compiled":true,"active":true},{"name":"parakeet","compiled":false,"active":false}]';
-// Probe stdout as voxtype 1.1.0 prints it on host cachy, read on
-// 2026-10-06: `voxtype --version`.
-const readsReady = { present: true, version: 'voxtype 1.1.0\n', engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsReady, engines: enginesReady };
-const readsMissing = { present: true, version: 'voxtype 1.1.0\n', engine: '{"value":"parakeet"}', model: '{"value":"parakeet-tdt-0.6b-v3"}', models: modelsMissing, engines: enginesMissing };
+// Typed setup readings published by the core, after its single probe chain.
+const readsReady = { engine: "parakeet", model: "parakeet-tdt-0.6b-v3", version: "voxtype 1.1.0\n", compiled: true, installed: true };
+const readsMissing = Object.assign({}, readsReady, { compiled: false, installed: false });
 // The `dictation` capability's state (DictationModel.state).
 const lent = (daemon, phase, holder) => ({ daemon: daemon, phase: phase, holder: holder, engine: "", model: "", device: "" });
 
@@ -51,13 +46,17 @@ function verify(logic) {
     ["a daemon the shell did not start offers to stop it", readsReady, "elsewhere", "warning", "stop", 1, null],
     ["a daemon the shell did not start offers to stop it before the setup", readsMissing, "elsewhere", "warning", "stop", 3, null],
     ["a daemon that failed is not ready", readsReady, "failed", "warning", "setup", 1, null],
-    ["a missing model is not ready", Object.assign({}, readsReady, { models: modelsMissing }), "ready", "warning", "setup", 1, null],
+    ["a missing model is not ready", Object.assign({}, readsReady, { installed: false }), "ready", "warning", "setup", 1, null],
     ["no version still reads ready", Object.assign({}, readsReady, { version: "" }), "ready", "ok", "", 1, "parakeet-tdt-0.6b-v3"],
   ];
   for (const [name, reads, daemon, tone, action, count, fragment] of stateRows) {
     const state = logic.setupState(reads, daemon);
     same([state.tone, state.action, state.lines.length], [tone, action, count], `setupState: ${name}`);
     if (fragment !== null) assert.ok(state.lines[0].includes(fragment), `setupState: ${name}: the first line holds ${fragment}`);
+  }
+  for (const missing of [{ compiled: false }, { installed: false }, { compiled: false, installed: false }]) {
+    const state = logic.setupState(Object.assign({}, readsReady, missing), "absent");
+    same([state.tone, state.action], ["warning", "setup"], "an absent daemon keeps setup offered for each missing prerequisite");
   }
   // Without voxtype the entry is hidden, offers no step and names no line:
   // the Requirements section states voxtype missing, once.
@@ -69,11 +68,7 @@ function verify(logic) {
   assert.throws(() => logic.setupState(readsReady, "paused"), "a daemon word the capability does not have is refused");
   assert.equal(logic.versionOf("voxtype 1.1.0\n"), "1.1.0", "the version is read from --version");
   assert.equal(logic.versionOf("voxtype\n"), "", "no version reads empty");
-  assert.equal(logic.modelInstalled(modelsReady, "parakeet", "parakeet-tdt-0.6b-v3"), true, "installed model is found");
-  assert.equal(logic.modelInstalled(modelsMissing, "parakeet", "parakeet-tdt-0.6b-v3"), false, "missing model is detected");
-  assert.equal(logic.engineAvailable(enginesReady, "parakeet"), true, "compiled engine is found");
-  assert.equal(logic.engineAvailable(enginesMissing, "parakeet"), false, "uncompiled engine is detected");
-  const configured = logic.setupState(Object.assign({}, readsReady, { model: '{"value":"configured"}' }), "starting");
+  const configured = logic.setupState(Object.assign({}, readsReady, { model: "configured" }), "starting");
   same(logic.modelData(lent("starting", "idle", ""), configured), { engine: "parakeet", model: "configured" }, "the Model row reads the configured engine and model before a daemon names its own");
   same(logic.modelData(Object.assign(lent("ready", "idle", ""), { engine: "whisper", model: "base.en" }), configured), { engine: "whisper", model: "base.en" }, "the Model row reads the running daemon's engine and model");
 
@@ -193,16 +188,16 @@ const controls = [
   ["the transcription after any stop shows", "var after = own && state.holder === \"\"", "var after = state.holder === \"\""],
   ["a recording nobody holds shows after Voice's own", " && (state.phase === \"unread\" || state.phase === \"transcribing\");", ";"],
   ["the transcription after Voice's stop reads idle", "phase: after ? \"transcribing\" : \"idle\"", "phase: \"idle\""],
-  ["model presence ignored", "row.name === wanted && row.installed === true", "row.name === wanted"],
-  ["engine compiled ignored", "return row.compiled === true;", "return true;"],
-  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"Setup needed\", lines: lines, action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"Setup needed\", lines: lines, action: \"\","],
-  ["a daemon that is not ready reads ready", "    if (DAEMON_LINES[daemon] !== \"\") lines.push(", "    if (false) lines.push("],
+  ["model presence ignored", "if (!reads.installed)", "if (false)"],
+  ["engine compiled ignored", "if (!reads.compiled)", "if (false)"],
+  ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"To do\", lines: lines, action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"To do\", lines: lines, action: \"\","],
+  ["a daemon that is not ready reads ready", "    if (DAEMON_LINES[daemon] !== \"\" && (daemon !== \"absent\" || lines.length === 0)) lines.push(", "    if (false) lines.push("],
   ["a daemon the shell did not start reads as one that failed", "    elsewhere: \"Another voxtype is already running. Stop the other voxtype so VGS can start its own.\",", "    elsewhere: \"voxtype did not start.\","],
   ["a daemon the shell did not start offers Set up", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"setup\","],
   ["any line offers Stop the other voxtype", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"stop\","],
   ["an unknown daemon word reads ready", "    if (DAEMON_LINES[daemon] === undefined)\n", "    if (false)\n"],
   ["voxtype absent offers Set up", "return { hidden: true, lines: [], action: \"\",", "return { hidden: true, lines: [], action: \"setup\","],
-  ["voxtype absent draws its own line", "return { hidden: true, lines: [], action: \"\",", "return { tone: \"warning\", text: \"Setup needed\", lines: [\"voxtype is not installed.\"], action: \"\","],
+  ["voxtype absent draws its own line", "return { hidden: true, lines: [], action: \"\",", "return { tone: \"warning\", text: \"To do\", lines: [\"voxtype is not installed.\"], action: \"\","],
   ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],
   ["bridge frame shape ignored", "if (!amplitude(frame.peak) || !amplitude(frame.rms)) return { ok: false, reason: \"frame\" };", ""],
   ["bridge status lines read as frames", "if (frame.status === \"connected\" || frame.status === \"disconnected\") return { ok: true, kind: frame.status };", ""],

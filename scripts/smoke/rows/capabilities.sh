@@ -175,11 +175,13 @@ dictation_stand_ins() { # on|off
   local name
   if [[ $1 == off ]]; then
     rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype"
+    rm -f -- "${sandbox:?}/voxtype-model-installed"
     return 0
   fi
   for name in voxtype wtype; do
     cp -- "$repo/scripts/smoke/fixtures/voxtype/$name" "$shim/$name.next" && chmod 755 "$shim/$name.next" && mv -T -- "$shim/$name.next" "$shim/$name" || return 1
   done
+  touch -- "$sandbox/voxtype-model-installed"
   [[ $(shell_resolves voxtype) == "$shim/voxtype" ]]
 }
 # The stand-in's processes, by the verb each runs: its daemons, its status

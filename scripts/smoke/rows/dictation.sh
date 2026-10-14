@@ -142,6 +142,25 @@ fi
 
 expect "with no holder, no voxtype process is a child of the shell" "$dictation_none" dictation_processes
 expect "with no holder, the lending record reads no daemon" "absent none -" dictation_lent
+# The setup readings gate the actual core child, including for a holder
+# other than Voice. Read both the child's absence and the shared reason.
+dictation_setup_read() { ipc smoke readInstance service acme.dictation state | py_reply 'import json,sys; s=json.load(sys.stdin).get("setup"); print("unread" if s is None else json.dumps(s, sort_keys=True))'; }
+for dictation_missing in engine model; do
+  if [[ $dictation_missing == engine ]]; then
+    touch -- "$sandbox/voxtype-engine-missing"
+    dictation_expected_setup='{"compiled": false, "engine": "parakeet", "installed": true, "model": "parakeet-tdt-0.6b-v3", "version": "voxtype 1.1.0"}'
+  else
+    rm -f -- "${sandbox:?}/voxtype-model-installed"
+    dictation_expected_setup='{"compiled": true, "engine": "parakeet", "installed": false, "model": "parakeet-tdt-0.6b-v3", "version": "voxtype 1.1.0"}'
+  fi
+  expect "a holder with a missing $dictation_missing enables" ok ipc shell setPluginEnabled acme.dictation true
+  expect_poll "the holder reads its missing $dictation_missing" "$dictation_expected_setup" dictation_setup_read
+  expect "a missing $dictation_missing starts no voxtype process" "$dictation_none" dictation_processes
+  expect "a missing $dictation_missing never reached the daemon" none dictation_noted
+  expect "the holder with a missing $dictation_missing disables" ok ipc shell setPluginEnabled acme.dictation false
+  rm -f -- "${sandbox:?}/voxtype-engine-missing"
+  touch -- "$sandbox/voxtype-model-installed"
+done
 expect "enabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation true
 expect_poll "the holder reads the daemon ready" "ready idle -" dictation_state acme.dictation
 expect_poll "one daemon and one follower run, children of the shell" "$dictation_one" dictation_processes
@@ -257,6 +276,7 @@ dictation_setup_start() {
     fi
   done
 }
+rm -f -- "${sandbox:?}/voxtype-model-installed"
 dictation_forget
 dictation_setup_start
 expect "dictation setup copied the core defaults into sandbox HOME" copied dictation_setup_defaults

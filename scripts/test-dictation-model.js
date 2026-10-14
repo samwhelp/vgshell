@@ -28,8 +28,12 @@ const CONFIG = [
     ["ran", "output.auto_submit", 0, "true\n"],
     ["ran", "text.smart_auto_submit", 0, "false\n"]
 ];
+const MODEL = ["ran", "model", 0, "parakeet-tdt-0.6b-v3\n"];
+const MODELS = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true}]}}}';
+const ENGINES = '[{"name":"parakeet","compiled":true}]';
+const SETUP = [["ran", "version", 0, "voxtype 1.1.0\n"], MODEL, ["ran", "models", 0, MODELS], ["ran", "engines", 0, ENGINES]];
 // Holder `a` leases, the start steps pass, and the follower prints idle.
-const READY = [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")]];
+const READY = [["lease", "a"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")]];
 const BOTH = [...READY, ["lease", "b"]];
 const TEXT_START = "run:voxtype record start --file=" + DIR + "/1.txt --no-auto-submit --no-smart-auto-submit --no-osd";
 const TYPE_START = "run:voxtype record start --auto-submit --no-smart-auto-submit --paste";
@@ -53,16 +57,16 @@ const CASES = [
         [["lease", "a"], "|", PROBE, CONFIG[0]],
         { daemon: "starting", child: "none" }, ["run:voxtype config get audio.max_duration_secs", "run:voxtype config get audio.device"]],
     ["the last start step removes the killed daemon's state file before the child starts",
-        [["lease", "a"], PROBE, ...CONFIG, "|", ["ran", "directory", 0, ""]],
+        [["lease", "a"], PROBE, ...CONFIG, ...SETUP, "|", ["ran", "directory", 0, ""]],
         { daemon: "starting", child: "none" }, ["run:rm -f -- " + STATE_PATH]],
     ["the clean step starts the daemon and its follower",
-        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], "|", ["ran", "clean", 0, ""]],
+        [["lease", "a"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], "|", ["ran", "clean", 0, ""]],
         { daemon: "starting", child: "running" }, ["daemon", "follow"]],
     ["the follower's idle reads the daemon ready, with what the config and the line name",
         [...READY],
         { daemon: "ready", phase: "idle", holder: "", engine: "parakeet", model: "parakeet-tdt-0.6b-v3", device: "default" }, null],
     ["the follower's stopped, printed before the daemon holds its lock, is not ready",
-        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("stopped")]],
+        [["lease", "a"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("stopped")]],
         { daemon: "starting" }, null],
     ["a second lease starts nothing",
         [...READY, "|", ["lease", "b"]],
@@ -83,7 +87,7 @@ const CASES = [
         [...READY, ["release", "a"], ["lease", "b"], "|", ["exited", 0]],
         { daemon: "starting", child: "none" }, ["timer=0", "run:voxtype status --format json"]],
     ["a daemon that answers the probe reads elsewhere and starts nothing",
-        [["lease", "a"], "|", ["ran", "probe", 0, line("idle") + "\n"], ["start", "a", "type", "refused: dictation=daemon-elsewhere"]],
+        [["lease", "a"], ["ran", "probe", 0, line("idle") + "\n"], ...CONFIG, ...SETUP.slice(0, -1), "|", SETUP[3], ["start", "a", "type", "refused: dictation=daemon-elsewhere"]],
         { daemon: "elsewhere", child: "none" }, []],
     ["a probe that fails reads failed and starts nothing",
         [["lease", "a"], "|", ["ran", "probe", 1, ""]],
@@ -113,15 +117,15 @@ const CASES = [
         [...READY, "|", ["start", "a", "type", "ok"]],
         { holder: "a", mode: "type" }, [TYPE_START]],
     ["a start after a killed daemon reads starting until the new daemon's own word",
-        [["lease", "a"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("stopped")], "|",
+        [["lease", "a"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("stopped")], "|",
             ["start", "a", "type", "refused: dictation=daemon-starting"], ["status", line("idle")]],
         { daemon: "ready", phase: "idle", holder: "" }, []],
     ["a type start after a killed text recording passes the configured output",
-        [...TAKEN, ["exited", null], ["restart", "ok"], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
+        [...TAKEN, ["exited", null], ["restart", "ok"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
         { holder: "a", mode: "type" }, [TYPE_START]],
     ["a type start names the other configured values: file output, no auto-submit, smart auto-submit",
         [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.mode", 0, "file\n"], ["ran", "output.auto_submit", 0, "false\n"],
-            ["ran", "text.smart_auto_submit", 0, "true\n"], ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
+            ["ran", "text.smart_auto_submit", 0, "true\n"], ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
         { holder: "a", mode: "type" }, ["run:voxtype record start --no-auto-submit --smart-auto-submit --file"]],
     ["mode text records to a file and arms the cancel a second before the cap",
         [...READY, "|", ["start", "a", "text", "ok"]],
@@ -212,7 +216,7 @@ const CASES = [
             "|", ["status", line("recording")]],
         { holder: "", phase: "recording" }, []],
     ["a recording of the next daemon after the check's drop is not cancelled",
-        [...TAKEN, ["checked"], read("idle"), ["restart", "ok"], ["exited", 0], PROBE, ...CONFIG, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""],
+        [...TAKEN, ["checked"], read("idle"), ["restart", "ok"], ["exited", 0], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""],
             ["status", line("idle")], "|", ["status", line("recording")]],
         { daemon: "ready", holder: "", phase: "recording" }, []],
     ["the check's recording read keeps the recording",
@@ -335,6 +339,30 @@ function verify(M) {
         for (const key of Object.keys(want)) assert.deepEqual(JSON.parse(JSON.stringify(got[key])), want[key], `${label}: ${key}`);
         if (effects !== null) assert.deepEqual(seen, effects, `${label}: effects`);
     }
+    for (const [label, models, engines, compiled, installed] of [
+        ["missing engine", MODELS, '[{"name":"parakeet","compiled":false}]', false, true],
+        ["missing model", MODELS.replace('"installed":true', '"installed":false'), ENGINES, true, false],
+        ["both missing", MODELS.replace('"installed":true', '"installed":false'), '[{"name":"parakeet","compiled":false}]', false, false],
+        ["unread models", "bad-json", ENGINES, true, false],
+        ["unread engines", MODELS, "bad-json", false, true]
+    ]) {
+        let model = M.initial(DIR, STATE_PATH);
+        const effects = [];
+        for (const [name, ...args] of [["lease", "a"], PROBE, ...CONFIG, ...SETUP.slice(0, 2), ["ran", "models", 0, models], ["ran", "engines", 0, engines]]) {
+            const step = M[name](model, ...args);
+            model = step.model;
+            effects.push(...step.effects);
+        }
+        assert.equal(effects.some(e => e.kind === "daemon" || e.kind === "follow" || e.tag === "directory"), false, label + ": no daemon, follower or directory write");
+        assert.equal(model.child, "none", label + ": no child");
+        assert.equal(model.daemon, "absent", label + ": absent daemon");
+        const setup = JSON.parse(JSON.stringify(M.state(model).setup));
+        assert.deepEqual(setup, { engine: "parakeet", model: "parakeet-tdt-0.6b-v3", version: "voxtype 1.1.0", compiled, installed }, label + ": holders read the missing part");
+        const held = M.state(model).setup;
+        assert.notEqual(held, model.setup, label + ": setup is a copy");
+        assert.equal(Object.isFrozen(held), true, label + ": setup is immutable");
+        assert.equal(M.start(model, "a", "type").answer, "refused: dictation=daemon-absent", label + ": recording refused");
+    }
     assert.throws(() => M.release(M.initial(DIR, STATE_PATH), "a"), /release by a which holds none/, "a release with no lease is an error");
     assert.throws(() => M.start(M.initial(DIR, STATE_PATH), "a", "type"), /start by a which holds no lease/, "a start with no lease is an error");
     assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(M.record(M.initial(DIR, STATE_PATH))))).sort(), ["child", "daemon", "holder", "holders", "mode"], "the lending record holds no path and no text");
@@ -349,7 +377,12 @@ const CONTROLS = [
     ["the last release stops the daemon", "    if (t.holders.length === 0) {\n        end(t, effects, \"\");", "    if (t.holders.length === 0) {"],
     ["a release cancels that holder's recording", "    } else if (t.recording !== null && t.recording.holder === id) {\n        cancelRecording(t, effects, \"\");\n    }", "    }"],
     ["restart is refused while a recording runs", '    if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;\n    else if (t.holders.length === 0)', "    if (t.holders.length === 0)"],
-    ["a daemon elsewhere starts nothing", '        } else if (alt.word !== "stopped") {', "        } else if (false) {"],
+    ["a daemon elsewhere starts nothing", 's.elsewhere = alt.word !== "stopped";', "s.elsewhere = false;"],
+    ["an unavailable engine starts no daemon", '!s.setup.compiled || !s.setup.installed', 'false || !s.setup.installed'],
+    ["a missing model starts no daemon", '!s.setup.compiled || !s.setup.installed', '!s.setup.compiled || false'],
+    ["engine compiled reading is required", 'return row.compiled === true;', 'return true;'],
+    ["model installed reading is required", 'row.name === wanted && row.installed === true', 'row.name === wanted'],
+    ["holders cannot change the core setup record", 'Object.freeze(Object.assign({}, s.setup))', 's.setup'],
     ["today's reading of the old state file is removed before the child starts", '        step(s, effects, CLEAN);\n        return;', '        s.step = "child";\n        s.child = "running";\n        effects.push({ kind: "daemon" }, { kind: "follow" });\n        return;'],
     ["the deadline cancels a text recording", '        cancelRecording(t, effects, "");\n    } else if (timer === "grace"', '    } else if (timer === "grace"'],
     ["a text recording arms the deadline", '        setTimer(t, effects, "cap", (t.maxSecs - CAP_MARGIN_S) * 1000);\n', ""],

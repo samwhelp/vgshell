@@ -17,14 +17,6 @@ function parseJson(text, fallback) {
     }
 }
 
-function configValue(text, fallback) {
-    var value = parseJson(text, undefined);
-    if (value === undefined) return fallback;
-    if (isObject(value) && value.value !== undefined) return String(value.value);
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-    return fallback;
-}
-
 // The dictation Voice shows from STATE, the `dictation` capability's, and
 // OWN, whether the last one it showed was its own: { own, phase }. A phase
 // shows only while Voice holds the recording, and through the
@@ -37,40 +29,11 @@ function ownDictation(state, own) {
     return { own: after, phase: after ? "transcribing" : "idle" };
 }
 
-function modelRows(modelsText, engine) {
-    var data = parseJson(modelsText, null);
-    if (!isObject(data) || !isObject(data.engines) || !isObject(data.engines[engine]) || !Array.isArray(data.engines[engine].models)) return [];
-    return data.engines[engine].models;
-}
-
-function modelInstalled(modelsText, engine, wanted) {
-    var models = modelRows(modelsText, engine);
-    for (var i = 0; i < models.length; i++) {
-        var row = models[i];
-        if (isObject(row) && row.name === wanted && row.installed === true) return true;
-    }
-    return false;
-}
-
-function engineAvailable(enginesText, wanted) {
-    var engines = parseJson(enginesText, null);
-    if (!Array.isArray(engines)) return false;
-    for (var i = 0; i < engines.length; i++) {
-        var row = engines[i];
-        if (isObject(row) && row.name === wanted) return row.compiled === true;
-    }
-    return false;
-}
-
 // The version `voxtype --version` prints, as `voxtype 1.1.0`, or "".
 function versionOf(text) {
     var found = /\b(\d+\.\d+(?:\.\d+)?)\b/.exec(String(text));
     return found === null ? "" : found[1];
 }
-
-// The stages the service reads Set up's state in, each one command's
-// stdout under its name (Service.probeCommand).
-var PROBE_STAGES = ["version", "engine", "model", "models", "engines"];
 
 // What Set up's state says of the voxtype the core runs, by the
 // capability's `daemon` word, "" for one that needs no line: `starting`
@@ -83,7 +46,7 @@ var DAEMON_LINES = {
     failed: "voxtype did not start."
 };
 
-// Set up's state from READS, the service's probe stdout by stage, with
+// Set up's state from READS, the core's typed setup readings, with
 // `present` false while voxtype is not found, and DAEMON, the capability's
 // `daemon` word: { tone, text, lines, action, engine, model }, or
 // { hidden, lines, action, engine, model } without voxtype, whose missing
@@ -98,13 +61,13 @@ function setupState(reads, daemon) {
         return { hidden: true, lines: [], action: "", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
     if (DAEMON_LINES[daemon] === undefined)
         throw new Error("voice: daemon " + JSON.stringify(daemon) + " is not one of " + Object.keys(DAEMON_LINES).join(", "));
-    var engine = configValue(reads.engine || "", DEFAULT_ENGINE);
-    var model = configValue(reads.model || "", DEFAULT_MODEL);
+    var engine = reads.engine || DEFAULT_ENGINE;
+    var model = reads.model || DEFAULT_MODEL;
     var lines = [];
-    if (!engineAvailable(reads.engines || "", engine)) lines.push("The active build cannot use " + engine + ".");
-    if (!modelInstalled(reads.models || "", engine, model)) lines.push("The speech model is missing");
-    if (DAEMON_LINES[daemon] !== "") lines.push(DAEMON_LINES[daemon]);
-    if (lines.length > 0) return { tone: "warning", text: "Setup needed", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
+    if (!reads.compiled) lines.push("The active build cannot use " + engine + ".");
+    if (!reads.installed) lines.push("The " + model + " speech model is not installed.");
+    if (DAEMON_LINES[daemon] !== "" && (daemon !== "absent" || lines.length === 0)) lines.push(DAEMON_LINES[daemon]);
+    if (lines.length > 0) return { tone: "warning", text: "To do", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
     var version = versionOf(reads.version || "");
     var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
     return { tone: "ok", text: "Ready", lines: [summary], action: "", engine: engine, model: model };

@@ -65,6 +65,7 @@ var STATUS_ARGV = ["voxtype", "status", "--format", "json"];
 var DIRECTORY = "directory";
 var CLEAN = "clean";
 var CONFIG_KEYS = ["audio.max_duration_secs", "audio.device", "engine", "output.mode", "output.auto_submit", "text.smart_auto_submit"];
+var SETUP_KEYS = ["version", "model", "models", "engines"];
 var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 
 // DIR is the 0700 directory the `text` transcripts are written in.
@@ -74,7 +75,7 @@ var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 function initial(dir, statePath) {
     return {
         dir: dir, statePath: statePath, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, late: false, files: 0, pending: 0, status: "idle", config: {}, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
+        recording: null, late: false, files: 0, pending: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
     };
 }
 
@@ -91,7 +92,8 @@ function state(s) {
         daemon: s.daemon,
         phase: s.daemon === "ready" ? phase(s) : "idle",
         holder: s.recording === null ? "" : s.recording.holder,
-        engine: s.engine, model: s.model, device: s.device
+        engine: s.engine, model: s.model, device: s.device,
+        setup: s.setup === null ? null : Object.freeze(Object.assign({}, s.setup))
     };
 }
 
@@ -109,6 +111,10 @@ function steps(s) {
     var out = [{ tag: PROBE, argv: STATUS_ARGV }];
     for (var i = 0; i < CONFIG_KEYS.length; i++)
         out.push({ tag: CONFIG_KEYS[i], argv: ["voxtype", "config", "get", CONFIG_KEYS[i]] });
+    out.push({ tag: "version", argv: ["voxtype", "--version"] });
+    out.push({ tag: "model", argv: ["voxtype", "config", "get", s.engine + ".model"] });
+    out.push({ tag: "models", argv: ["voxtype", "info", "models", "--json"] });
+    out.push({ tag: "engines", argv: ["voxtype", "info", "engines", "--json"] });
     out.push({ tag: DIRECTORY, argv: ["install", "-d", "-m", "700", "--", s.dir] });
     out.push({ tag: CLEAN, argv: ["rm", "-f", "--", s.statePath] });
     return out;
@@ -149,6 +155,8 @@ function step(s, effects, tag) {
 function begin(s, effects) {
     s.daemon = "starting";
     s.config = {};
+    s.setup = null;
+    s.elsewhere = false;
     s.typeFlags = [];
     if (s.child !== "none") s.step = "exit";
     else step(s, effects, PROBE);
@@ -341,6 +349,39 @@ function configured(s) {
     return "";
 }
 
+function isObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseJson(text, fallback) {
+    try { return JSON.parse(text); } catch (e) { return fallback; }
+}
+
+function modelRows(modelsText, engine) {
+    var data = parseJson(modelsText, null);
+    if (!isObject(data) || !isObject(data.engines) || !isObject(data.engines[engine]) || !Array.isArray(data.engines[engine].models)) return [];
+    return data.engines[engine].models;
+}
+
+function modelInstalled(modelsText, engine, wanted) {
+    var models = modelRows(modelsText, engine);
+    for (var i = 0; i < models.length; i++) {
+        var row = models[i];
+        if (isObject(row) && row.name === wanted && row.installed === true) return true;
+    }
+    return false;
+}
+
+function engineAvailable(enginesText, wanted) {
+    var engines = parseJson(enginesText, null);
+    if (!Array.isArray(engines)) return false;
+    for (var i = 0; i < engines.length; i++) {
+        var row = engines[i];
+        if (isObject(row) && row.name === wanted) return row.compiled === true;
+    }
+    return false;
+}
+
 // One start step ended with CODE and OUT.
 function stepped(s, effects, tag, code, out) {
     var text = out.trim();
@@ -352,11 +393,8 @@ function stepped(s, effects, tag, code, out) {
         var alt = statusOf(text);
         if (alt === null) {
             fail(s, effects, "probe status=unread");
-        } else if (alt.word !== "stopped") {
-            // A daemon answers that this shell did not start.
-            s.daemon = "elsewhere";
-            s.step = "";
         } else {
+            s.elsewhere = alt.word !== "stopped";
             step(s, effects, CONFIG_KEYS[0]);
         }
         return;
@@ -376,11 +414,29 @@ function stepped(s, effects, tag, code, out) {
         return;
     }
     s.config[tag] = text;
+    if (SETUP_KEYS.indexOf(tag) !== -1) {
+        var nextSetup = SETUP_KEYS[SETUP_KEYS.indexOf(tag) + 1];
+        if (nextSetup !== undefined) step(s, effects, nextSetup);
+        else {
+            s.setup = {
+                engine: s.engine, model: s.config.model, version: s.config.version,
+                compiled: engineAvailable(s.config.engines, s.engine),
+                installed: modelInstalled(s.config.models, s.engine, s.config.model)
+            };
+            // The daemon itself notifies on an unavailable engine. Keep it
+            // absent until its existing setup readings permit the start.
+            if (s.elsewhere || !s.setup.compiled || !s.setup.installed) {
+                s.daemon = s.elsewhere ? "elsewhere" : "absent";
+                s.step = "";
+            } else step(s, effects, DIRECTORY);
+        }
+        return;
+    }
     var next = CONFIG_KEYS[CONFIG_KEYS.indexOf(tag) + 1];
     if (next !== undefined) step(s, effects, next);
     else {
         var problem = configured(s);
-        if (problem === "") step(s, effects, DIRECTORY);
+        if (problem === "") step(s, effects, SETUP_KEYS[0]);
         else fail(s, effects, problem);
     }
 }

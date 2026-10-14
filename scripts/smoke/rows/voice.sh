@@ -586,10 +586,17 @@ expect_poll "Voice builds" True record_exists vgs.voice
 expect_poll "Voice reads the physical key overrides and the first default tap key" '{"toggle":"SUPER+CTRL+code:53","tap":"code:108","talk":"code:75"}' ipc smoke readInstance service vgs.voice shortcutKeys
 expect_poll "Voice sees voxtype present" true ipc smoke readInstance service vgs.voice voxtypePresent
 expect_poll "Voice registers its three shortcuts and the release companion" 4 voice_shortcuts
+expect_poll "the holder reads the missing speech model" setup voice_setup_offered
+expect_poll "a missing model keeps the core daemon absent" "absent idle -" voice_state
+expect_poll "a missing model starts neither daemon nor follower" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expected_errors+=('WARN qml: voice: start refused: dictation=daemon-absent')
+expect "a start with a missing model is refused" "refused: dictation=daemon-absent" voice_toggle
+touch -- "$voice_installed"
+expect "the holder rereads setup after installing the model" ok ipc smoke invokeInstance service vgs.voice restartDaemon
 expect_poll "the core lends Voice dictation and starts its daemon" "ready running vgs.voice" dictation_lent
 expect_poll "one daemon and one follower run, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
 expect_poll "Voice reads the core's daemon ready" "ready idle -" voice_state
-expect_poll "Set up is offered while the model is missing" setup voice_setup_offered
+expect_poll "Set up is withheld while dictation is ready" none voice_setup_offered
 voice_to recording "Voice's first recording"
 expect_poll "the recording reaches plugin status" '["dictation", "model", "setup"]' voice_status_value
 expect_poll "the recording state reaches the bar widget" '"recording"' voice_dictation
@@ -1068,7 +1075,7 @@ print(json.dumps({"action": v["action"] or "none", "lines": len(want), "drawn": 
 }
 # Control: Voice's own Setup value with its last line changed.
 voice_setup_value_changed() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); v["lines"][-1] += " (changed)"; print(json.dumps(v))'; }
-voice_setup_needed='{"chips": [["Setup needed", "warning"]], "buttons": [["Set up", "accent", true, false]]}'
+voice_setup_needed='{"chips": [["To do", "warning"]], "buttons": [["Set up", "accent", true, false]]}'
 voice_setup_ready='{"chips": [["Ready", "success"]], "buttons": []}'
 # The Details tab's Configure and Choose model, each as whether it is
 # drawn, then whether it takes a press.
@@ -1305,8 +1312,8 @@ then fail "the install stages could not be read"; fi
 expect "the terminal is handed nothing once the install ended" absent recorded
 # Voice has the core start its daemon once voxtype is found: the one that
 # failed without it never ran.
-expect_poll "the core starts its daemon once voxtype is found" started voice_noted
-expect_poll "Voice reads the daemon ready after the install" "ready idle -" voice_state
+expect_poll "a found voxtype with no model starts no daemon" none voice_noted
+expect_poll "Voice reads the daemon absent until setup" "absent idle -" voice_state
 expect_poll "Set up is offered once voxtype is found and the model is missing" setup voice_setup_offered
 # Set up: the page's Setup section offers it first, and its press opens
 # the core's dictation setup. The stand-in terminal runs `true` for it, so
@@ -1329,7 +1336,7 @@ expect_poll "Set up hands the terminal core/dictation-setup" "$(core_words core/
 touch -- "$voice_installed"
 release_runs
 expect_run_end "the dictation setup run ends" core/dictation-setup
-expect_poll "the setup run's end with code 0 starts the core's daemon again" "stopped started" voice_noted
+expect_poll "the setup run's end with code 0 starts the core's daemon again" "started" voice_noted
 expect_poll "Set up is withheld once the model is in place and the daemon runs" none voice_setup_offered
 # Ready: the Setup section reads Ready and draws the service's line.
 expect_poll "the Setup section reads Ready and draws no step and no screen" "$voice_setup_ready" voice_setup_section
@@ -1417,7 +1424,7 @@ voice_noted_within() { # MS
   while [[ $(voice_noted) == none ]] && (( $(now_ms) < until )); do sleep 0.2; done
   voice_noted
 }
-voice_setup_elsewhere='{"chips": [["Setup needed", "warning"]], "buttons": [["Stop the other voxtype", "accent", true, false]]}'
+voice_setup_elsewhere='{"chips": [["To do", "warning"]], "buttons": [["Stop the other voxtype", "accent", true, false]]}'
 # voice_stop_other LABEL: from Voice enabled over the core's daemon, the
 # row's own daemon holds the place, Voice offers the step, the step's run
 # is held while that daemon ends, and the run ends; the stand-in's notes

@@ -58,6 +58,16 @@ function dictationRefusal(state) {
     return otherDevice(state) ? "refused: dictation=device" : "";
 }
 
+// The core owns setup readings and the daemon's start gate. A holder's
+// existing setup step names the missing parts from that shared result.
+function dictationSetup(value, state) {
+    if (value.action !== "dictation" || state === null || state.setup === null) return value;
+    var setup = state.setup, lines = [];
+    if (!setup.compiled) lines.push("The active build cannot use the " + setup.engine + " speech engine.");
+    if (!setup.installed) lines.push("The " + setup.model + " speech model is not installed.");
+    return lines.length === 0 ? value : Object.assign({}, value, { hint: lines.join(" ") });
+}
+
 // The value of COMMAND's own status row: whether the last scan found it. The
 // row offers no action: the page's Requirements section installs it.
 function requirementValue(command, missing) {
