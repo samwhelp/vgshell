@@ -483,7 +483,7 @@ function statusValues(record, presence, problem, now) {
         values.firstPair = pairListValid(cloud) && cloud.pairs.length > 0
             ? { tone: "ok", text: "A folder pair is ready", action: false }
             : { tone: "warning", text: "Add your first folder pair", action: pairListValid(cloud) };
-        if (!pairListValid(cloud)) values.firstPair.hint = "Reset the folder pair list in [Cloud Sync settings](page:vgs.cloud-sync/Settings)";
+        if (!pairListValid(cloud)) values.firstPair.hint = "Choose Start the folder pair list again under [Folder pairs](page:vgs.cloud-sync/Settings/folderPairs)";
         values.cloud = cloud;
         values.lastSync = cloud.lastSuccess;
     }

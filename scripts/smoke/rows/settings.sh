@@ -14,8 +14,8 @@
 # opens the plugin's window or panel through the manager. A mouse drag leaves a page where it was, while a wheel notch and
 # Tab scroll it, and a two-finger swipe moves it as far as GTK moves a list. The
 # Setup tab's Setup section draws the screen an offered step opens as that step, first
-# and secondary, and a screen that lacks a command it needs disabled with a
-# reason naming it. Dispatches asked for back to back run in order behind one
+# and secondary, and a step whose screen lacks a command it needs still
+# offers it, whose press asks for the command. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
 # A setting description's link opens its address through the desktop open
@@ -332,19 +332,19 @@ expect_poll "Tab from the strip enters the shown page at its Enabled switch" Swi
 type_keys -M ctrl -k Tab -m ctrl || fail "sending Ctrl+Tab to the page failed"
 expect_poll "Ctrl+Tab from a control of the page shows Details" "1 absent drawn" page_shown
 expect_poll "the strip takes the keyboard from the page that hid, with its ring" "$strip_focused" page_focus
-expect "the window toggles the bare fixture off under Details" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect "the window toggles the bare fixture off under Details" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.bare", false]}'
 expect_poll "the window's rows show the bare fixture disabled" '{"acme.bare": false, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "a change of the rows that keeps the plugin keeps its Details page" "1 absent drawn" page_shown
-expect "the window toggles the bare fixture back on under Details" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect "the window toggles the bare fixture back on under Details" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.bare", true]}'
 expect_poll "the window's rows show the bare fixture enabled again" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the window opens the bare fixture's page from Details" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
 expect_poll "another plugin's page opens on Settings" 0 settings_tab
 expect_poll "a plugin with nothing below its switches says so on Settings" drawn settings_label "This plugin has no other settings."
-expect "the window toggles the bare fixture off on its own page" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect "the window toggles the bare fixture off on its own page" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.bare", false]}'
 expect_poll "the window's rows show the bare fixture disabled on its page" '{"acme.bare": false, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the disabled bare fixture's page still says it has no other settings" drawn settings_label "This plugin has no other settings."
 expect "a disabled plugin with nothing to change draws no hint to turn it on" absent enabled_hint Bare
-expect "the window toggles the bare fixture back on from its page" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect "the window toggles the bare fixture back on from its page" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.bare", true]}'
 expect_poll "the window's rows show the bare fixture enabled after its page's readings" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the window opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
 expect_poll "the Jarvis page opens on Settings" 0 settings_tab
@@ -533,10 +533,10 @@ held_state() { ipc smoke invokeInstance window vgs.settings heldFieldState ''; }
 held_focused() { held_state | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["same"] and d["focus"] and d["activeFocus"] and d["text"] == "draft")'; }
 expect_poll "the clicked field holds keyboard focus with its draft" True held_focused
 held_before="$(held_state)" || fail "held field state unreadable"
-expect "the window toggles the bare fixture off around the edit" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect "the window toggles the bare fixture off around the edit" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.bare", false]}'
 expect_poll "the window shows the bare fixture disabled" '{"acme.bare": false, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the edit in progress survives the unrelated change" "$held_before" held_state
-expect "the window toggles the bare fixture back on" ok ipc smoke invokeInstance window vgs.settings toggle acme.bare
+expect "the window toggles the bare fixture back on" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.bare", true]}'
 expect_poll "the window shows the bare fixture enabled" '{"acme.bare": true, "acme.probe": true, "vgs.bar": true}' manager_rows
 expect "the edit in progress survives the second unrelated change" "$held_before" held_state
 
@@ -655,10 +655,11 @@ expect_run_end "the check's TUI run ends" acme.status/setup
 expect_poll "the check's TUI terminal closes" 0 tui_windows
 
 
-# A status step whose screen lacks a required command is withheld: its row
-# offers no button, and Install all missing on the Setup tab, the page's
-# one Tools link raises the requirement notice for the command. The copy
-# also lists the setup script as a Settings screen for the later control.
+# A status step whose screen lacks a required command still offers its
+# button, whose press raises the requirement notice for that screen's
+# command and starts no terminal; Install all missing on the Setup tab, the
+# page's one Tools link, raises it for every missing command. The copy also
+# lists the setup script as a Settings screen for the later control.
 status_manifest="$status_dir/manifest.json"
 cp -- "$status_manifest" "$sandbox/status-action-manifest"
 python3 - "$status_manifest" <<'PYTHON'
@@ -677,8 +678,16 @@ path.write_text(json.dumps(manifest))
 PYTHON
 rescan "the fixture now declares its missing command required"
 expect "the fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
-expect_poll "Settings withholds the steps whose screen lacks the required command" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
-expect_poll "the withheld Token line draws no button and names the missing command" '["Token", "To do", "vgs-smoke-absent is missing. Review all missing or outdated tools opens the tool notice."]' token_drawn
+expect_poll "Settings offers the steps whose screen lacks the required command" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
+settings_setup
+expect_poll "the Token line draws its step beside its own hint" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
+forget_record
+settings_press --type RowAction "Set up token" || fail "the click on Set up token failed"
+expect_poll "Set up token asks for the command its screen lacks" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
+expect "the held step starts no setup terminal" absent recorded
+expect_poll "the held step's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the held step's notice failed"
+expect_poll "Escape closes the held step's notice" null notice_shown
 # settings_install_drawn: how many buttons of the page read Install all
 # missing.
 settings_install_drawn() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Review all missing or outdated tools"]))'; }
@@ -717,7 +726,7 @@ JS
 large_commands="$(printf '%s\n' "$large_notice" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[1]))')" || fail "the full-required-list commands could not be read"
 rescan "the status fixture carries Jarvis's full required list as absent stand-ins"
 expect "the large-list fixture republishes an absent token" ok ipc acme.status invoke set 'token="absent"'
-expect_poll "the large-list fixture withholds the setup steps" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
+expect_poll "the large-list fixture offers the setup steps" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
 forget_record
 settings_press --type RowAction "Review all missing or outdated tools" || fail "the large-list Install all missing could not be pressed"
 expect_poll "Install all missing opens the notice for the full missing list" "$large_notice" notice_shown
@@ -780,22 +789,20 @@ for control in TuiInstallGood TuiInstallChosen; do
 done
 rmdir -- "$repo/shell/Core/TuiInstallControls" || fail "removing the TUI install control directory failed"
 # A screen a status entry declares draws only on that entry's row: the
-# token's row offers Token setup while its value calls for it, withholds it
-# above while the required command is missing, and the Setup section,
-# which holds the Check step, draws no action for it, withheld or not.
-# With the token's and the check's actions taken out of the manifest, the
-# screen belongs to no entry and draws in the Setup section disabled, with
-# a reason naming the missing command, since its press could only open
-# that notice; the two readings are each other's control. The same button
-# of a plugin missing nothing
-# starts its terminal in rows/tui.sh.
+# token's row offers Token setup while its value calls for it, whatever
+# command its screen lacks, and the Setup section, which holds the Check
+# step, draws no action of the screen beside it. With the token's and the
+# check's actions taken out of the manifest, the screen belongs to no
+# entry and draws as a More settings link of the Settings tab, which takes
+# its press; the two readings are each other's control. The same button of
+# a plugin missing nothing starts its terminal in rows/tui.sh.
 # setup_buttons NAME: the Setup section's actions as [text, tone,
 # enabled, whether its tooltip names NAME].
 setup_buttons() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; print(json.dumps([[b[0], b[1], b[2], sys.argv[1] in b[3]] for b in json.load(sys.stdin)["buttons"]]))' "$1"; }
 settings_setup
-expect_poll "only the Tools link remains while the token screen is withheld" '[["Review all missing or outdated tools", "accent", true, false]]' setup_buttons vgs-smoke-absent
+expect_poll "the steps and the Tools link draw while their screen lacks its command" '[["Set up token", "accent", true, false], ["Check again", "accent", true, false], ["Review all missing or outdated tools", "accent", true, false]]' setup_buttons vgs-smoke-absent
 expect "the fixture republishes a present token, which offers no step" ok ipc acme.status invoke set 'token="present"'
-expect_poll "only the Tools link remains while the token action is not offered" '[["Review all missing or outdated tools", "accent", true, false]]' setup_buttons vgs-smoke-absent
+expect_poll "the check's step and the Tools link remain while the token action is not offered" '[["Check again", "accent", true, false], ["Review all missing or outdated tools", "accent", true, false]]' setup_buttons vgs-smoke-absent
 python3 - "$status_manifest" <<'PYTHON'
 from pathlib import Path
 import json, sys
@@ -809,10 +816,10 @@ PYTHON
 rescan "the fixture's token and check declare no screen"
 settings_tab_click Settings || fail "the click on Settings for the unclaimed screen failed"
 settings_unclaimed_screen() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r and r[0] == "More settings"]; print(json.dumps([len(rows) == 1, len(rows) == 1 and "Token setup" in rows[0], len(rows) == 1 and any("vgs-smoke-absent" in text for text in rows[0])]))'; }
-expect_poll "an unclaimed settings screen keeps its Settings path and names its missing tool" '[true, true, true]' settings_unclaimed_screen
+expect_poll "an unclaimed settings screen keeps its Settings path and names no missing tool, since its press asks for it" '[true, true, false]' settings_unclaimed_screen
 settings_setup
 expect "the fixture republishes the absent token" ok ipc acme.status invoke set 'token="absent"'
-expect_poll "a withheld or undeclared screen leaves Install all missing the page's one install" 1 settings_install_drawn
+expect_poll "an undeclared screen leaves Install all missing the page's one install" 1 settings_install_drawn
 cp -- "$sandbox/status-action-manifest" "$status_manifest"
 rescan "the fixture restores its optional requirement"
 
@@ -1006,7 +1013,7 @@ expect_poll "no required work opens Settings" Settings settings_tab_text
 expect "the present required shell tool keeps Setup" '["Settings", "Setup", "Details"]' page_tabs
 settings_setup
 expect_poll "required tools have one Setup section" '["Setup"]' section_names
-expect_poll "present required tools read Done" '["Tools", "Done", "Every required tool is available"]' step_drawn Tools
+expect_poll "present required tools read Done" '["Tools", "Done", "Every required tool is installed"]' step_drawn Tools
 cp -- "$bare_manifest" "$sandbox/bare-setup-manifest"
 python3 - "$bare_manifest" <<'PYTHON'
 from pathlib import Path
@@ -1041,12 +1048,12 @@ expect_poll "the restored optional tool is missing" missing bare_requirement
 bare_list
 expect_poll "the restored optional tool marks nothing" "absent absent" bare_marks
 expect "the window opens the status fixture's page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
-expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstance window vgs.settings toggle acme.status
+expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.status", false]}'
 expect_poll "a disabled plugin's dynamic Select is read-only and has no offered choices" '[-1, "", "", false]' device_state
 settings_details
 expect_poll "a disabled plugin's rows all read not reported" '[["Last check", "Not reported"], ["Note", "Not reported"], ["Pending", "Not reported"]]' drawn_status
 settings_setup
-expect_poll "a disabled plugin's step reads not reported and draws no action" '["Token", "To do", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "a disabled plugin's step draws Turn on" '["Token", "To do", "Turn on Status", "Needed for the fixture'"'"'s sync"]' token_drawn
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 slack_tokens_hint="Connect each workspace to show sender photos"
@@ -1231,7 +1238,7 @@ if python3 - "$page_copy/PluginPage.qml" <<'PYCOPY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-for old, new in (("        tabs.currentIndex = Math.max(0, tabs.model.indexOf(tab));\n", "        tabs.currentIndex = 1;\n"),
+for old, new in (("        tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));\n", "        tabs.currentIndex = 1;\n"),
                  ("                        layout.scrollArea.contentY = 0;\n", ""),
                  ("    Keys.forwardTo: [tabs]\n", "")):
     if text.count(old) != 1:

@@ -515,7 +515,9 @@ Singleton {
     // Every discovered plugin as the plugin manager shows it: listing
     // metadata, its icon, capabilities and source, whether it is enabled,
     // whether its widget is placed (PluginLogic.isPlaced), its settings
-    // schema, the settings every instance of it receives (its plugins[]
+    // schema and the rows its page draws of it, judged once with the
+    // manifest (PluginLogic.fieldRows), the settings every instance of it
+    // receives (its plugins[]
     // row's, PluginLogic.settingsFor), its Keys rows, its Status rows
     // (PluginLogic.statusRows over its manifest and the values it
     // published), the label of its `secrets`, "" without, its setup
@@ -566,12 +568,13 @@ Singleton {
                 placed: Logic.isPlaced(config, m),
                 builtins: Plugins.widgetBuiltinRows(id),
                 schema: m.schema,
+                fieldRows: m.fieldRows,
                 settings: settings,
                 settingChoices: Logic.settingChoices(m, values, settings),
                 binds: Logic.bindRows(config, m, descriptions),
-                status: Logic.statusRows(m, values, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
+                status: Logic.statusRows(m, values),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
-                tuis: Logic.listedTuiRows(m, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
+                tuis: Logic.listedTuis(m),
                 opens: Logic.openKind(m),
                 paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,
                 requirements: requirementsOf(id),

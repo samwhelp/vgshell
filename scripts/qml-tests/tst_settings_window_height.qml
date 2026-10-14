@@ -34,9 +34,10 @@ Item {
     property var monitorScreen: null
 
     // One manager row, as the manager lists it, with FIELDS over a plugin
-    // that has nothing to set.
+    // that has nothing to set, and the rows of its fields as the core
+    // judges them with its schema (PluginLogic.fieldRows).
     function pluginRow(fields) {
-        return Object.assign({
+        const row = Object.assign({
             id: "acme.short",
             name: "Short",
             version: "1",
@@ -63,6 +64,8 @@ Item {
             requirements: [],
             errors: []
         }, fields);
+        row.fieldRows = PluginLogic.fieldRows(row.schema, {}, [], {});
+        return row;
     }
 
     // A page like VPN's: two switches.

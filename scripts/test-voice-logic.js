@@ -216,18 +216,18 @@ function verify(logic) {
   same(Object.keys(logic.FEEDBACK_PROBLEMS).sort(), [...problems].sort(), "FEEDBACK_PROBLEMS holds no line a run cannot end with");
   same(Object.keys(logic.FEEDBACK_PROBLEMS).filter(problem => (logic.FEEDBACK_PROBLEMS[problem] === "") !== (problem === "")), [], "each problem but none has a line");
   // The lines that send the user to the Voice page link to the tab that
-  // holds the step: Setup holds Install all missing and Set up, Details
+  // holds the step: Setup holds Install all missing and Set up, Settings
   // holds Configure.
   assert.equal(logic.FEEDBACK_PROBLEMS.missing, "Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).", "voxtype missing links to the Setup tab");
   assert.equal(logic.FEEDBACK_PROBLEMS["no-config"], "Voice is not set up. Use Set up on the [Voice page](page:vgs.voice/Setup).", "no config links to the Setup tab");
-  assert.equal(logic.FEEDBACK_PROBLEMS.link, "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Details).", "a linked config links to the Details tab");
+  assert.equal(logic.FEEDBACK_PROBLEMS.link, "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Settings).", "a linked config links to the Settings tab");
 }
 
 verify(load(file));
 
 const controls = [
   ["voxtype missing names the page in plain words", "Install it on the [Voice page](page:vgs.voice/Setup).", "Install it on the Voice Settings page."],
-  ["a linked config links to the Setup tab", "Use Configure on the [Voice page](page:vgs.voice/Details).", "Use Configure on the [Voice page](page:vgs.voice/Setup)."],
+  ["a linked config links to the Details tab", "Use Configure on the [Voice page](page:vgs.voice/Settings).", "Use Configure on the [Voice page](page:vgs.voice/Details)."],
   ["the phase is read whatever the holder", "if (state.holder === HOLDER) return { own: true, phase: state.phase };", "if (state.holder !== \"\") return { own: true, phase: state.phase };"],
   ["Voice's own recording reads idle", "if (state.holder === HOLDER) return { own: true, phase: state.phase };", ""],
   ["the transcription after any stop shows", "var after = own && state.holder === \"\"", "var after = state.holder === \"\""],
@@ -348,8 +348,8 @@ function verifyRequirements(raw) {
   const absent = logic.setupState({ present: false }, "failed");
   const published = publishedSetup(absent);
   same(pluginLogic.requirementRows(judged.manifest, missing, {}).filter(row => row.name === "voxtype").map(row => row.state), ["missing"], "voxtype is one requirement, missing");
-  same(pluginLogic.statusRows(judged.manifest, published, missing).map(row => row.key), ["setup", "otherService"], "the page has no duplicate dictation-tool presence row");
-  same(pluginLogic.statusRows(judged.manifest, published, missing).filter(row => row.setup).map(row => [row.key, row.tone, row.action.offered]), [["setup", "warning", false]], "without voxtype the required step stays visible and pending");
+  same(pluginLogic.statusRows(judged.manifest, published).map(row => row.key), ["setup", "otherService"], "the page has no duplicate dictation-tool presence row");
+  same(pluginLogic.statusRows(judged.manifest, published).filter(row => row.setup).map(row => [row.key, row.tone, row.action.offered]), [["setup", "warning", false]], "without voxtype the required step stays visible and pending");
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);

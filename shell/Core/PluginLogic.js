@@ -130,7 +130,10 @@ var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "f
 // is an optional dependency of every recipe, which its plugin's
 // Requirements section installs (scripts/check-packaging.js).
 var REQUIREMENT_ON_REQUEST = "on-request";
-var REQUIREMENT_DBUS_KEYS = ["bus", "name"];
+// A D-Bus requirement's `label` is the short name a page lists it by,
+// since its name is a bus path and its `purpose` a sentence.
+var REQUIREMENT_DBUS_KEYS = ["bus", "name", "label"];
+var REQUIREMENT_LABEL_MAX = 40;
 var REQUIREMENT_BUSES = ["system", "session"];
 var REQUIREMENT_PURPOSE_MAX = 120;
 var REQUIREMENT_STATES = ["present", "missing", "outdated"];
@@ -1321,16 +1324,16 @@ function statusActionOffered(entry, value) {
 // while unreported: null for an entry that declares none, else { label,
 // offered, tui, tone }, the label of the action that applies, or of the
 // entry's one `action` while none does, "" for `actions` none of which
-// applies, `offered` false while none applies or the applying action's TUI
-// lacks the requirements LACKING, since the page's Requirements section
-// holds the one install action, `tui` the plugin's own TUI the offered
-// action opens, "" while none is offered or it opens none, so a page can
-// draw that TUI's button as the step, and `tone` the labelled action's, ""
-// or one of STATUS_ACTION_TONES, "" while withheld.
-function statusRowAction(entry, value, lacking) {
+// applies, `offered` false while none applies, `tui` the plugin's own TUI
+// the offered action opens, "" while none is offered or it opens none, so a
+// page can draw that TUI's button as the step, and `tone` the labelled
+// action's, "" or one of STATUS_ACTION_TONES. An offered action whose
+// script lacks a command stays offered: its press raises the requirement
+// notice for that script's commands and starts it once they are found
+// (tuiRunFor).
+function statusRowAction(entry, value) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null && lacking.length > 0) return { label: offered.label, tone: "", offered: false, tui: "" };
     if (offered !== null) return { label: offered.label, tone: statusActionTone(offered), offered: true, tui: offered.tui === undefined ? "" : offered.tui };
     return { label: entry.action === undefined ? "" : entry.action.label, tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
 }
@@ -1354,52 +1357,16 @@ function statusDeclaredTuis(entry) {
 
 // What a Status row carries of ENTRY's `aside` for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// tone, tui, offered }, `offered` while VALUE carries `aside: true` and the
-// aside's TUI lacks none of MISSING's requirements, since the page's
-// Requirements section holds the one install action.
-function statusRowAside(manifest, entry, value, missing) {
+// tone, tui, offered }, `offered` while VALUE carries `aside: true`, as an
+// action is offered whatever its script lacks (statusRowAction).
+function statusRowAside(entry, value) {
     if (entry.aside === undefined) return null;
-    var offered = value !== null && value.aside === true && tuiMissingRequirements(manifest, entry.aside.tui, missing).length === 0;
-    return { label: entry.aside.label, tone: statusActionTone(entry.aside), tui: entry.aside.tui, offered: offered };
+    return { label: entry.aside.label, tone: statusActionTone(entry.aside), tui: entry.aside.tui, offered: value !== null && value.aside === true };
 }
 
 // The tone a page draws declared ACTION in: its `tone`, else "".
 function statusActionTone(action) {
     return action.tone === undefined ? "" : action.tone;
-}
-
-// The requirements MANIFEST's TUI that status ENTRY offers for its published
-// VALUE needs and MISSING holds, [] while it offers no TUI.
-function statusActionLacking(manifest, entry, value, missing) {
-    if (value === null || (entry.action === undefined && entry.actions === undefined)) return [];
-    var offered = statusActionOffered(entry, value);
-    return offered !== null && offered.tui !== undefined ? tuiMissingRequirements(manifest, offered.tui, missing) : [];
-}
-
-// The page action that opens the existing notice for all missing or
-// outdated tools, which a withheld action points to.
-var REQUIREMENTS_REVIEW_LABEL = "Review all missing or outdated tools";
-
-// The hint of a Status row whose action is withheld for the requirements
-// LACKING: what is missing and the action that opens the tool notice,
-// in place of the entry's hint and its state's text, which
-// name the withheld action.
-function statusWithheldHint(lacking) {
-    var one = lacking.length === 1;
-    return requirementNames(lacking) + (one ? " is" : " are") + " missing. " + REQUIREMENTS_REVIEW_LABEL + " opens the tool notice.";
-}
-
-// The requirement names NAMES as a person reads a list: `a`, `a and b`,
-// `a, b and c`.
-function requirementNames(names) {
-    return names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
-}
-
-// Why a listed TUI's button takes no press while it lacks the requirements
-// LACKING, which its press could only install: one line naming them and the
-// Requirements section's action that installs them.
-function tuiWithheldReason(lacking) {
-    return "Needs " + requirementNames(lacking) + ". " + REQUIREMENTS_REVIEW_LABEL + " first.";
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry
@@ -1415,11 +1382,8 @@ function tuiWithheldReason(lacking) {
 // statusRowAction's: null for an entry without one, else { label, tone, offered, tui },
 // `offered` false while unreported, and `aside` statusRowAside's. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
-// `tone` "" while `values` holds nothing for the key. While the offered
-// action's TUI lacks a command MISSING holds, `hint` is statusWithheldHint's
-// and a `state` value reads STATUS_WITHHELD_STATE with its `action`, so no
-// text names the withheld action.
-function statusRows(manifest, values, missing) {
+// `tone` "" while `values` holds nothing for the key.
+function statusRows(manifest, values) {
     return Object.keys(manifest.status).filter(function (key) {
         var entry = manifest.status[key];
         return statusDisplayable(entry) && !(entry.type === "state" && hasOwn(values, key) && statusStateHidden(values[key]));
@@ -1427,14 +1391,8 @@ function statusRows(manifest, values, missing) {
         var entry = manifest.status[key];
         var reported = hasOwn(values, key);
         var value = reported ? values[key] : null;
-        var lacking = statusActionLacking(manifest, entry, value, missing);
-        var aside = statusRowAside(manifest, entry, value, missing);
         var hint = entry.type === "state" && value !== null && value.hint !== undefined
             ? value.hint : entry.hint === undefined ? "" : entry.hint;
-        if (lacking.length > 0) {
-            hint = statusWithheldHint(lacking);
-            if (entry.type === "state") value = Object.assign({ action: value.action }, STATUS_WITHHELD_STATE);
-        }
         return {
             key: key,
             type: entry.type,
@@ -1448,17 +1406,14 @@ function statusRows(manifest, values, missing) {
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
             secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
             declaredTuis: statusDeclaredTuis(entry),
-            action: statusRowAction(entry, value, lacking),
-            aside: aside,
+            action: statusRowAction(entry, value),
+            aside: statusRowAside(entry, value),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, value) : null,
             tone: reported ? statusTone(entry.type, value) : ""
         };
     });
 }
-
-// What a `state` row reads while its action is withheld.
-var STATUS_WITHHELD_STATE = { tone: "warning", text: "Requirements missing" };
 
 // The one keyed line a refused status action answers:
 // `refused: action=<key> reason=<reason>`, REASON one of
@@ -1932,6 +1887,8 @@ function requirementIdentity(requirement, at) {
         return { ok: false, error: at + ".dbus.bus must be one of system, session, got " + JSON.stringify(requirement.dbus.bus) };
     if (!dbusNameValid(requirement.dbus.name))
         return { ok: false, error: at + ".dbus.name must be a well-known D-Bus name, got " + JSON.stringify(requirement.dbus.name) };
+    if (!isPrintableLine(requirement.dbus.label, REQUIREMENT_LABEL_MAX))
+        return { ok: false, error: at + ".dbus.label must be a printable line of 1 to " + REQUIREMENT_LABEL_MAX + " characters" };
     return { ok: true, at: at + ".dbus.name", name: requirement.dbus.name };
 }
 
@@ -1939,7 +1896,9 @@ function requirementIdentity(requirement, at) {
 // the core's own config/requirements.json both pass through here. Each
 // entry is an object of REQUIREMENT_KEYS and names exactly one identity:
 // `command`, a bare command name PackageManagers.validCommand accepts, or
-// `dbus`, a well-known name on the system or session bus. The identity is
+// `dbus`, a well-known name on the system or session bus with the `label`
+// a page lists it by, one printable line of 1 to REQUIREMENT_LABEL_MAX
+// characters. The identity is
 // declared once, and never names a plugin (D005). `packages`, when present,
 // is an object whose keys are manager ids of PackageManagers.MANAGERS and
 // whose values are package names PackageManagers.validName accepts;
@@ -2007,11 +1966,12 @@ function requirementsError(requirements) {
 }
 
 // A `requirements` list requirementsError accepted, each entry with every
-// key: `name`, `bus`, `packages` {}, `optional` false, `floor` null,
-// `onRequest` false and `setting` "" when absent.
+// key: `name`, `title`, the command or the D-Bus `label` a page lists it
+// by, `bus`, `packages` {}, `optional` false, `floor` null, `onRequest`
+// false and `setting` "" when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, setting: entry.setting === undefined ? "" : entry.setting };
+        return { name: requirementName(entry), title: entry.dbus === undefined ? entry.command : entry.dbus.label, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, setting: entry.setting === undefined ? "" : entry.setting };
     });
 }
 
@@ -3165,19 +3125,6 @@ function listedTuis(manifest) {
     });
 }
 
-// The listed screens of plugin MANIFEST, its active manifest, as its manager
-// row draws them, each listedTuis' row with `withheld`: "" while MISSING, the
-// plugin's missing requirement names, holds none the screen needs
-// (tuiMissingRequirements), else tuiWithheldReason's line, since its press
-// would only raise the requirement notice. The page draws a withheld
-// screen's button disabled.
-function listedTuiRows(manifest, missing) {
-    return listedTuis(manifest).map(function (tui) {
-        var lacking = tuiMissingRequirements(manifest, tui.name, missing);
-        return { name: tui.name, label: tui.label, icon: tui.icon, setting: tui.setting, settings: tui.settings, withheld: lacking.length === 0 ? "" : tuiWithheldReason(lacking) };
-    });
-}
-
 // What the `manager` capability's `openTui(id, name)` does for TUI NAME
 // of plugin MANIFEST, null for an id no plugin has: { ok: true, kind:
 // "tui", name }, the request statusActionRequest makes for a TUI action,
@@ -3747,7 +3694,7 @@ function menuActivation(rows, registered, key, item, valuesByPlugin) {
 // A normalized manifest always carries `capabilities` and `requirements`
 // (arrays, the latter's entries normalRequirements' shape), `settings`,
 // `schema`, `status`, `sounds` and `tui` (objects, `tui` normalTui's shape),
-// `menu` (an object, {} when undeclared),
+// `menu` (an object, {} when undeclared), `fieldRows` (fieldRows'),
 // `defaultSection` only when declared, and
 // `hyprland` only when declared, as { binds, layerRules, appearance,
 // options } with every bind's key normalised by ConfigLogic.hyprlandKey.
@@ -3922,6 +3869,9 @@ function validateManifest(raw, sourceDir) {
     manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
+    manifest.fieldRows = fieldRows(manifest.schema, manifest.status, manifest.requirements, manifest.tui);
+    var badRows = pageRowsError(manifest.fieldRows, manifest.schema, manifest.status);
+    if (badRows !== "") return { ok: false, error: badRows };
     if (raw.hyprland !== undefined) {
         manifest.hyprland = {
             binds: (raw.hyprland.binds || []).map(function (bind) {
@@ -5083,6 +5033,78 @@ function pagePlacementError(status, requirements, tui, schema) {
             var badScreen = field(screen.setting, "tui." + names[t] + ".entry.setting");
             if (badScreen !== "") return badScreen;
             if (screen.settings === true) return "tui." + names[t] + ".entry declares two Settings placements";
+        }
+    }
+    return "";
+}
+
+// The labels a plugin's Settings page draws itself beside its schema rows,
+// which no field, entry or key list of the manifest may take.
+var PAGE_OWN_LABELS = ["Enabled", "Show in bar", "Show on the bar", "More settings"];
+
+// The rows a plugin's Settings page draws for SCHEMA, one per field in
+// schema order, from the normalized STATUS, REQUIREMENTS and TUI:
+// { key, section, list, own, entries, keyLists, tools, screens }.
+// `section` is the field's group, "" for none, and `list` whether it is a
+// list, which draws as a section of its own. `own` is the key of the one
+// attached state, presence, text, count or time entry, "" while there is
+// none or more than one, which the row draws with no label of its own;
+// `entries` holds them, each with its label, while there are two or more.
+// `keyLists` are the attached presence lists, `tools` the names of the
+// optional requirements that declare the field, and `screens` the listed
+// TUIs that declare it and that no status entry opens.
+function fieldRows(schema, status, requirements, tui) {
+    var declared = [];
+    Object.keys(status).forEach(function (key) { declared = declared.concat(statusDeclaredTuis(status[key])); });
+    return Object.keys(schema).map(function (key) {
+        var attached = Object.keys(status).filter(function (name) { return status[name].setting === key && statusDisplayable(status[name]); });
+        var lines = attached.filter(function (name) { return status[name].type !== "presenceList"; });
+        return {
+            key: key,
+            section: schema[key].group === undefined ? "" : schema[key].group,
+            list: schema[key].type === "list",
+            own: lines.length === 1 ? lines[0] : "",
+            entries: lines.length === 1 ? [] : lines,
+            keyLists: attached.filter(function (name) { return status[name].type === "presenceList"; }),
+            tools: requirements.filter(function (row) { return row.optional && row.setting === key; }).map(function (row) { return row.name; }),
+            screens: Object.keys(tui).filter(function (name) { return tui[name].entry !== null && tui[name].entry.setting === key && declared.indexOf(name) === -1; })
+        };
+    });
+}
+
+// The first row of ROWS, fieldRows' over SCHEMA and STATUS, a Settings page
+// could not draw truly, or "": `schema.<key> page-row=<rule>` or
+// `status.<key> page-row=<rule>`, then why. `no-action`, an action field,
+// which has no control, with nothing to act on: no own entry that declares
+// an action, no screen and no tool. `two-states`, an action field with more
+// than one attached line, whose one line has room for one. `duplicate-label`,
+// a label drawn twice in one section, a list's own included, ignoring
+// case. `page-label`, a label PAGE_OWN_LABELS holds. `own-hint`, a `hintFrom`
+// naming the field's own entry, whose hint its row draws already.
+function pageRowsError(rows, schema, status) {
+    var own = PAGE_OWN_LABELS.map(function (label) { return label.toLowerCase(); });
+    var drawn = Object.create(null);
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i], spec = schema[row.key], at = "schema." + row.key;
+        if (spec.type === "action") {
+            if (row.entries.length > 1)
+                return at + " page-row=two-states: an action field draws one status line; attach the others to another field";
+            var acts = row.own !== "" && statusEntryActions(status[row.own]).length > 0;
+            if (!acts && row.screens.length === 0 && row.tools.length === 0)
+                return at + " page-row=no-action: an action field needs an own status entry with an action, a screen or a tool";
+        }
+        if (spec.hintFrom !== undefined && status[spec.hintFrom].setting === row.key)
+            return at + " page-row=own-hint: " + spec.hintFrom + " is drawn in this row with its hint already";
+        var scope = row.list ? "list " + row.key : "section " + row.section;
+        if (drawn[scope] === undefined) drawn[scope] = [];
+        var labels = (row.list ? [] : [[at, spec.label]]).concat(row.entries.concat(row.keyLists).map(function (key) { return ["status." + key, status[key].label]; }));
+        for (var l = 0; l < labels.length; l++) {
+            var label = String(labels[l][1]).toLowerCase();
+            if (own.indexOf(label) !== -1)
+                return labels[l][0] + " page-row=page-label: the page draws " + JSON.stringify(labels[l][1]) + " itself";
+            if (drawn[scope].indexOf(label) !== -1)
+                return labels[l][0] + " page-row=duplicate-label: " + JSON.stringify(labels[l][1]) + " is drawn twice in one section";
+            drawn[scope].push(label);
         }
     }
     return "";

@@ -203,7 +203,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         onToggled: {
                             checked = Qt.binding(() => entry.modelData.enabled);
-                            page.panel.toggle(entry.modelData.id);
+                            page.panel.setEnabled(entry.modelData.id, !entry.modelData.enabled);
                         }
                     },
                     Icon {

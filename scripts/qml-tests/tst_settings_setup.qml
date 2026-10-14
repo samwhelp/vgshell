@@ -9,7 +9,9 @@ import "../../shell/plugins/vgs.settings"
 // them. Required steps, including an actionless Home failure, keep Setup
 // and its warning. Optional actions stay beside their Settings choice;
 // facts stay in Details. Setup has only Done/To do chips and RowAction
-// links, including its one Tools step. The unit model rebuilds delegates;
+// links, including its one Tools step; while the plugin is off each To do
+// step offers Turn on and Tools still installs. A field's screen draws in
+// its own row, never in a row labelled Actions. The unit model rebuilds delegates;
 // keyed movement and editor retention run in the actual settings smoke.
 // Production-source controls live in
 // test-qml-unit.sh. The window's capabilities record each requested action.
@@ -44,13 +46,29 @@ Item {
     })
     readonly property var keyed: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
         status: { connection: { type: "state", label: "Connection", setup: true }, credentials: { type: "presenceList", label: "Credentials", step: "connection" } } })
+    // A choice whose own screen is listed beside it.
+    readonly property var screened: ({ requirements: [], status: {},
+        tui: { open: { requires: [], entry: { label: "Open feature", icon: "wrench", group: "Acme", setting: "feature" } } } })
+    // The manager row of plugin ID, its MANIFEST's rows for its published
+    // VALUES and MISSING commands, with FIELDS over them; its field rows
+    // are the core's (PluginLogic.fieldRows) over the schema FIELDS holds.
     function pluginRow(id, manifest, values, missing, fields) {
-        return Object.assign({ id: id, name: id, version: "1", description: "", author: "VGS", license: "", icon: "package", source: "bundled",
+        const row = Object.assign({ id: id, name: id, version: "1", description: "", author: "VGS", license: "", icon: "package", source: "bundled",
             enabled: true, alwaysOn: false, placed: false, kinds: ["service"], capabilities: [], schema: {}, settings: {}, settingChoices: {},
-            status: PluginLogic.statusRows(manifest, values, missing), secretLabel: "", readme: "", tuis: [], builtins: [], opens: "", paneHolder: "", binds: [],
+            status: PluginLogic.statusRows(manifest, values), secretLabel: "", readme: "", tuis: [], builtins: [], opens: "", paneHolder: "", binds: [],
             requirements: PluginLogic.requirementRows(manifest, missing, {}), errors: [] }, fields);
+        const tui = {};
+        for (const name of Object.keys(manifest.tui)) tui[name] = { entry: manifest.tui[name].entry === undefined ? null : manifest.tui[name].entry, requires: manifest.tui[name].requires };
+        row.fieldRows = PluginLogic.fieldRows(row.schema, manifest.status, manifest.requirements, tui);
+        return row;
     }
-    function listed(settings, withheld) { return { tuis: [{ name: "task", label: "Run task", icon: "wrench", settings: settings, setting: "", withheld: withheld }] }; }
+    function listed(settings) { return { tuis: [{ name: "task", label: "Run task", icon: "wrench", settings: settings, setting: "" }] }; }
+    // Forty switches, the last far below the window's first screen.
+    function longFields() {
+        const schema = {}, settings = {};
+        for (let i = 0; i < 40; i++) { schema["f" + i] = { type: "boolean", label: "Field " + i }; settings["f" + i] = false; }
+        return { schema: schema, settings: settings };
+    }
     function rows() {
         return [
             pluginRow("acme.todo", stepped, todo, [], {}),
@@ -64,9 +82,13 @@ Item {
             pluginRow("acme.present", requiredTools, {}, [], {}),
             pluginRow("acme.keys", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
             pluginRow("acme.plain", { requirements: [], status: {}, tui: {} }, {}, [], {}),
-            pluginRow("acme.tasks", { requirements: [], status: {}, tui: {} }, {}, [], listed(false, "")),
-            pluginRow("acme.held", { requirements: [], status: {}, tui: {} }, {}, [], listed(false, "Needs a tool")),
-            pluginRow("acme.settings", { requirements: [], status: {}, tui: {} }, {}, [], listed(true, "")),
+            pluginRow("acme.tasks", { requirements: [], status: {}, tui: {} }, {}, [], listed(false)),
+            pluginRow("acme.held", { requirements: [], status: {}, tui: {} }, {}, [], Object.assign(listed(false), { enabled: false })),
+            pluginRow("acme.settings", { requirements: [], status: {}, tui: {} }, {}, [], listed(true)),
+            pluginRow("acme.offtools", requiredTools, {}, ["required-a"], { enabled: false }),
+            pluginRow("acme.screen", screened, {}, [], { schema: { feature: { type: "boolean", label: "Feature" } }, settings: { feature: false },
+                tuis: [{ name: "open", label: "Open feature", icon: "wrench", settings: false, setting: "feature" }] }),
+            pluginRow("acme.long", { requirements: [], status: {}, tui: {} }, {}, [], longFields()),
             pluginRow("acme.installed", stepped, done, [], { source: "installed" }),
             pluginRow("acme.loose", { requirements: [], status: {}, tui: {} }, {}, [], { source: "installed" })
         ];
@@ -77,7 +99,9 @@ Item {
         property var installs: []
         property var updates: []
         property var opens: []
+        property var enables: []
         function rescan() { return "ok"; }
+        function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return "ok"; }
         function viewPage(id) {}
         function installRequirements(id) { installs = installs.concat([id]); return "ok"; }
         function update(id) { updates = updates.concat([id]); return "ok"; }
@@ -101,7 +125,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; }
         function opened() {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
@@ -195,8 +219,12 @@ Item {
             const attached = descendants(pageOf(window)).find(item => item.entry !== undefined && item.entry !== null && item.entry.key === "featureState" && item.action !== undefined);
             verify(attached !== undefined);
             verify(descendants(field.parent).indexOf(attached) !== -1, "the optional action and choice share their declared Settings row group");
+            compare(attached.label, "", "the field's own state draws no label of its own");
             compare(descendants(attached).filter(item => item instanceof RowAction && item.visible).map(item => item.text), ["Configure feature"]);
-            compare(shown(window, RequirementRow).map(row => row.requirement.name), ["optional-tool"]);
+            const tools = descendants(field.parent).find(item => item instanceof StatusLine && item.visible && item.entry === null && item.hint.indexOf("optional-tool") !== -1);
+            verify(tools !== undefined, "the feature's tools read as one line in its row");
+            compare(descendants(tools).filter(item => item instanceof RowAction && item.visible).map(item => item.text), ["Review all missing or outdated tools"]);
+            compare(shown(window, RequirementRow).length, 0, "Settings draws no row per tool");
             tabsOf(window).currentIndex = 1;
             compare(shown(window, StatusRow).map(row => row.entry.label), ["Health"]);
             compare(shown(window, RequirementRow).length, 0, "Details does not repeat the feature's tool");
@@ -250,11 +278,49 @@ Item {
         }
         function test_manager_changes_keep_shown_tab_and_remove_missing_tab_to_details() {
             const window = opened(); window.openPlugin("acme.todo", Qt.OtherFocusReason, "Setup");
-            fakeManager.plugins = root.rows().map(row => row.id === "acme.todo" ? Object.assign({}, row, { status: PluginLogic.statusRows(root.stepped, root.done, []) }) : row);
+            fakeManager.plugins = root.rows().map(row => row.id === "acme.todo" ? Object.assign({}, row, { status: PluginLogic.statusRows(root.stepped, root.done) }) : row);
             compare(pageOf(window).tab, "Setup"); compare(tabWarning(window).visible, false);
             fakeManager.plugins = fakeManager.plugins.map(row => row.id === "acme.todo" ? Object.assign({}, row, { status: [] }) : row);
             compare(tabsOf(window).model, ["Settings", "Details"]); compare(pageOf(window).tab, "Details");
             fakeManager.plugins = root.rows(); compare(pageOf(window).tab, "Details"); compare(tabsOf(window).currentIndex, 2);
+        }
+        // While the plugin is off, every To do step offers Turn on, whose
+        // press asks the manager to turn the plugin on, and the Tools step
+        // still installs.
+        function test_off_plugin_steps_offer_turn_on() {
+            const window = opened(); window.openPlugin("acme.off", Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            const links = () => shown(window, RowAction);
+            // Model reads To do; Home, published as done, reads Done and offers nothing.
+            compare(links().map(action => [action.text, action.enabled]), [["Turn on acme.off", true]], "each To do step offers Turn on");
+            tryVerify(() => links()[0].height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(links()[0]);
+            compare(fakeManager.enables, [["acme.off", true]], "Turn on asks to turn the plugin on");
+            window.openPlugin("acme.offtools", Qt.OtherFocusReason, "Setup");
+            compare(links().map(action => [action.text, action.enabled]), [["Review all missing or outdated tools", true]], "the Tools step installs while the plugin is off");
+            mouseClick(links()[0]);
+            compare(fakeManager.installs, ["acme.offtools"]);
+        }
+        // A field's screen draws in that field's own row: no Settings page
+        // draws a row labelled Actions.
+        function test_a_screen_draws_in_its_field_row() {
+            const window = opened(); window.openPlugin("acme.screen", Qt.OtherFocusReason);
+            const action = shown(window, RowAction).find(item => item.text === "Open feature");
+            verify(action !== undefined, "the field's screen draws");
+            let owner = action.parent;
+            while (owner !== null && owner.fieldKey === undefined) owner = owner.parent;
+            verify(owner !== null && owner.fieldKey === "feature", "the screen draws in its field's row");
+            compare(shown(window, Field).filter(field => field.label === "Actions").length, 0, "Settings draws no Actions row");
+        }
+        // A reference to a field brings it into view on Settings.
+        function test_a_field_reference_scrolls_to_it() {
+            const window = opened(); window.openPlugin("acme.long", Qt.OtherFocusReason, "Settings/f39");
+            compare(pageOf(window).tab, "Settings");
+            tryVerify(() => pageOf(window).scrollArea.contentY > 0, 2000, "the page scrolls to the far field");
+            const far = shown(window, SettingField).find(item => item.key === "f39");
+            verify(far !== undefined);
+            const top = far.mapToItem(pageOf(window).scrollArea, 0, 0).y;
+            verify(top >= 0 && top + far.height <= pageOf(window).scrollArea.height, "the far field is in view: " + top);
         }
         function test_more_settings_and_task_screens_have_one_home() {
             const window = opened(); window.openPlugin("acme.settings", Qt.OtherFocusReason);
@@ -267,8 +333,10 @@ Item {
             tryVerify(() => action().height > 0 && pageOf(window).parent.x === -window.width, 2000);
             mouseClick(action()); compare(fakeManager.opens, [["acme.tasks", "task"]]);
             window.openPlugin("acme.held", Qt.OtherFocusReason, "Details");
-            verify(action() !== undefined); compare(action().enabled, false);
-            compare(descendants(action()).find(item => item instanceof Tooltip).text, "Needs a tool");
+            verify(action() !== undefined); compare(action().enabled, false, "a task screen takes no press while its plugin is off");
+            const reason = descendants(action()).find(item => item instanceof Tooltip).text;
+            verify(reason !== "", "the screen names why");
+            compare(fieldOf(action()).hint, reason, "the row reads the reason too");
         }
         function test_detached_rows_keep_their_layout_owner_width_data() {
             return [{ tag: "More settings field", kind: "more", id: "acme.settings", tab: "Settings" },

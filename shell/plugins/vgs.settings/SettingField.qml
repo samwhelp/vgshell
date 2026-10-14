@@ -62,6 +62,9 @@ Column {
     // What the configuration holds, as a text editor shows it.
     readonly property string heldText: value === undefined ? "" : String(value)
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
+    // Whether the field ends in a description or an error line, which
+    // takes the room under it a Field takes (Theme.subTextRoom).
+    readonly property bool subText: (customVisible ? customField : primary).subText
     signal apply(var value)
     signal openLink(var link)
     signal openPage(string page, string tab)
@@ -71,7 +74,7 @@ Column {
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.field.gap
-    bottomPadding: Theme.subTextRoom((customVisible ? customField : primary).subText, Positioner.index, Positioner.isLastItem, parent)
+    bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
 
     Component.onCompleted: {
         rebuildPresetModel();
@@ -309,7 +312,9 @@ Column {
             readonly property int shownIndex: configuredIndex >= 0 ? configuredIndex : root.customVisible ? root.choices.length : -1
             model: rows
             textRole: "label"
-            emptyText: dynamic ? "None found yet" : ""
+            // A plugin that is off publishes no choices, so nothing was
+            // looked for.
+            emptyText: !dynamic ? "" : root.editable ? "None found yet" : "Not reported"
             placeholderText: dynamic && root.spec.placeholder !== undefined ? root.spec.placeholder : ""
             currentIndex: shownIndex
             enabled: root.editable

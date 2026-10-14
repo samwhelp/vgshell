@@ -104,7 +104,7 @@ PAGE_REFERENCE = re.compile(r"\bSettings >|\b(?:in|from) (?:Settings|Plugins)\b|
 PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
 # Only complete literal targets can be judged. An empty id opens the
 # plugin list; a template argument or unfinished concatenation is unknown.
-PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/[^\s()/$]+)?\)")
+PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/Settings/[^\s()/$]+|/[^\s()/$]+)?\)")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.
@@ -118,7 +118,7 @@ FIELDS = (
     ("schema", "*", "items", "*", "label"), ("schema", "*", "items", "*", "description"), ("schema", "*", "items", "*", "tooltip"), ("schema", "*", "items", "*", "placeholder"), ("schema", "*", "items", "*", "group"),
     ("schema", "*", "items", "*", "options", "*", "label"), ("schema", "*", "items", "*", "presets", "*", "label"),
     ("status", "*", "label"), ("status", "*", "group"), ("status", "*", "hint"), ("status", "*", "info"), ("status", "*", "link", "text"), ("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"), ("status", "*", "aside", "label"),
-    ("requirements", "*", "purpose"),
+    ("requirements", "*", "purpose"), ("requirements", "*", "dbus", "label"),
     ("pane", "group"),
     ("tui", "*", "title"), ("tui", "*", "entry", "label"), ("tui", "*", "entry", "group"),
     ("menu", "*", "label"), ("menu", "*", "description"), ("menu", "*", "toggle", "label"),
@@ -138,7 +138,7 @@ EXEMPT = (
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "system"), ("status", "*", "actions", "*", "undo"), ("status", "*", "actions", "*", "tone"), ("status", "*", "actions", "*", "dictation"),
     ("status", "*", "aside", "tui"), ("status", "*", "aside", "system"), ("status", "*", "aside", "undo"), ("status", "*", "aside", "tone"), ("status", "*", "aside", "dictation"),
     ("requirements", "*", "setting"),
-    ("requirements", "*", "command"), ("requirements", "*", "dbus"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"), ("requirements", "*", "install"),
+    ("requirements", "*", "command"), ("requirements", "*", "dbus", "bus"), ("requirements", "*", "dbus", "name"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"), ("requirements", "*", "install"),
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"), ("tui", "*", "entry", "setting"), ("tui", "*", "entry", "settings"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "tui"), ("menu", "*", "tuiGroup"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),

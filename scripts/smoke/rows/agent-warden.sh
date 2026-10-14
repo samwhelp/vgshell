@@ -73,7 +73,7 @@ no_show_command() { ipc smoke itemTexts window vgs.settings PluginPage | py_repl
 warden_tools_drawn() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="required-tools"]; print(json.dumps([rows[0]["chips"], rows[0]["lines"], [b["text"] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
 warden_hint="Checks whether AI agents stay within their memory and process limits"
 warden_info="Shows whether the vsys warden is set up, checking agents and reporting problems."
-warden_setup_hint="Set up starts the Agent Warden checks in a floating terminal"
+warden_setup_hint="Starts the Agent Warden checks in a floating terminal"
 # info_label TEXT: whether an open info dialog draws TEXT.
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
 warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }
@@ -359,7 +359,7 @@ expect "the info dialog close control is released" ok ipc smoke popupDrop info-c
 rm -- "${info_control_dir:?}/InfoButtonControl.qml" "${info_control_dir:?}/InfoButtonControlItem.qml" || fail "removing the info dialog close control failed"
 # The required Tools step stays visible after its tools are available.
 settings_setup
-expect_poll "Tools reads Done when every required tool is available" '[[["Done", "success"]], ["Every required tool is available"], []]' warden_tools_drawn
+expect_poll "Tools reads Done when every required tool is installed" '[[["Done", "success"]], ["Every required tool is installed"], []]' warden_tools_drawn
 expect "the healthy page draws no Show command anywhere" true no_show_command
 expected_errors+=('settings: vgs\.agent-warden refused: requirements=vgs\.agent-warden reason=satisfied')
 expect "the manager refuses Install all missing with nothing missing" "refused: requirements=vgs.agent-warden reason=satisfied" ipc smoke invokeInstance window vgs.settings installRequirements vgs.agent-warden

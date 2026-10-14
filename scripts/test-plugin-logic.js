@@ -60,11 +60,69 @@ function suite(ctx, configLogic, check) {
     ];
     for (const [name, status, requirements, tui, schema, accepted] of pagePlacementRows)
         check("pagePlacement: " + name, ctx.pagePlacementError(status, requirements, tui, schema) === "", accepted);
-    const actionRaw = { schemaVersion: 1, id: "acme.action", name: "A", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" }, schema: actionSchema };
+    // An action field acts through the tool beside it.
+    const actionRaw = { schemaVersion: 1, id: "acme.action", name: "A", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" }, schema: actionSchema,
+        requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "feature" }] };
     check("action field has no stored default", ctx.validateManifest(actionRaw, "/p").ok, true);
     check("action field refuses a stored default", ctx.validateManifest({ ...actionRaw, settings: { feature: false } }, "/p").ok, false);
+    // The rows a Settings page draws (fieldRows) and the judge of them
+    // (pageRowsError). Each row: [name, the manifest's keys over a plain
+    // service with a `feature` action field and a `mode` switch, the
+    // refusal's path and rule, "" for none].
+    const fix = { script: "tui/fix.sh", title: "Fix" };
+    const fixEntry = { label: "Fix", icon: "wrench", group: "Acme", setting: "feature" };
+    const rowsBase = { schemaVersion: 1, id: "acme.rows", name: "Rows", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["status", "tui"],
+        schema: { feature: { type: "action", label: "Feature" }, mode: { type: "boolean", label: "Mode", group: "Main" } }, settings: { mode: false },
+        tui: { fix: fix }, status: { note: { type: "text", label: "Note" } } };
+    const withPageRows = keys => Object.assign({}, rowsBase, keys, { schema: Object.assign({}, rowsBase.schema, keys.schema || {}),
+        tui: Object.assign({}, rowsBase.tui, keys.tui || {}), status: Object.assign({}, rowsBase.status, keys.status || {}) });
+    const ownAction = { fixing: { type: "state", label: "Fixing", setting: "feature", action: { label: "Fix", tui: "fix" } } };
+    for (const [name, keys, refusal] of [
+        ["an action field with nothing to act on", {}, "schema.feature page-row=no-action"],
+        ["an action field whose one entry declares no action", { status: { fixing: { type: "state", label: "Fixing", setting: "feature" } } }, "schema.feature page-row=no-action"],
+        ["an action field acting through its entry", { tui: { fix: fix }, status: ownAction }, ""],
+        ["an action field acting through its screen", { tui: { fix: Object.assign({ entry: fixEntry }, fix) } }, ""],
+        ["an action field acting through its tool", { requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "feature" }] }, ""],
+        ["an action field with two lines", { tui: { fix: fix }, status: Object.assign({ other: { type: "state", label: "Other", setting: "feature" } }, ownAction) }, "schema.feature page-row=two-states"],
+        ["two lines beside a switch", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" }, two: { type: "state", label: "Two", setting: "mode" } }, ownAction) }, ""],
+        ["one label for two fields of one section", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "mode", group: "Main" } }, settings: { mode: false, again: false } }, "schema.again page-row=duplicate-label"],
+        ["one label in two sections", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "Mode", group: "Other" } }, settings: { mode: false, again: false } }, ""],
+        ["a key list labelled like its field", { tui: { fix: fix }, status: Object.assign({ keys: { type: "presenceList", label: "Mode", setting: "mode" } }, ownAction) }, "status.keys page-row=duplicate-label"],
+        ["an entry labelled like a field of its section", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" }, two: { type: "state", label: "Mode", setting: "mode" } }, ownAction) }, "status.two page-row=duplicate-label"],
+        ["an own entry labelled like its field", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "Mode", setting: "mode" } }, ownAction) }, ""],
+        ["a field labelled as the page labels its own row", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "More settings" } }, settings: { mode: false, again: false } }, "schema.again page-row=page-label"],
+        ["a field's hint from its own entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { mode: { type: "boolean", label: "Mode", group: "Main", hintFrom: "one" } } }, "schema.mode page-row=own-hint"],
+        ["a field's hint from another field's entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { again: { type: "boolean", label: "Again", hintFrom: "one" } }, settings: { mode: false, again: false } }, ""]
+    ]) {
+        const judged = ctx.validateManifest(withPageRows(keys), "/p");
+        check("pageRows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length), refusal);
+    }
+    const drawn = ctx.validateManifest(withPageRows({
+        tui: { fix: fix, task: Object.assign({ entry: fixEntry }, fix), declared: Object.assign({ entry: fixEntry }, fix) },
+        status: Object.assign({ aside: { type: "state", label: "Aside", setting: "mode", action: { label: "Open", tui: "declared" } }, keys: { type: "presenceList", label: "Keys", setting: "mode" }, gone: { type: "data", label: "Data" } }, ownAction),
+        requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "feature" }, { command: "acme-base", purpose: "Base" }]
+    }), "/p");
+    check("fieldRows: each field's own entry, key lists, tools and undeclared screens, in schema order", drawn.ok ? drawn.manifest.fieldRows : drawn.error, [
+        { key: "feature", section: "", list: false, own: "fixing", entries: [], keyLists: [], tools: ["acme-tool"], screens: ["task"] },
+        { key: "mode", section: "Main", list: false, own: "aside", entries: [], keyLists: ["keys"], tools: [], screens: [] }]);
+    // The defects first-party manifests held before their rows were judged,
+    // planted again in the shipped manifest: each is refused at its path by
+    // its rule.
+    const firstParty = id => JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/" + id + "/manifest.json"), "utf8"));
+    for (const [name, id, plant, refusal] of [
+        ["AI Usage with Codex's state twice beside its switch", "vgs.ai-usage", m => { m.status.codexAgain = { type: "state", label: "Codex", setting: "showCodex" }; }, "status.codex page-row=duplicate-label"],
+        ["VPN with an Import WireGuard row of no action", "vgs.vpn", m => { m.schema.wireguardImport = { type: "action", label: "Import WireGuard", description: "Add a WireGuard configuration file" }; }, "schema.wireguardImport page-row=no-action"],
+        ["Jarvis with the Voice provider hint read from its own line", "vgs.jarvis", m => { m.schema.voiceProvider.hintFrom = "voiceRoute"; }, "schema.voiceProvider page-row=own-hint"],
+        ["Printers with its helper listed by its bus name", "vgs.printers", m => { delete m.requirements.find(r => r.dbus !== undefined).dbus.label; }, "requirements.4.dbus.label must"]
+    ]) {
+        const raw = firstParty(id);
+        check("pageRows: shipped " + id + " is judged ok", ctx.validateManifest(raw, "/p").ok, true);
+        plant(raw);
+        const judged = ctx.validateManifest(raw, "/p");
+        check("pageRows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length), refusal);
+    }
     check("action field refuses configuration writes", ctx.settingError(actionSchema.feature, false) !== "", true);
-    check("manifest invokes page association judge", ctx.validateManifest({ ...actionRaw, requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "missing" }] }, "/p").ok, false);
+    check("manifest invokes page association judge", ctx.validateManifest({ ...actionRaw, requirements: actionRaw.requirements.concat([{ command: "acme-other", purpose: "Feature", optional: true, setting: "missing" }]) }, "/p").ok, false);
     const dictationRaw = { schemaVersion: 1, id: "acme.dictation", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["dictation", "status"], status: { setup: { type: "presence", label: "Setup", setup: true, action: { label: "Set up", dictation: "setup" } } } };
     for (const [capability, value, accepted] of [[true, "setup", true], [false, "setup", false], [true, "restart", false], [true, null, false], [true, 1, false]]) {
         const raw = JSON.parse(JSON.stringify(dictationRaw));
@@ -109,7 +167,9 @@ function suite(ctx, configLogic, check) {
         ["entry point absolute", { entryPoints: { bar: "/etc/x.qml" } }, "entryPoints.bar must stay inside"],
         ["requires is refused by name", { requires: ["vgs.bar"] }, "requires is refused: a plugin names no other plugin (D005)"],
         ["requirements declaring a command", { requirements: [{ command: "gum", packages: { pacman: "gum", aur: "gum-bin", dnf: "gum" }, optional: true, purpose: "Draws the update dialogs" }] }, null],
-        ["requirements declaring a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }, null],
+        ["requirements declaring a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles service" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }, null],
+        ["a D-Bus requirement without the label a page lists it by", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }] }, "requirements.0.dbus.label must be a printable line"],
+        ["a D-Bus requirement whose label runs past a short name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "x".repeat(41) }, purpose: "p" }] }, "requirements.0.dbus.label must be a printable line"],
         ["requirements with only a command and a purpose", { requirements: [{ command: "notify-send", purpose: "Sends notices" }] }, null],
         ["a requirement purpose of one sentence with a full stop is refused", { requirements: [{ command: "gum", purpose: "Draws the update dialogs." }] }, "requirements.0.purpose must end with no full stop"],
         ["a requirement purpose of two sentences, each with its full stop", { requirements: [{ command: "gum", purpose: "Draws the update dialogs. It needs a terminal." }] }, null],
@@ -126,7 +186,7 @@ function suite(ctx, configLogic, check) {
         ["a requirement dbus name with a unique-name prefix", { requirements: [{ dbus: { bus: "system", name: ":1.5" }, purpose: "p" }] }, "requirements.0.dbus.name must be a well-known D-Bus name"],
         ["a requirement dbus with an unknown key", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", path: "/" }, purpose: "p" }] }, "requirements.0.dbus has unknown key \"path\""],
         ["a requirement command declared twice", { requirements: [{ command: "gum", purpose: "p" }, { command: "gum", purpose: "q" }] }, "requirements.1.command \"gum\" is declared twice"],
-        ["a requirement name declared twice across command and dbus", { requirements: [{ command: "org.freedesktop.UPower.PowerProfiles", purpose: "p" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "q" }] }, "requirements.1.dbus.name \"org.freedesktop.UPower.PowerProfiles\" is declared twice"],
+        ["a requirement name declared twice across command and dbus", { requirements: [{ command: "org.freedesktop.UPower.PowerProfiles", purpose: "p" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles" }, purpose: "q" }] }, "requirements.1.dbus.name \"org.freedesktop.UPower.PowerProfiles\" is declared twice"],
         ["requirement packages not an object", { requirements: [{ command: "gum", packages: ["gum"], purpose: "p" }] }, "requirements.0.packages must be an object of manager ids to package names"],
         ["requirement packages naming an unknown manager", { requirements: [{ command: "gum", packages: { zypper: "gum" }, purpose: "p" }] }, "requirements.0.packages names the unknown manager \"zypper\""],
         ["a requirement package starting with a dash", { requirements: [{ command: "gum", packages: { pacman: "-Sy" }, purpose: "p" }] }, "requirements.0.packages.pacman must be a package name"],
@@ -138,7 +198,7 @@ function suite(ctx, configLogic, check) {
         ["a requirement purpose of 121 characters", { requirements: [{ command: "gum", purpose: "p".repeat(121) }] }, "requirements.0.purpose must be one printable line"],
         ["a requirement purpose of 120 characters", { requirements: [{ command: "gum", purpose: "p".repeat(120) }] }, null],
         ["a requirement with a floor", { requirements: [{ command: "gum", floor: "0.14.5", purpose: "p" }] }, null],
-        ["a floor on a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, floor: "1.0.0", purpose: "p" }] }, "requirements.0.floor needs a command"],
+        ["a floor on a D-Bus name", { requirements: [{ dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles" }, floor: "1.0.0", purpose: "p" }] }, "requirements.0.floor needs a command"],
         ["a floor of two numbers", { requirements: [{ command: "gum", floor: "0.14", purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers, got \"0.14\""],
         ["a floor with a leading zero", { requirements: [{ command: "gum", floor: "0.014.5", purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers"],
         ["a floor that is a list of one version", { requirements: [{ command: "gum", floor: ["0.14.5"], purpose: "p" }] }, "requirements.0.floor must be a version of three dotted numbers, got [\"0.14.5\"]"],
@@ -527,9 +587,9 @@ function suite(ctx, configLogic, check) {
         const view = ctx.noticeView(trafficManifest.manifest, ["bandwhich"], {}, { commands: ["bandwhich"], required: ["bandwhich"] }, { primary: { id: "dnf", binary: "dnf" }, overlays: [], sources: [] });
         check("stock Fedora has no invented install plan for bandwhich", [view.install, view.rows[0].package, view.rows[0].name, view.rows[0].optional, view.satisfied], [null, null, "bandwhich", true, false]);
     }
-    const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
+    const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles service" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false, setting: "" }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false, setting: "" }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false, setting: "" }]);
+        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false, setting: "" }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false, setting: "" }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false, setting: "" }]);
     check("validateManifest carries an on-request install as a required entry", ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "on-request", purpose: "Dialogs" }] }), "/p").manifest.requirements.map(r => [r.name, r.optional, r.onRequest]), [["gum", false, true]]);
     check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"], {}).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
     check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
@@ -1900,6 +1960,17 @@ const CONTROLS = [
     ["action field refuses stored values", 'if (hasOwn(settings, key)) return at + " is an action field and stores no value";', 'if (false) return at + " is an action field and stores no value";'],
     ["action field refuses writes", 'if (entry.type === "action") return "want=action-no-value";', 'if (entry.type === "action") return "";'],
     ["manifest invokes page judge", 'if (badPlacement !== "") return { ok: false, error: badPlacement };', 'if (false) return { ok: false, error: badPlacement };'],
+    ["manifest drops its page rows' judge", 'if (badRows !== "") return { ok: false, error: badRows };', 'if (false) return { ok: false, error: badRows };'],
+    ["an action field with nothing to act on is drawn", "if (!acts && row.screens.length === 0 && row.tools.length === 0)", "if (false)"],
+    ["an action field draws two lines", "if (row.entries.length > 1)", "if (false)"],
+    ["a field repeats its own entry's hint", "if (spec.hintFrom !== undefined && status[spec.hintFrom].setting === row.key)", "if (false)"],
+    ["the page's own labels go unjudged", "if (own.indexOf(label) !== -1)", "if (false)"],
+    ["a repeated label goes unjudged", "if (drawn[scope].indexOf(label) !== -1)", "if (false)"],
+    ["labels are judged across sections", 'var scope = row.list ? "list " + row.key : "section " + row.section;', 'var scope = "page";'],
+    ["labels are judged with their case", "var label = String(labels[l][1]).toLowerCase();", "var label = String(labels[l][1]);"],
+    ["a field's one entry is drawn as one of many", 'own: lines.length === 1 ? lines[0] : "",', 'own: "",'],
+    ["a declared screen is drawn in its field too", " && declared.indexOf(name) === -1; })", "; })"],
+    ["a D-Bus requirement needs no label", "if (!isPrintableLine(requirement.dbus.label, REQUIREMENT_LABEL_MAX))", "if (false)"],
     ["association names a real field", 'typeof value !== "string" || !hasOwn(schema, value)', 'false'],
     ["setup declaration is boolean", 'entry.setup !== undefined && typeof entry.setup !== "boolean"', 'false'],
     ["required step is displayed", 'entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1', 'false'],
@@ -2161,7 +2232,8 @@ const CONTROLS = [
     ["a requirement purpose holds no control character", " || CONTROL_CHARACTER.test(requirement.purpose))", ")"],
     ["an absent requirement packages is normalized", "packages: entry.packages === undefined ? {} : clone(entry.packages)", "packages: clone(entry.packages)"],
     ["an absent requirement optional is normalized", "optional: entry.optional === true", "optional: entry.optional"],
-    ["a requirement's normalized identity is its name", "return { name: requirementName(entry), bus: entry.dbus === undefined ? null : entry.dbus.bus", "return { name: entry.command, bus: entry.dbus === undefined ? null : entry.dbus.bus"],
+    ["a requirement's normalized identity is its name", "return { name: requirementName(entry), title:", "return { name: entry.command, title:"],
+    ["a D-Bus requirement is listed by its name", "title: entry.dbus === undefined ? entry.command : entry.dbus.label,", "title: requirementName(entry),"],
     ["a manifest carries its requirements normalized", "manifest.requirements = normalRequirements(requirements);", ""],
     ["an idle watch takes one second at least", "seconds < 1 || ", ""],
     ["an idle watch takes a day at most", " || seconds > IDLE_WATCH_MAX_SECONDS)", ")"],

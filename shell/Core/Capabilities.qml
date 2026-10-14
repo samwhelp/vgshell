@@ -216,7 +216,7 @@ Singleton {
             set: (key, value) => PluginStatus.set(ctx, key, value),
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
             act: key => root.managerAct(ctx.id, key),
-            get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id), Notices.missingOf(ctx.id)); },
+            get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
             get viewed() { return PluginStatus.viewed === ctx.id; },
             get revision() { return PluginStatus.revisionOf(ctx.id); }

@@ -393,12 +393,12 @@ FocusScope {
         return leave(() => showList(Qt.TabFocusReason)) ? "ok" : "refused: unsaved=" + from;
     }
 
-    // Enable or disable plugin `id`, the opposite of its state now; answers
-    // the manager's reply.
-    function toggle(id) {
-        const row = rowOf(id);
-        if (row === null) return "unknown: " + id;
-        return keep(id, shell.manager.setEnabled(id, !row.enabled));
+    // Turn plugin `id` on or off, ENABLED, as its Enabled switch and a
+    // line's Turn on ask; answers the manager's reply. Turn on asks for
+    // true, so a second press before the page updates keeps it on.
+    function setEnabled(id, enabled) {
+        if (rowOf(id) === null) return "unknown: " + id;
+        return keep(id, shell.manager.setEnabled(id, enabled));
     }
 
     // Show plugin `id`'s widget in the bar, or hide it, the opposite of its

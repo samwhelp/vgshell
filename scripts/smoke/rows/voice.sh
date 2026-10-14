@@ -39,13 +39,12 @@
 # marks Voice Setup needed, for voxtype and its bridge, with no warning
 # icon, since no optional tool is missing. The Voice page states voxtype missing once, in the
 # Requirements row on Setup: the tab draws no Setup section, no headline
-# and no step, since Install all missing installs it, and Details draws
+# and no step, since Install all missing installs it, and Settings draws
 # Configure and Choose model, which are no setup screens and whose
-# `requires` name voxtype, disabled, with a hint that says why; Details
-# states no status of voxtype, missing or found. Once set up, the section
-# reads Ready with voxtype's version and the model. Its control is a
-# disposable manifest copy whose Configure requires nothing, which draws
-# Configure active. Install all missing raises the
+# `requires` name voxtype, taking a press, which asks for voxtype first;
+# Details states no status of voxtype, missing or found. Once set up, the
+# section reads Ready with voxtype's version and the model. Install all
+# missing raises the
 # notice for voxtype and its bridge, and its Install hands the terminal
 # voxtype-bin through the AUR helper, the row puts the stubs back as the
 # package step would, and the scan after the run closes the notice; Voice
@@ -1196,41 +1195,10 @@ settings_setup
 expect_poll "Setup keeps dictation pending without its required tools" '{"chips": [["To do", "warning"]], "buttons": []}' voice_setup_section
 expect_poll "Setup groups missing required tools in one pending step" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
 settings_tab_click Settings || fail "the click on Voice Settings failed"
-expect_poll "Settings draws Configure and Choose model disabled without voxtype" "drawn absent, drawn absent" voice_settings_screens
+expect_poll "Settings draws Configure and Choose model taking a press without voxtype" "drawn enabled, drawn enabled" voice_settings_screens
 settings_setup
-# Control: a disposable manifest copy whose Configure requires nothing
-# draws Configure active while Choose model stays disabled.
-cp -- "$voice_manifest" "$sandbox/voice-manifest-before"
-settings_page_close vgs.voice
-expect "disabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
-python3 - "$voice_manifest" <<'PY'
-import json, sys
-from pathlib import Path
-p = Path(sys.argv[1]); assert not p.is_symlink()
-manifest = json.loads(p.read_text())
-assert "voxtype" in manifest["tui"]["configure"]["requires"]
-manifest["tui"]["configure"]["requires"] = []
-p.write_text(json.dumps(manifest, indent=2) + "\n")
-PY
-rescan "the Voice Setup section control copy is scanned"
-expect "enabling Voice for the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
-expect_poll "Voice builds for the Setup section control" True record_exists vgs.voice
-voice_enabled_notice "for the Setup section control"
-settings_page_open vgs.voice
-settings_tab_click Settings || fail "the click on Settings for the Configure control failed"
-expect_poll "control: a Configure with no requires draws active" "drawn enabled, drawn absent" voice_settings_screens
-settings_page_close vgs.voice
-expect "disabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice false
-cp -- "$sandbox/voice-manifest-before" "$voice_manifest"
-rescan "the shipped Voice manifest is scanned again after the Setup section control"
-expect "enabling Voice after the Setup section control is allowed" ok ipc shell setPluginEnabled vgs.voice true
-expect_poll "Voice builds after the Setup section control" True record_exists vgs.voice
-voice_enabled_notice "after the Setup section control"
-settings_page_open vgs.voice
-settings_setup
-expect_poll "the restored Setup keeps dictation pending without tools" '{"chips": [["To do", "warning"]], "buttons": []}' voice_setup_section
 expect_poll "the Voice page offers no dictation action without voxtype" '[]' voice_offered_actions
-expect_poll "the restored Tools step offers its install text link" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
+expect_poll "the Tools step still offers its install text link" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
 
 # Install all missing without voxtype: the notice installs voxtype and its
 # bridge, and the install opens no screen after it.

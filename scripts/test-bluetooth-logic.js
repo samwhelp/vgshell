@@ -675,7 +675,7 @@ function verifyPlacement(logic, source) {
     for (const [label, step, adapters, powerKey, buttonOpen, needsOpen] of rows) {
         const power = logic.powerView(powerInput({ adapters, powered: adapters > 0, step }));
         assert.equal(power.key, powerKey, "power key: " + label);
-        const status = producer.statusRows(checked, { power: { tone: power.tone, text: power.text }, service: logic.serviceRow(step, adapters), bluetooth: { power } }, []);
+        const status = producer.statusRows(checked, { power: { tone: power.tone, text: power.text }, service: logic.serviceRow(step, adapters), bluetooth: { power } });
         same(steps.detailEntries(status).map(entry => entry.key), ["power"], "Details keeps the power reading: " + label);
         const section = steps.setupSections([], status).find(row => row.title === "Setup");
         assert.notEqual(section, undefined, "Setup section exists: " + label);

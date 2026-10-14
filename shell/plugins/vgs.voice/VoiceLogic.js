@@ -148,7 +148,7 @@ var FEEDBACK_PROBLEMS = {
     "missing": "Voice records speech with voxtype. Install it on the [Voice page](page:vgs.voice/Setup).",
     "unread": "VGS could not read the voxtype settings.",
     "no-config": "Voice is not set up. Use Set up on the [Voice page](page:vgs.voice/Setup).",
-    "link": "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Details).",
+    "link": "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the [Voice page](page:vgs.voice/Settings).",
     "write": "VGS could not change the voxtype settings.",
     "restart": "The change is saved. It applies when voxtype starts again.",
     "mismatch": "voxtype did not keep the change."

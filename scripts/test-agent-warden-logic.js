@@ -238,9 +238,9 @@ function verifyPlacement(logic, source) {
     ];
     for (const [label, detail, missing, buttonOpen, needsOpen] of rows) {
         const values = logic.published(detail, missing);
-        const status = producer.statusRows(checked, values, missing);
+        const status = producer.statusRows(checked, values);
         assert.equal(steps.detailEntries(status).some(entry => entry.key === "warden"), true, "Details keeps the warden reading: " + label);
-        const section = steps.setupSections(producer.listedTuiRows(checked, missing), status).find(row => row.title === "Setup");
+        const section = steps.setupSections(producer.listedTuis(checked), status).find(row => row.title === "Setup");
         assert.notEqual(section, undefined, "Setup section exists: " + label);
         const setup = section.items.find(item => item.key === "setup");
         assert.notEqual(setup, undefined, "the setup step is on Setup: " + label);

@@ -174,9 +174,14 @@ Item {
             width: 420
             height: 360
             panel: fakePanel
-            row: root.pageRow
+            row: root.withFields(root.pageRow)
         }
     }
+
+    // The manager row a page draws: ROW with the rows of its fields as the
+    // core judges them with the manifest (PluginLogic.fieldRows), from its
+    // schema alone, since no row here attaches an entry to a field.
+    function withFields(row) { return Object.assign({}, row, { fieldRows: PluginLogic.fieldRows(row.schema, {}, [], {}) }); }
 
     TestCase {
         name: "settingsEdits"
@@ -308,7 +313,7 @@ Item {
                 root.pageRow = Object.assign({}, original, {
                     schema: { showGpu: { type: "boolean", label: "GPU", group: "Readings", hintFrom: "graphics" } },
                     settings: { showGpu: true }, binds: [],
-                    status: PluginLogic.statusRows(manifest, values, [])
+                    status: PluginLogic.statusRows(manifest, values)
                 });
             }
             update({});
@@ -365,7 +370,7 @@ Item {
                 keys: [{ label: "Client ID", value: "present", secret: "acme:id" }],
                 down: { tone: "ok", text: "Signed in", action: "signOut" }
             };
-            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, values, []) });
+            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, values) });
             const page = createTemporaryObject(pluginPageComponent, root);
             try {
                 verify(page !== null);
@@ -396,7 +401,7 @@ Item {
                 status: { ready: { type: "state", label: "Ready" }, voice: step("Voice", "voice"), browser: step("Browser", "browser"), input: step("Input", "input") }
             };
             const todo = { tone: "warning", text: "To do", action: true };
-            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, { ready: { tone: "ok", text: "Ready" }, voice: todo, browser: todo, input: todo }, []) });
+            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, { ready: { tone: "ok", text: "Ready" }, voice: todo, browser: todo, input: todo }) });
             const page = createTemporaryObject(pluginPageComponent, root);
             try {
                 verify(page !== null);

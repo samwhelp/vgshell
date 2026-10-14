@@ -42,7 +42,10 @@ Item {
         function writeKey() { return "ok"; }
         function writeSetting() { return "ok"; }
         function writePlacement() { return "ok"; }
-        function toggle() { return "ok"; }
+        function setEnabled() { return "ok"; }
+        function installRequirements() { return "ok"; }
+        function openTui() { return "ok"; }
+        function act() { return "ok"; }
         function refreshChoices() {}
         function openLink() {}
         function openSurface() {}
@@ -90,6 +93,19 @@ Item {
         visible: false
         Field { label: "Enabled"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
         Field { label: "VGlass"; info: "Glass for every surface."; inline: true; width: parent.width; Switch { size: "sm" } }
+    }
+
+    // A row with a help line, then another row of the list: the group
+    // space a hinted row leaves before the next (Theme.subTextRoom).
+    Column {
+        id: hintedRows
+        x: 0
+        y: 0
+        width: 400
+        spacing: Theme.stack.row
+        visible: false
+        Field { label: "Alpha"; inline: true; hint: "Alpha is ready to use"; width: parent.width; Switch { size: "sm"; checked: true } }
+        Field { label: "Beta"; inline: true; width: parent.width; Switch { size: "sm" } }
     }
 
     // A help line whose letters have no descender: its ink ends at the
@@ -205,7 +221,7 @@ Item {
                 license: "", icon: m.icon, source: "bundled", enabled: true, alwaysOn: false, placed: true,
                 builtins: [], kinds: m.kinds, capabilities: m.capabilities, schema: m.schema, settings: settings,
                 settingChoices: ({}), status: [], secretLabel: "", tuis: [], opens: "", paneHolder: "",
-                binds: [], requirements: [], errors: []
+                binds: [], requirements: [], errors: [], fieldRows: PluginLogic.validateManifest(m, "").manifest.fieldRows
             };
         }
 
@@ -292,6 +308,31 @@ Item {
             verify(waitForRendering(page));
             const gap = gapBetween(grabImage(root), enabled, glass);
             verify(Math.abs(gap - list) <= root.tolerance, "VGlass sits " + gap + " px under the Enabled switch, not " + list + " as rows of a list");
+        }
+
+        // A field's own state line that ends in a hint leaves the group
+        // space before the next field, as a hinted row of a list does: the
+        // line, its field's lines and the field each take the room under
+        // their last sub-text (StatusLine.subText, ChoiceField.subText).
+        function test_a_hinted_own_line_keeps_the_group_space() {
+            hintedRows.visible = true;
+            verify(waitForRendering(hintedRows));
+            const list = gapBetween(grabImage(root), hintedRows.children[0], hintedRows.children[1]);
+            hintedRows.visible = false;
+            const schema = { alpha: { type: "boolean", label: "Alpha" }, beta: { type: "boolean", label: "Beta" } };
+            const status = { alphaState: { type: "state", label: "Alpha state", setting: "alpha", hint: "Alpha is ready to use" } };
+            const row = rowOf("vgs.notifications");
+            Object.assign(row, { schema: schema, settings: { alpha: true, beta: false }, status: PluginLogic.statusRows({ status: status }, { alphaState: { tone: "ok", text: "Ready" } }),
+                fieldRows: PluginLogic.fieldRows(schema, status, [], {}) });
+            const page = createTemporaryObject(pageComponent, root);
+            verify(page !== null);
+            page.row = row;
+            const own = () => descendants(page).find(item => item instanceof StatusLine && item.visible && item.hint === "Alpha is ready to use");
+            const beta = () => descendants(page).find(item => item instanceof SettingField && item.key === "beta");
+            tryVerify(() => own() !== undefined && beta() !== undefined && beta().height > 0, 2000, "the page draws Alpha's own line and Beta");
+            verify(waitForRendering(page));
+            const gap = gapBetween(grabImage(root), own(), beta());
+            verify(Math.abs(gap - list) <= root.tolerance, "Beta sits " + gap + " px under Alpha's hinted line, not " + list + " as under a hinted row of a list");
         }
 
         function test_heading_space_on_plugin_pages_data() {

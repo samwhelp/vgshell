@@ -317,7 +317,7 @@ settings_self_listing() { row_of vgs.settings icon source capabilities binds err
 expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["plug", "bundled", ["compositor", "ipc", "manager", "run", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "keys": ["SUPER+M"], "default": "SUPER+M"}], []]' settings_self_listing
 expect "an installed fixture is listed as installed with its manifest icon" '["Probe", "flask-conical", "installed", "acme"]' row_of acme.probe name icon source author
 expect "a plugin without a manifest icon is listed with the package icon" '["package"]' row_of acme.bare icon
-expect "a manager row carries each requirement with its state and placement" '[[{"name": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "floor": null, "onRequest": false, "setting": "", "state": "present", "badge": {"text": "Present", "tone": "success"}}, {"name": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "floor": null, "onRequest": false, "setting": "", "state": "missing", "badge": {"text": "Optional", "tone": "info"}}]]' row_of acme.bare requirements
+expect "a manager row carries each requirement with its state and placement" '[[{"name": "sh", "title": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "floor": null, "onRequest": false, "setting": "", "state": "present", "badge": {"text": "Present", "tone": "success"}}, {"name": "vgs-smoke-absent", "title": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "floor": null, "onRequest": false, "setting": "", "state": "missing", "badge": {"text": "Optional", "tone": "info"}}]]' row_of acme.bare requirements
 
 # The cursor over the list: the hand over each control that takes a click,
 # the Add plugin button, a row, the switch in it and its chevron, which
@@ -880,7 +880,7 @@ settings_setup
 # gives Setup neither another row nor an install action.
 manager_tools() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row and row[0] == "Tools"]))'; }
 manager_tool_links() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row and "tools" in row[0].lower()]))'; }
-expect_poll "Setup combines the present required tool into one Done step" '[["Tools", "Done", "Every required tool is available"]]' manager_tools
+expect_poll "Setup combines the present required tool into one Done step" '[["Tools", "Done", "Every required tool is installed"]]' manager_tools
 expect "the missing optional tool gives Setup no tool action" '[]' manager_tool_links
 settings_details
 expect_poll "Details draws the optional tool's purpose" drawn settings_label "A command no sandbox has"
@@ -1130,14 +1130,14 @@ expect_poll "the monitor has its width back" "$first_logical_width" first_width
 expect "the deep link reopens the fixture's page" ok ipc shell summon window vgs.settings '{"plugin":"acme.probe"}'
 expect_poll "the fixture's page is open" '"acme.probe"' settings_page
 manager_rows() { settings_rows | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps({r["id"]: r["enabled"] for r in rows if r["id"] in ("acme.probe", "acme.bare", "vgs.bar")}, sort_keys=True))'; }
-expect "the window toggles the fixture off" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
+expect "the window toggles the fixture off" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.probe", false]}'
 expect_poll "listPlugins reads the fixture disabled" False plugin_enabled acme.probe
 expect_poll "the window shows the fixture disabled" '{"acme.bare": true, "acme.probe": false, "vgs.bar": true}' manager_rows
 # The window logs each refusal it shows on a page.
 expected_errors+=('settings: acme\.probe refused: disabled=acme\.probe' 'settings: acme\.probe refused: setting=absent undeclared' 'settings: acme\.probe refused: setting=tags want=list' 'settings: acme\.probe refused: setting=size want=at-most:40')
 expect "the window refuses a setting for a disabled plugin" "refused: disabled=acme.probe" ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"x"}'
 expect "the page shows the refusal" '{"acme.probe":"Turn on this plugin before you change it."}' ipc smoke readInstance window vgs.settings replies
-expect "the window toggles the fixture back on" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
+expect "the window toggles the fixture back on" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.probe", true]}'
 expect_poll "listPlugins reads the fixture enabled" True plugin_enabled acme.probe
 expect "the window writes the fixture's setting" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"acme.probe","key":"label","value":"via-manager"}'
 expect "a successful write clears the page's refusal" '{}' ipc smoke readInstance window vgs.settings replies
@@ -1165,7 +1165,7 @@ expect_poll "its own page is open" '"vgs.settings"' settings_page
 enabled_switch() { ipc smoke scopedWindowGeometry window vgs.settings Field Enabled Switch "" | py_reply 'import sys; print("drawn" if sys.stdin.read().startswith("[") else "absent")'; }
 expect_poll "its own page draws no Enabled switch" absent enabled_switch
 expected_errors+=('settings: vgs\.settings refused: enabled=vgs\.settings reason=always-on')
-expect "the window's toggle is refused for its own plugin" "refused: enabled=vgs.settings reason=always-on" ipc smoke invokeInstance window vgs.settings toggle vgs.settings
+expect "the window's toggle is refused for its own plugin" "refused: enabled=vgs.settings reason=always-on" ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["vgs.settings", false]}'
 expect "the IPC refuses to disable the Settings plugin" "refused: enabled=vgs.settings reason=always-on" ipc shell setPluginEnabled vgs.settings false
 cli_disable() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin disable "$1" 2>&1)" || status=$?; printf '%s exit=%s\n' "$out" "$status"; }
 expect "vgshell plugin disable refuses the Settings plugin" "vgshell: refused: refused: enabled=vgs.settings reason=always-on exit=1" cli_disable vgs.settings
@@ -1182,9 +1182,9 @@ PY
 expect_poll "listPlugins reads the Settings plugin enabled after the refusals" True plugin_enabled vgs.settings
 expect "the Settings window stays open after the refusals" 1 window_count Plugins
 geometry expect_poll "the plug stays in every bar after the refusals" True gear_placed
-expect "the window toggles the fixture off, the control" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
+expect "the window toggles the fixture off, the control" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.probe", false]}'
 expect_poll "control: the window's toggle disables the fixture" False plugin_enabled acme.probe
-expect "the window toggles the fixture back on" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
+expect "the window toggles the fixture back on" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.probe", true]}'
 expect "control: the IPC disables the fixture" ok ipc shell setPluginEnabled acme.probe false
 expect_poll "control: listPlugins reads the fixture disabled by the IPC" False plugin_enabled acme.probe
 expect "the IPC enables the fixture again" ok ipc shell setPluginEnabled acme.probe true

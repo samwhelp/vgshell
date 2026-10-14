@@ -21,9 +21,14 @@ const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js")
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
 // Required Setup projection and Settings action decisions from Steps.js.
 const settingsRows = sections => sections.reduce((all, section) => all.concat(section.items), []);
-const settingActionRows = (tuis, status) => Array.from(new Set(Array.from(status, entry => entry.setting).filter(Boolean)))
-    .flatMap(key => Array.from(settings.settingEntries(status, key), entry => ({ key: entry.key, entry,
-        button: settings.stepButton(tuis, entry), aside: settings.asideButton(entry) })));
+// The lines the Settings page draws under JUDGED's fields (Steps.featureRow)
+// for STATUS and TUIS while Jarvis is on, each with its field's key; and
+// those of them that draw a status entry, with that entry's actions.
+const jarvisOn = { enabled: true, name: "Jarvis", error: "" };
+const featureLines = (judged, tuis, status) => Array.from(judged.fieldRows).flatMap(field =>
+    Array.from(settings.featureRow(field, { schema: judged.schema, status, tuis, requirements: judge.requirementRows(judged, [], {}) }, jarvisOn), line => Object.assign({ field: field.key }, line)));
+const settingActionRows = (judged, tuis, status) => featureLines(judged, tuis, status).filter(line => line.kind === "own" || line.kind === "entry")
+    .map(line => ({ key: line.key, field: line.field, entry: status.find(entry => entry.key === line.key), button: line.action, aside: line.aside }));
 
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
@@ -162,19 +167,19 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
     ];
     const values = Object.fromEntries(MOVED.map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
     values.setupVoice = { tone: "ok", text: "Ready", action: "check" };
-    const status = judge.statusRows(manifest, values, []);
-    const tuis = judge.listedTuiRows(manifest, []);
+    const status = judge.statusRows(manifest, values);
+    const tuis = judge.listedTuis(manifest);
     const setup = settingsRows(settings.setupSections(tuis, status));
     for (const [key, field, label] of MOVED) {
-        const rows = Array.from(settings.settingEntries(status, field)).filter(entry => entry.key === key);
-        assert.equal(rows.length, 1, key + ": one row beside its Settings field");
-        assert.equal(settings.stepButton(tuis, rows[0]).label, label, key + ": its action stays beside that field");
+        const rows = settingActionRows(manifest, tuis, status).filter(row => row.key === key);
+        assert.deepEqual(rows.map(row => row.field), [field], key + ": one row beside its Settings field");
+        assert.equal(rows[0].button.label, label, key + ": its action stays beside that field");
         assert.equal(setup.some(item => item.key === key), false, key + ": no optional row on Setup");
         assert.equal(settings.detailEntries(status).some(entry => entry.key === key), false, key + ": no duplicate fact on Details");
     }
     const INSTALLED = ["shell", "voxtype", "claude", "codex", "browserDriver"];
     const lacking = Object.fromEntries(INSTALLED.map(key => [key, { tone: "warning", text: "Not installed", action: true }]));
-    const lackingStatus = judge.statusRows(manifest, lacking, []);
+    const lackingStatus = judge.statusRows(manifest, lacking);
     assert.deepEqual(Array.from(lackingStatus).filter(entry => INSTALLED.includes(entry.key) && entry.action !== null).map(entry => String(entry.key)), [],
         "tool facts declare no install action");
 }
@@ -316,15 +321,15 @@ function verifyClonedVoice(gate, judged) {
             label + ": the hint names " + (reason ?? "no withheld reason"));
         if (withheld !== null && action === undefined) assert.equal(value.text, withheld.text, label + ": the text names the reason");
         assert.equal(value.hint === gate.CLONE_READY_HINT, tone === "ok" && reason === null, label + ": only a ready row with nothing withheld takes the done hint");
-        const row = judge.statusRows(judged, { clonedVoiceSetup: value }, []).find(entry => entry.key === "clonedVoiceSetup");
+        const row = judge.statusRows(judged, { clonedVoiceSetup: value }).find(entry => entry.key === "clonedVoiceSetup");
         assert.deepEqual([row.setting, row.action.offered, row.action.tui || null], ["clonedVoice", tui !== null, tui], label + ": its press");
-        const tuis = judge.listedTuiRows(judged, []);
+        const tuis = judge.listedTuis(judged);
         assert.equal(settings.setupNeeds([row], [], true).open, false, label + ": the row alone opens no Setup needed");
         assert.equal(settings.detailEntries([row]).length, 0, label + ": Details draws no copy of it");
         const steps = settingsRows(settings.setupSections(tuis, judge.statusRows(judged,
-            { setupVoice: { tone: "warning", text: "To do", action: "setup" }, clonedVoiceSetup: value }, [])));
+            { setupVoice: { tone: "warning", text: "To do", action: "setup" }, clonedVoiceSetup: value })));
         assert.equal(steps.some(item => item.key === "clonedVoiceSetup"), false, label + ": the optional cloned voice stays off Setup");
-        assert.deepEqual(Array.from(settings.settingEntries([row], "clonedVoice")).map(entry => entry.key), ["clonedVoiceSetup"],
+        assert.deepEqual(settingActionRows(judged, tuis, [row]).map(line => [line.field, line.key]), [["clonedVoice", "clonedVoiceSetup"]],
             label + ": the cloned voice action belongs beside its setting");
         if (tui !== null)
             assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { clonedVoiceSetup: value }, "clonedVoiceSetup")),
@@ -729,12 +734,11 @@ const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 // More settings row: [where it draws on the page, its tone] for MANIFEST, a
 // judged manifest, and the keyStore value of WORDS.keysValue's OUTCOME.
 function removeKeyPlacement(judged, outcome) {
-    const status = judge.statusRows(judged, { keyStore: plain(words.keysValue(outcome)) }, []);
-    const tuis = judge.listedTuiRows(judged, []);
-    const rows = Array.from(settings.settingEntries(status, "brain")).filter(entry => settings.asideButton(entry) !== null)
-        .map(entry => ["row " + entry.key + " beside " + settings.stepButton(tuis, entry).label,
-            settings.asideButton(entry).label, settings.asideButton(entry).tone]);
-    const more = Array.from(settings.freeScreens(tuis, status, "Settings")).filter(button => button.name === "remove-key")
+    const status = judge.statusRows(judged, { keyStore: plain(words.keysValue(outcome)) });
+    const tuis = judge.listedTuis(judged);
+    const rows = settingActionRows(judged, tuis, status).filter(row => row.field === "brain" && row.aside !== null)
+        .map(row => ["row " + row.key + " beside " + row.button.label, row.aside.label, row.aside.tone]);
+    const more = Array.from(settings.freeScreens(tuis, status, "Settings", jarvisOn)).filter(button => button.name === "remove-key")
         .map(button => ["More settings", button.label, button.tone]);
     return rows.concat(more);
 }
@@ -843,9 +847,9 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
-            const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
+            const entry = judge.statusRows(manifest, values).find(item => item.key === "setupModel");
             assert.equal(entry.action.offered, row.want[1] !== undefined, row.name + ": the actual row action");
-            const setupRow = settingsRows(settings.setupSections([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values, [])))
+            const setupRow = settingsRows(settings.setupSections([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values)))
                 .find(item => item.entry.key === "setupModel");
             assert.equal(setupRow.button === null ? undefined : setupRow.button.name, MODEL_TUI[row.want[1]], row.name + ": Settings link");
             // A signed-out app replaces the cause's hint with its own.
@@ -951,7 +955,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                 { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
             assert.deepEqual(plain({ keys: root.voiceKeys }), plain({ keys: offered ?? undefined }), label + ": the keys the reader hands the service");
             assert.deepEqual(plain(root.providers), offered === null ? {} : { "claude-team": "claude" }, label + ": the providers the reader hands the service");
-            const entry = judge.statusRows(manifest, values, []).find(item => item.key === "voiceKey");
+            const entry = judge.statusRows(manifest, values).find(item => item.key === "voiceKey");
             assert.deepEqual(plain([entry.group, entry.tone, entry.action.offered, entry.action.tui]),
                 ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
             assert.equal(typeof entry.hint === "string" && entry.hint !== "", true, label + ": the row says what the key unlocks");
@@ -994,9 +998,8 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             "the Voice key help links provider keys beside Account on Settings");
         assert.deepEqual([field, manifest.schema.voice, row, eleven].map(entry => typeof entry.info === "string" && entry.info !== ""),
             [true, true, true, true], "each voice entry keeps its longer help behind the info button");
-        const declaredGuide = pageReference.parse(row.hint);
-        assert.deepEqual([declaredGuide.page, declaredGuide.tab, declaredGuide.words], ["vgs.jarvis", "Settings", manifest.schema.brain.label],
-            "the declared key guide links the Account field on Settings");
+        // The key row is the Voice key field's own line, beside its Add key.
+        assert.equal(pageReference.parse(row.hint).page, "", "the declared key guide, drawn beside its own Add key, links no page");
         assert.deepEqual([field.link.text, row.link.text].map(page => row.hint.includes(page)), [true, true],
             "the declared key guide keeps the provider key sources");
         // A row with a key stored asks for no key: its hint says what the
@@ -1050,7 +1053,7 @@ function verifyVoiceConsumers(gate) {
         const values = { ...plain(gate.readiness({ kind: "answered", causes })),
             localRuntime: { tone: "warning", text: "Not set up", action: true } };
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
-        const row = { status: judge.statusRows(manifest, values, []) };
+        const row = { status: judge.statusRows(manifest, values) };
         const setupEntry = settingsRows(settings.setupSections([], row.status)).find(item => item.entry.key === "setupVoice").entry;
         try {
             assert.deepEqual(plain([setupEntry.tone, setupEntry.action.offered]), expected);
@@ -1225,11 +1228,11 @@ function verifyReadiness(gate) {
     for (const accounts of [[], [{ provider: "copilot", value: "present" }]])
         assert.equal(judge.statusWrite(manifest, {}, "copilotMemory", plain(gate.copilotMemory(accounts))).ok, true, "the manifest judge accepts copilotMemory");
     // The row's link is words of its declared hint, to GitHub alone.
-    const memory = judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([{ provider: "copilot", value: "present" }])) }, [])
+    const memory = judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([{ provider: "copilot", value: "present" }])) })
         .find(entry => entry.key === "copilotMemory");
     assert.equal(memory.hint.includes(memory.link.text) && new URL(memory.link.url).hostname === "github.com", true);
     assert.equal(settings.statusView(memory, String).link.url, memory.link.url, "Settings draws the row's link");
-    assert.equal(judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([])) }, []).some(entry => entry.key === "copilotMemory"), false,
+    assert.equal(judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([])) }).some(entry => entry.key === "copilotMemory"), false,
         "no Copilot account, no row");
     for (const answer of answers)
         for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
@@ -1253,7 +1256,7 @@ function verifyReadiness(gate) {
         const hint = key === "setupVoice" ? "fixture state voice guidance" : "fixture declaration " + key;
         const accepted = judge.statusWrite(fixtureManifest, {}, key, published[key]);
         assert.equal(accepted.ok, true);
-        const row = judge.statusRows(fixtureManifest, accepted.values, []).find(entry => entry.key === key);
+        const row = judge.statusRows(fixtureManifest, accepted.values).find(entry => entry.key === key);
         const view = settings.statusView(row, String);
         assert.deepEqual(plain([view.hint, view.lines]), [hint, []], "Settings draws one badge with plain guidance: " + key);
     }
@@ -1390,7 +1393,7 @@ function verifyElevenLabsRow(gate, serviceSource) {
         } } };
         serviceCall(serviceSource, "publishElevenLabs", { shell, accountReader: { voiceProvider: facts.provider, voiceKeys: facts.keys },
             setupAnswer: facts.answer, voiceOffers: facts.voices }, gate);
-        const row = judge.statusRows(manifest, values, []).find(item => item.key === "elevenLabs");
+        const row = judge.statusRows(manifest, values).find(item => item.key === "elevenLabs");
         if (want === "hidden") {
             assert.equal(row, undefined, label + ": the ElevenLabs voices row is hidden");
             continue;
@@ -1414,7 +1417,7 @@ function verifyElevenLabsRow(gate, serviceSource) {
 
 // The Voice provider field's hint is the voiceRoute row the service
 // publishes from the chosen provider: each provider its own sentence,
-// naming it, drawn through the field's hintFrom.
+// naming it, drawn as the field's own line.
 function verifyVoiceRoute(gate, serviceSource) {
     const sentences = new Set();
     for (const option of manifest.schema.voiceProvider.options) {
@@ -1425,12 +1428,14 @@ function verifyVoiceRoute(gate, serviceSource) {
             return "ok";
         } } };
         serviceCall(serviceSource, "publishVoiceRoute", { shell }, gate);
-        const hint = settings.settingHint(manifest.schema.voiceProvider, judge.statusRows(manifest, values, []));
+        const status = judge.statusRows(manifest, values);
+        const own = featureLines(manifest, [], status).filter(line => line.field === "voiceProvider" && line.kind === "own");
+        assert.deepEqual(own.map(line => line.key), ["voiceRoute"], option.value + ": the Voice provider row draws the route as its own line");
+        const hint = status.find(entry => entry.key === "voiceRoute").hint;
         assert.equal(hint.includes(option.label), true, option.value + ": the Voice provider hint names " + option.label);
         sentences.add(hint);
     }
     assert.equal(sentences.size, manifest.schema.voiceProvider.options.length, "the Voice provider hint: one sentence per provider");
-    assert.equal(settings.settingHint(manifest.schema.voiceProvider, []), "", "the Voice provider hint: a page with no report draws none");
 }
 
 // Every Jarvis session row beside every Setup summary, its states taken
@@ -1588,20 +1593,18 @@ function verify(gate) {
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: false, answer: "refused: action=browserDriver reason=undeclared" }, "the driver row declares no step");
     // The Agent fleet row: hidden with no home or once the home's mail tool
-    // is found, else offering its setup terminal, and no step while kendex
-    // or another command that terminal needs is missing, which the page's
-    // Settings field offers to install.
+    // is found, else offering its setup terminal, whose press asks for kendex
+    // or another command that terminal needs first.
     for (const [label, home, tool, shown] of FLEET) {
         const value = plain(gate.fleetStep(home, tool));
         assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, label + ": the manifest judge accepts the row");
-        for (const missing of [[], ["kendex"]]) {
-            const row = judge.statusRows(judged, { setupFleet: value }, missing).find(entry => entry.key === "setupFleet");
-            assert.equal(row !== undefined, shown, label + ": the row shows");
-            if (!shown) continue;
-            assert.deepEqual([row.action.offered, row.action.tui, row.action.label],
-                missing.length > 0 ? [false, "", judged.status.setupFleet.action.label] : [true, "setup-fleet", judged.status.setupFleet.action.label],
-                label + ": the row offers its setup, and none while kendex is missing");
-        }
+        const row = judge.statusRows(judged, { setupFleet: value }).find(entry => entry.key === "setupFleet");
+        assert.equal(row !== undefined, shown, label + ": the row shows");
+        if (!shown) continue;
+        assert.deepEqual([row.action.offered, row.action.tui, row.action.label], [true, "setup-fleet", judged.status.setupFleet.action.label],
+            label + ": the row offers its setup");
+        assert.deepEqual(plain(judge.tuiRunFor(judged, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-fleet", ["kendex"])),
+            { ok: true, kind: "install", commands: ["kendex"] }, label + ": its press without kendex asks for it");
     }
     verifySetupButtons(gate, judged);
     verifyClonedVoice(gate, judged);
@@ -2252,19 +2255,19 @@ console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.lengt
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Settings page draws none while the row is hidden, and the offered row
-// draws its button, whose press the core turns into that terminal, but
-// while kendex is missing, which Settings offers to install.
+// draws its button, whose press the core turns into that terminal, kendex
+// missing or not: the press asks for it first.
 function verifySetupButtons(gate, manifest) {
     for (const [label, home, tool, shown] of FLEET)
         for (const missing of [[], ["kendex"]]) {
-            const tuis = judge.listedTuiRows(manifest, missing);
+            const tuis = judge.listedTuis(manifest);
             assert.equal(tuis.some(tui => tui.name === "setup-fleet"), false, label + ": the launcher lists no fleet setup");
             const value = plain(gate.fleetStep(home, tool));
-            const status = judge.statusRows(manifest, { setupFleet: value }, missing);
+            const status = judge.statusRows(manifest, { setupFleet: value });
             const steps = settingsRows(settings.setupSections(tuis, status));
             assert.equal(steps.some(item => item.key === "setupFleet"), false, label + ": optional fleet setup stays off Setup");
-            const row = settingActionRows(tuis, status).find(item => item.key === "setupFleet");
-            assert.equal(row !== undefined && row.button !== null, shown && missing.length === 0,
+            const row = settingActionRows(manifest, tuis, status).find(item => item.key === "setupFleet");
+            assert.equal(row !== undefined && row.button !== null, shown,
                 label + ": only the shown Settings fleet row draws its action, missing " + missing);
             if (shown)
                 assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
@@ -2278,17 +2281,17 @@ function drawnTwice(rows) {
     return names.filter((name, at) => names.indexOf(name) !== at);
 }
 function verifyScreensOnce(gate) {
-    const tuis = judge.listedTuiRows(manifest, []);
+    const tuis = judge.listedTuis(manifest);
     for (const [label, provider, causes, local, browser, input, offering, localTone] of ONCE) {
         const values = plain(gate.readiness({ kind: "answered", causes }));
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         values.setupModel = gate.modelStep(values.setupModel, [{ value: "absent" }], { kind: "absent" });
         Object.assign(values, plain({ localRuntime: gate.localVoiceStep(local, provider, values.setupVoice), browser: gate.optionalStep(browser), input: gate.optionalStep(input),
             keyStore: { tone: "ok", text: "1 key stored", action: true }, voiceKey: { tone: "info", text: "No key stored", action: true } }));
-        const status = judge.statusRows(manifest, values, []);
+        const status = judge.statusRows(manifest, values);
         const sections = Array.from(settings.setupSections(tuis, status));
         const required = settingsRows(sections);
-        const rows = required.concat(settingActionRows(tuis, status));
+        const rows = required.concat(settingActionRows(manifest, tuis, status));
         assert.deepEqual(drawnTwice(rows), [], label + ": each screen once");
         assert.equal(required.some(item => ["localRuntime", "browser", "input"].includes(item.key)), false,
             label + ": optional features stay off Setup");
@@ -2304,15 +2307,15 @@ function verifyScreensOnce(gate) {
     const both = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }));
     both.setupVoice = gate.voiceCheck(both.setupVoice, null);
     both.localRuntime = LOCAL_ABSENT;
-    const bothStatus = judge.statusRows(manifest, both, []);
-    assert.deepEqual(drawnTwice(settingsRows(settings.setupSections(tuis, bothStatus)).concat(settingActionRows(tuis, bothStatus))), ["setup-local"],
+    const bothStatus = judge.statusRows(manifest, both);
+    assert.deepEqual(drawnTwice(settingsRows(settings.setupSections(tuis, bothStatus)).concat(settingActionRows(manifest, tuis, bothStatus))), ["setup-local"],
         "two rows that offer Set up local voice turn the check red");
 }
 // Across required Voice setup and optional Local voice maintenance, the
 // shared judge projects each offered setup action once. Failed checks
 // retain their recovery guidance on the Settings state.
 function verifyOneLocalVoiceTask(gate, step) {
-    const tuis = judge.listedTuiRows(manifest, []);
+    const tuis = judge.listedTuis(manifest);
     for (const [voiceLabel, answer] of LOCAL_VOICE_TASK.voice)
         for (const [localLabel, reading] of LOCAL_VOICE_TASK.local)
             for (const provider of LOCAL_VOICE_TASK.providers) {
@@ -2322,9 +2325,9 @@ function verifyOneLocalVoiceTask(gate, step) {
                 const local = typeof reading === "string" ? gate.checkFailure(reading, manifest.status.localRuntime) : reading;
                 values.localRuntime = plain(step(local, provider, values.setupVoice));
                 assert.equal(judge.statusWrite(manifest, {}, "localRuntime", values.localRuntime).ok, true, label + ": the manifest judge accepts the Local voice row");
-                const status = judge.statusRows(manifest, values, []);
+                const status = judge.statusRows(manifest, values);
                 const required = settingsRows(settings.setupSections(tuis, status));
-                const attached = settingActionRows(tuis, status);
+                const attached = settingActionRows(manifest, tuis, status);
                 assert.equal(required.some(item => item.key === "localRuntime"), false, label + ": Local voice maintenance stays off Setup");
                 const rows = required.concat(attached);
                 const offering = rows.filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key));
@@ -2355,16 +2358,16 @@ function verifyCheckFailures(gate) {
             assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, key + " " + kind + ": the manifest judge accepts the value");
             assert.equal(typeof value.hint, "string", key + " " + kind + ": the row says why");
             if (kind !== "timeout") assert.equal(value.hint.includes(label), true, key + " " + kind + ": the hint names " + label);
-            const row = judge.statusRows(manifest, { [key]: value }, []).find(entry => entry.key === key);
+            const row = judge.statusRows(manifest, { [key]: value }).find(entry => entry.key === key);
             assert.equal(row.action.offered, kind !== "timeout", key + " " + kind + ": the row offers its setup only while setup mends it");
             if (kind !== "timeout") continue;
             assert.equal(value.tone, "info", key + " timeout: the check remains informational");
             assert.equal(settings.declaresStep(row), false, key + " timeout: the optional state stays off Setup");
             const completed = { ...plain(gate.readiness({ kind: "answered", causes: [] })), [key]: value };
-            assert.equal(settings.setupNeeds(judge.statusRows(manifest, completed, []), [], true).open, false,
+            assert.equal(settings.setupNeeds(judge.statusRows(manifest, completed), [], true).open, false,
                 key + " timeout: a completed required setup keeps its warning clear");
             const unchecked = { ...plain(gate.readiness({ kind: "checking" })), [key]: value };
-            assert.equal(settings.setupNeeds(judge.statusRows(manifest, unchecked, []), [], true).open, true,
+            assert.equal(settings.setupNeeds(judge.statusRows(manifest, unchecked), [], true).open, true,
                 key + " timeout: required setup still warns before its checks answer");
             assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], key + " timeout: the row draws no keyed cause");
         }
@@ -2412,7 +2415,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         }
         else assert.deepEqual(voice_, plain({ entry: gate.DICTATION[cause], loading: gate.noAction(gate.LOADING), done: gate.noAction(gate.DONE) }[expect]), label + ": the Voice step");
         assert.equal(values.setup.lines, undefined, label + ": the summary draws no cause line");
-        const row = judge.statusRows(manifest, values, missing).find(item => item.key === "setupVoice");
+        const row = judge.statusRows(manifest, values).find(item => item.key === "setupVoice");
         assert.equal(row.action.offered && row.action.label === "Set up dictation", offered, label + ": Set up dictation");
         if (offered)
             assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, values, "setupVoice")),
@@ -2421,7 +2424,7 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         // with no step: the page's Requirements section installs it.
         vm.runInNewContext("(function() { with(root) { return (" + publishRequirements[0] + ").call(root); } })()",
             { root: { shell, missing, voiceProvider: voice }, Gate: gate });
-        const voxtype = judge.statusRows(manifest, values, missing).find(item => item.key === "voxtype");
+        const voxtype = judge.statusRows(manifest, values).find(item => item.key === "voxtype");
         assert.deepEqual(voxtype === undefined ? "hidden" : [voxtype.action, voxtype.tone],
             !["local", "elevenlabs"].includes(voice) ? "hidden" : [null, missing.includes("voxtype") ? "warning" : "success"], label + ": the voxtype row");
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",

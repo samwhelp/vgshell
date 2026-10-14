@@ -213,7 +213,8 @@ function verify(logic) {
         same({ tone: shown.tone, text: shown.text, action: shown.action }, want, label);
         assert.equal(typeof shown.hint === "string" && shown.hint !== "", hinted, "a hint stands under the chip: " + label);
     }
-    assert.equal(logic.stepState({ state: "absent", reason: "greetd-missing" }).hint, "Needs greetd. Choose Review all missing or outdated tools on the [Tools step](page:vgs.greeter/Setup) to use the login screen.");
+    // The step draws on Setup, so no hint of it links to the tab it is on.
+    for (const [label, step] of STEPS) assert.doesNotMatch(logic.stepState(step).hint || "", /\(page:vgs\.greeter\/Setup\)/, "a step hint links to no Setup tab: " + label);
     const hints = STEPS.filter(([label, step]) => step !== null && step.state !== "unknown" && step.reason !== "other").map(([label, step]) => logic.stepState(step).hint).filter(hint => hint !== undefined);
     assert.equal(new Set(hints).size, hints.length, "each reason names its own why");
     assert.throws(() => logic.stepState({ state: "odd", reason: "x" }), /step state "odd"/, "an unknown state throws");

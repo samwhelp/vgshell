@@ -39,7 +39,7 @@ Item {
         StatusLine { id: warden; width: list.width; label: "Warden"; tone: "success"; text: "Checking"; hint: "Keeps AI agents within their memory and task limits" }
         StatusLine { id: agents; width: list.width; label: "Agents running"; text: "3" }
         StatusLine { id: hidden; width: list.width; label: "Hidden"; text: "gone"; visible: false }
-        RequirementRow { id: vsys; width: list.width; requirement: ({ name: "vsys", bus: null, state: "present", badge: { text: "Present", tone: "success" }, optional: false, purpose: "The agent dashboard that ships the warden" }) }
+        RequirementRow { id: vsys; width: list.width; requirement: ({ name: "vsys", title: "vsys", bus: null, state: "present", badge: { text: "Present", tone: "success" }, optional: false, purpose: "The agent dashboard that ships the warden" }) }
     }
 
     GroupList {
@@ -71,8 +71,8 @@ Item {
         GroupList {
             id: inkList
             width: inkFrame.width
-            RequirementRow { width: inkList.width; requirement: ({ name: "sh", bus: null, state: "present", badge: { text: "Present", tone: "success" }, optional: false, purpose: "A command every sandbox has" }) }
-            RequirementRow { width: inkList.width; requirement: ({ name: "absent", bus: null, state: "missing", badge: { text: "Optional", tone: "info" }, optional: true, purpose: "A command no sandbox has" }) }
+            RequirementRow { width: inkList.width; requirement: ({ name: "sh", title: "sh", bus: null, state: "present", badge: { text: "Present", tone: "success" }, optional: false, purpose: "A command every sandbox has" }) }
+            RequirementRow { width: inkList.width; requirement: ({ name: "absent", title: "absent", bus: null, state: "missing", badge: { text: "Optional", tone: "info" }, optional: true, purpose: "A command no sandbox has" }) }
             Field {
                 width: inkList.width
                 label: "Missing"

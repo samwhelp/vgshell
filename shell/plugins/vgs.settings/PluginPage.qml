@@ -33,36 +33,47 @@ FocusScope {
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
-    // Fields of no group are rows under the switches, `fields`, before
-    // every section. Built-in placement and same-named schema fields share
-    // one section; the built-ins come first, then each group in the order
-    // its first entry appears. The manifest's key order is the schema's. A
-    // `list` entry whose group exists on the page follows that group; one
-    // whose group is absent stays with ungrouped lists at the end. A
-    // `hideEmpty` field has no place while its select model is empty:
-    // nothing is offered for it.
-    function placed(key) {
-        return row.schema[key].type !== "list" && !(row.schema[key].hideEmpty === true && (row.settingChoices[key] || []).length === 0);
+    // What the page's lines act on: whether the plugin is on, its name and,
+    // while it is on, its first failed build in the shell's words, which a
+    // step it never reported reads in place of the wait (Steps.stepView).
+    readonly property var plugin: row === null ? { enabled: false, name: "", error: "" }
+        : { enabled: row.enabled, name: row.name, error: Reply.line(row.errors.find(error => error.startsWith("build failed: ")) || "ok") }
+
+    // The rows of the manager row's `fieldRows` (PluginLogic.fieldRows)
+    // decide each field's section. Fields of no group are rows under the
+    // switches, `fields`, before every section. Built-in placement and
+    // same-named schema fields share one section; the built-ins come first,
+    // then each group in the order its first field appears. A `list` field
+    // whose group exists on the page follows that group; one whose group is
+    // absent stays with ungrouped lists at the end. A `hideEmpty` field has
+    // no place while its select model is empty and nothing is attached to
+    // it: nothing is offered for it.
+    function attaches(field) {
+        return field.own !== "" || field.entries.length > 0 || field.keyLists.length > 0 || field.tools.length > 0 || field.screens.length > 0;
     }
-    readonly property var fields: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].group === undefined && placed(key))
+    function placed(field) {
+        return !field.list && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !attaches(field));
+    }
+    function fieldRow(key) {
+        return row === null ? null : row.fieldRows.find(field => field.key === key) || null;
+    }
+    readonly property var fields: row === null ? [] : row.fieldRows.filter(field => field.section === "" && placed(field)).map(field => field.key)
     readonly property var sections: {
         if (row === null) return [];
         const out = row.builtins.map(builtin => ({ group: builtin.name, keys: [], builtin: builtin }));
-        for (const key of Object.keys(row.schema).filter(key => row.schema[key].group !== undefined && placed(key))) {
-            const group = row.schema[key].group;
-            let section = out.find(s => s.group === group);
+        for (const field of row.fieldRows.filter(field => field.section !== "" && placed(field))) {
+            let section = out.find(s => s.group === field.section);
             if (section === undefined) {
-                section = { group: group, keys: [], builtin: null };
+                section = { group: field.section, keys: [], builtin: null };
                 out.push(section);
             }
-            section.keys.push(key);
+            section.keys.push(field.key);
         }
-        for (const key of Object.keys(row.schema).filter(key => row.schema[key].type === "list")) {
-            const group = row.schema[key].group;
-            const section = group === undefined ? undefined : out.find(s => s.group === group);
+        for (const field of row.fieldRows.filter(field => field.list && field.section !== "")) {
+            const section = out.find(s => s.group === field.section);
             if (section !== undefined) {
                 if (section.lists === undefined) section.lists = [];
-                section.lists.push(key);
+                section.lists.push(field.key);
             }
         }
         return out;
@@ -71,8 +82,7 @@ FocusScope {
     readonly property var lists: {
         if (row === null) return [];
         const groups = page.sections.map(section => section.group);
-        return Object.keys(row.schema).filter(key => row.schema[key].type === "list"
-            && (row.schema[key].group === undefined || groups.indexOf(row.schema[key].group) === -1));
+        return row.fieldRows.filter(field => field.list && (field.section === "" || groups.indexOf(field.section) === -1)).map(field => field.key);
     }
     // The Setup tab's status sections in drawn order, with their rows,
     // keys and setup actions.
@@ -80,10 +90,10 @@ FocusScope {
     // Required declarations keep their tab after completion.
     readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
     readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled).open
-    readonly property var moreSettings: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Settings")
+    readonly property var moreSettings: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Settings", plugin)
     // The listed screens Details draws in its Actions row: those that are
     // no setup screens and that no status entry declares.
-    readonly property var detailScreens: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Details")
+    readonly property var detailScreens: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Details", plugin)
     // Keep the selected tab by name when a new plugin changes the strip.
     // If that plugin has no Setup tab, an open Setup moves to Details.
     onHasSetupChanged: {
@@ -118,163 +128,203 @@ FocusScope {
         return row === null ? null : row.status.find(entry => entry.key === key) || null;
     }
 
+    // Run BUTTON, one action a line draws (Steps.js), for ENTRY, the status
+    // entry of its line, or null: Turn on through the Enabled switch's
+    // route, the requirement notice, a listed screen or the entry's own
+    // action; answers the manager's reply.
+    function press(button, entry) {
+        switch (button.kind) {
+        case "enable": return panel.setEnabled(row.id, true);
+        case "tools": return panel.installRequirements(row.id);
+        case "tui": return panel.openTui(row.id, button.name);
+        case "status": return panel.act(row.id, entry.key);
+        }
+        throw new Error("settings: action kind " + JSON.stringify(button.kind) + " has no route");
+    }
+    // The last refusal of BUTTON's press for ENTRY's line, "" for none: a
+    // screen's and an entry's own are kept by their step key; a Turn on's
+    // and the notice's read at the page head.
+    function replyFor(button, entry) {
+        if (button === null || row === null || panel === null) return "";
+        if (button.kind === "tui") return panel.replyOf(row.id, panel.tuiKey(button.name));
+        return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
+    }
+
+    // One line of the page drawn from a status entry, or from none: a Setup
+    // step, or a line of a Settings field (Steps.featureRow). ACTION,
+    // ASIDE_ACTION and MORE are the line's actions, which its owner reads
+    // from Steps.js, and FALLBACK_HINT what it reads where its entry has no
+    // hint.
     component EntryRow: StatusLine {
         id: stateRow
         required property var entry
         property bool setup: false
-        property bool tools: false
-        property var fieldSpec: null
-        readonly property var toolStep: tools && page.row !== null ? Steps.requirementStep(page.row.requirements) : null
-        readonly property var view: setup ? Steps.stepView(entry, ms => Timestamp.text(ms, Time.now.getTime())) : Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
-        readonly property var action: tools ? toolStep === null || toolStep.done ? null : { name: "", label: toolStep.button, tone: "" } : entry === null || page.row === null ? null : Steps.stepButton(page.row.tuis, entry)
-        readonly property var asideAction: entry === null ? null : Steps.asideButton(entry)
+        property var action: null
+        property var asideAction: null
+        property var more: []
+        property string fallbackHint: ""
+        readonly property var view: setup ? Steps.stepView(entry, ms => Timestamp.text(ms, Time.now.getTime()), page.plugin) : Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
         width: parent.width
-        label: fieldSpec === null ? view.label : fieldSpec.label
+        label: view.label
         info: view.info
         tone: view.tone
         text: view.text
         muted: view.muted
         lines: view.lines
         plainLines: setup
-        hint: view.hint !== "" || fieldSpec === null ? view.hint : Steps.settingHint(fieldSpec, page.row === null ? [] : page.row.status)
+        hint: view.hint !== "" ? view.hint : fallbackHint
         hintLink: view.link === null ? "" : view.link.text
         onHintLinkActivated: page.panel.openLink(page.row.id, view.link)
         onHintPageActivated: (id, tab) => page.panel.openPage(id, tab)
-        readonly property string actionError: page.row === null || page.panel === null || entry === null ? "" : page.panel.replyOf(page.row.id, action !== null && action.name !== "" ? page.panel.tuiKey(action.name) : entry.key)
-        error: actionError !== "" || asideAction === null || page.row === null || page.panel === null ? actionError : page.panel.replyOf(page.row.id, page.panel.tuiKey(asideAction.name))
-        busy: !page.editable
+        error: [action, asideAction].concat(more).map(button => page.replyFor(button, entry)).find(reply => reply !== "") || ""
         actionOffered: action !== null
         actionLabel: action === null ? "" : action.label
         actionTone: action === null ? "" : action.tone
-        onAct: {
-            if (tools) page.panel.installRequirements(page.row.id);
-            else if (action.name !== "") page.panel.openTui(page.row.id, action.name);
-            else page.panel.act(page.row.id, entry.key);
-        }
+        onAct: page.press(action, entry)
         asideOffered: asideAction !== null
         asideLabel: asideAction === null ? "" : asideAction.label
         asideTone: asideAction === null ? "" : asideAction.tone
-        onAside: page.panel.openTui(page.row.id, asideAction.name)
+        onAside: page.press(asideAction, entry)
+        moreSteps: more
+        onMoreStep: index => page.press(more[index], entry)
     }
 
     component ChoiceField: Column {
         id: choiceField
         property alias pluginId: editor.pluginId
         property alias key: editor.key
+        // The key a page reference names the row by (revealField).
+        readonly property string fieldKey: key
         property alias spec: editor.spec
         property alias value: editor.value
         property alias choices: editor.choices
         property alias status: editor.status
         property alias editable: editor.editable
         property alias edits: editor.edits
+        // Whether the row's last shown line ends in sub-text, which takes
+        // the room under the row a Field takes (Theme.subTextRoom).
+        readonly property bool subText: {
+            const shown = children.filter(child => child.visible && child.height > 0);
+            return shown.length > 0 && shown[shown.length - 1].subText === true;
+        }
         signal apply(var value)
         signal openLink(var link)
         signal openPage(string id, string tab)
         signal choicesWanted()
         spacing: Theme.stack.row
+        bottomPadding: Theme.subTextRoom(choiceField.subText, Positioner.index, Positioner.isLastItem, parent)
         SettingField {
             id: editor
             width: parent.width
-            visible: spec.type !== "action" || extras.attached.length === 0
+            visible: spec.type !== "action"
             onApply: value => choiceField.apply(value)
             onOpenLink: link => choiceField.openLink(link)
             onOpenPage: (id, tab) => choiceField.openPage(id, tab)
             onChoicesWanted: choiceField.choicesWanted()
         }
         ChoiceExtras {
-            id: extras
             width: parent.width
             key: choiceField.key
-            spec: choiceField.spec
-            status: choiceField.status
         }
     }
 
+    // The lines a field draws under its control, one feature row
+    // (Steps.featureRow): its entries, its key lists, then its screens and
+    // its tools. Each delegate reads its line again by slot, so a status
+    // write, which hands the page new objects, keeps a key list's open
+    // masked field.
     component ChoiceExtras: Column {
         id: choiceExtras
         required property string key
-        required property var spec
-        required property var status
-        readonly property var attached: Steps.settingEntries(status, key)
-        readonly property var tools: page.row === null ? [] : Steps.settingRequirements(page.row.requirements, key)
-        readonly property var screens: page.row === null ? [] : Steps.freeScreens(page.row.tuis, page.row.status, key)
+        readonly property var field: page.fieldRow(key)
+        readonly property var lines: field === null ? [] : Steps.featureRow(field, page.row, page.plugin)
+        readonly property bool subText: {
+            const shown = children.filter(child => child.visible && child.height > 0);
+            return shown.length > 0 && shown[shown.length - 1].subText === true;
+        }
+        function lineOf(slot) { return lines.find(line => line.slot === slot) || null; }
         spacing: Theme.stack.row
+        bottomPadding: Theme.subTextRoom(choiceExtras.subText, Positioner.index, Positioner.isLastItem, parent)
         Repeater {
-            model: ScriptModel { values: choiceExtras.attached; objectProp: "key" }
-            Loader {
-                id: attachedEntry
+            model: ScriptModel { values: choiceExtras.lines.filter(line => line.kind === "own" || line.kind === "entry"); objectProp: "slot" }
+            EntryRow {
+                id: entryLine
                 required property var modelData
+                readonly property var line: choiceExtras.lineOf(modelData.slot)
                 width: choiceExtras.width
-                readonly property var entry: page.statusEntry(modelData.key)
-                sourceComponent: entry !== null && Steps.listsKeys(entry) ? attachedKeys : attachedState
-                Component {
-                    id: attachedKeys
-                    StatusRow {
-                        entry: attachedEntry.entry
-                        panel: page.panel
-                        pluginId: page.row === null ? "" : page.row.id
-                        secretLabel: page.row === null ? "" : page.row.secretLabel
-                        onOpenLink: link => page.panel.openLink(page.row.id, link)
-                        onOpenPage: (id, tab) => page.panel.openPage(id, tab)
-                    }
-                }
-                Component { id: attachedState; EntryRow { entry: attachedEntry.entry; fieldSpec: choiceExtras.spec.type === "action" ? choiceExtras.spec : null } }
+                entry: page.statusEntry(modelData.key)
+                label: entryLine.line === null ? "" : entryLine.line.label
+                fallbackHint: entryLine.line === null ? "" : entryLine.line.hint
+                action: entryLine.line === null ? null : entryLine.line.action
+                asideAction: entryLine.line === null ? null : entryLine.line.aside
             }
         }
         Repeater {
-            model: choiceExtras.tools
-            RequirementRow { required property var modelData; width: choiceExtras.width; requirement: modelData }
-        }
-        Field {
-            width: parent.width
-            label: "Tools"
-            inline: true
-            visible: choiceExtras.tools.some(Steps.requirementApplies)
-            RowAction {
-                text: "Review all missing or outdated tools"
-                enabled: page.editable
-                onClicked: page.panel.installRequirements(page.row.id)
-            }
-        }
-        Field {
-            width: parent.width
-            label: "Actions"
-            inline: true
-            visible: choiceExtras.screens.length > 0
-            hint: Steps.withheldHint(choiceExtras.screens)
-            RowActions {
-                Repeater {
-                    model: choiceExtras.screens
-                    RowAction {
-                        id: choiceScreen
-                        required property var modelData
-                        text: modelData.label
-                        enabled: page.editable && modelData.enabled
-                        onClicked: page.panel.openTui(page.row.id, modelData.name)
-                        Tooltip { text: choiceScreen.modelData.reason }
-                    }
+            model: ScriptModel { values: choiceExtras.lines.filter(line => line.kind === "keys"); objectProp: "slot" }
+            Column {
+                id: keyLine
+                required property var modelData
+                readonly property bool subText: keys.subText
+                width: choiceExtras.width
+                bottomPadding: Theme.subTextRoom(keyLine.subText, Positioner.index, Positioner.isLastItem, parent)
+                StatusRow {
+                    id: keys
+                    width: keyLine.width
+                    entry: page.statusEntry(keyLine.modelData.key)
+                    panel: page.panel
+                    pluginId: page.row === null ? "" : page.row.id
+                    secretLabel: page.row === null ? "" : page.row.secretLabel
+                    onOpenLink: link => page.panel.openLink(page.row.id, link)
+                    onOpenPage: (id, tab) => page.panel.openPage(id, tab)
                 }
             }
         }
         Repeater {
-            model: choiceExtras.screens
-            Label {
+            model: ScriptModel { values: choiceExtras.lines.filter(line => line.kind === "screens" || line.kind === "tools"); objectProp: "slot" }
+            EntryRow {
+                id: actionLine
                 required property var modelData
+                readonly property var line: choiceExtras.lineOf(modelData.slot)
                 width: choiceExtras.width
-                role: "hint"
-                color: Theme.color.danger
-                text: page.row === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData.name))
-                visible: text !== ""
-                wrapMode: Text.Wrap
+                entry: null
+                label: actionLine.line === null ? "" : actionLine.line.label
+                fallbackHint: actionLine.line === null ? "" : actionLine.line.hint
+                lines: actionLine.line === null ? [] : actionLine.line.lines
+                plainLines: true
+                action: actionLine.line === null ? null : actionLine.line.action
+                more: actionLine.line === null ? [] : actionLine.line.more
             }
         }
     }
 
     // Show the page as it opens: on TAB, a tab's text, or on Settings when
-    // the page has no such tab, the back button focused.
+    // the page has no such tab, the back button focused. A `Settings/<field
+    // key>` tab (PageReference.place) also brings that field into view.
     function open(reason, tab) {
-        tabs.currentIndex = Math.max(0, tabs.model.indexOf(tab));
+        const place = PageReference.place(tab);
+        revealing = place.field;
+        tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
         back.forceActiveFocus(reason);
+        if (revealing !== "") Qt.callLater(page.revealField);
+    }
+
+    // The key of the field an open asked to show, "" once it is shown. The
+    // Settings tab lays out a newly shown plugin's rows after the open, so
+    // each layout that completes tries again (Column.positioningComplete);
+    // the call waits for the next turn, as SettingField's reveal does.
+    property string revealing: ""
+    // Scroll the Settings tab to the row of the field `revealing` names,
+    // once the page draws it.
+    function revealField() {
+        const found = [settingsPage];
+        for (let i = 0; i < found.length && revealing !== ""; i++) {
+            if (found[i].fieldKey === revealing && found[i].visible) {
+                layout.scrollArea.reveal(found[i]);
+                revealing = "";
+                return;
+            }
+            for (const child of found[i].children) found.push(child);
+        }
     }
 
     // Write every unsaved edit; answers whether none is left.
@@ -409,6 +459,7 @@ FocusScope {
                 Column {
                     id: settingsPage
                     spacing: Theme.stack.page
+                    onPositioningComplete: if (page.revealing !== "") Qt.callLater(page.revealField)
 
                     // The switches, then the fields of no group, rows of
                     // one list, so a row with a hint leaves `stack.group`
@@ -429,7 +480,7 @@ FocusScope {
                                 checked: page.row !== null && page.row.enabled
                                 onToggled: {
                                     checked = Qt.binding(() => page.row !== null && page.row.enabled);
-                                    if (page.row !== null) page.panel.toggle(page.row.id);
+                                    if (page.row !== null) page.panel.setEnabled(page.row.id, !page.row.enabled);
                                 }
                             }
                         }
@@ -564,8 +615,6 @@ FocusScope {
                                     ChoiceExtras {
                                         width: groupedListSection.width
                                         key: groupedListSection.modelData
-                                        spec: page.row.schema[key]
-                                        status: page.row.status
                                     }
                                 }
                             }
@@ -602,8 +651,6 @@ FocusScope {
                             ChoiceExtras {
                                 width: listSection.width
                                 key: listSection.modelData
-                                spec: page.row.schema[key]
-                                status: page.row.status
                             }
                         }
                     }
@@ -650,7 +697,7 @@ FocusScope {
                             error: page.row === null ? "" : page.panel.replyOf(page.row.id, page.panel.tuiKey(modelData.name))
                             RowAction {
                                 text: moreSettingsRow.modelData.label
-                                enabled: page.editable && moreSettingsRow.modelData.enabled
+                                enabled: moreSettingsRow.modelData.enabled
                                 onClicked: page.panel.openTui(page.row.id, moreSettingsRow.modelData.name)
                             }
                         }
@@ -710,7 +757,20 @@ FocusScope {
                                             onOpenPage: (id, tab) => page.panel.openPage(id, tab)
                                         }
                                     }
-                                    Component { id: requiredState; EntryRow { entry: requiredEntry.modelData.entry; setup: true; tools: requiredEntry.modelData.tools === true } }
+                                    Component {
+                                        id: requiredState
+                                        // The step's entry and its actions read the manager
+                                        // row again, as its key list does, since ScriptModel
+                                        // can keep a moved row's modelData.
+                                        EntryRow {
+                                            readonly property bool tools: requiredEntry.modelData.tools === true
+                                            entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
+                                            setup: true
+                                            action: page.row === null ? null : tools ? Steps.requirementStep(page.row.requirements).button
+                                                : entry === null ? null : Steps.lineAction(Steps.stepButton(page.row.tuis, entry), Steps.stepOpen(entry), page.plugin)
+                                            asideAction: entry === null || tools || !page.plugin.enabled ? null : Steps.asideButton(entry)
+                                        }
+                                    }
                                 }
                             }
 
@@ -795,9 +855,9 @@ FocusScope {
                         // Each screen opens through the manager, and the
                         // last refusal of each reads under the row in its
                         // own line, so it never takes the hint's place. A
-                        // withheld screen takes no press and no Tab stop;
-                        // its reason reads in the row's hint and opens on
-                        // hover, as on Setup.
+                        // screen of a plugin that is off takes no press and
+                        // no Tab stop; its reason reads in the row's hint
+                        // and opens on hover.
                         Column {
                             id: detailActions
                             width: parent.width
@@ -819,7 +879,7 @@ FocusScope {
                                             id: detailScreen
                                             required property var modelData
                                             text: modelData.label
-                                            enabled: page.editable && modelData.enabled
+                                            enabled: modelData.enabled
                                             onClicked: page.panel.openTui(page.row.id, modelData.name)
                                             Tooltip { text: detailScreen.modelData.reason }
                                         }

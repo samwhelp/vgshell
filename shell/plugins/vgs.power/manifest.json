@@ -31,7 +31,8 @@
     {
       "dbus": {
         "bus": "system",
-        "name": "org.freedesktop.UPower.PowerProfiles"
+        "name": "org.freedesktop.UPower.PowerProfiles",
+        "label": "Power profiles service"
       },
       "packages": {
         "pacman": "power-profiles-daemon",

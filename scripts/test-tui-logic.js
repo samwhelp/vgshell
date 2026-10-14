@@ -299,7 +299,6 @@ function suite(ctx, check) {
         { name: "zeta", label: "Update the system", icon: "terminal", setting: "", settings: false },
         { name: "alpha", label: "First things", icon: "wrench", setting: "", settings: true },
     ]);
-    check("listedTuiRows: a row keeps its screen's settings mark", ctx.listedTuiRows(ordered, []).map(row => [row.name, row.settings]), [["zeta", false], ["alpha", true]]);
     check("listedTuis: a manifest with no tui key lists none", ctx.listedTuis(ctx.validateManifest(manifestWith(undefined), "/p").manifest), []);
     // listedTuiRequest: [name, manifest, id, TUI name, the request or the
     // manager's reply]. The request's run judges a disabled plugin, as the
@@ -899,7 +898,6 @@ const CONTROLS = [
     ["an entry has a group", "if (!tuiText(entry.group))", "if (false)"],
     ["an entry settings is a boolean", "if (entry.settings !== undefined && typeof entry.settings !== \"boolean\")", "if (false)"],
     ["a listed screen carries its settings mark", "settings: manifest.tui[name].entry.settings === true };", "settings: false };"],
-    ["a manager row carries its screen's settings mark", "icon: tui.icon, setting: tui.setting, settings: tui.settings, withheld:", "icon: tui.icon, setting: tui.setting, settings: false, withheld:"],
     ["the tui judge runs the window judge", "        var windowError = tuiWindowError(at, row);\n        if (windowError !== \"\")\n            return windowError;\n", ""],
     ["the tui judge runs the entry judge", "        var entryError = tuiEntryError(at, row.entry);\n        if (entryError !== \"\")\n            return entryError;\n", ""],
     ["a core TUI name is a name", "if (!ConfigLogic.NAME_PATTERN.test(name))\n        return \"core TUI name ", "if (false)\n        return \"core TUI name "],

@@ -10,10 +10,9 @@ import qs.Ui
 // for a missing optional requirement, since the purpose under it says what
 // the tool adds, or Outdated for a command below the version the plugin
 // needs, optional or not, since an installed tool the plugin calls fails
-// below that version. The row draws no step
-// of its own: the adjacent field's all-tools notice action,
-// shown while one requirement's step applies (Steps.js), installs what is
-// missing and updates what is outdated.
+// below that version. Details lists the automatic alternatives with it, by
+// the requirement's title, its command or its D-Bus label; the row draws
+// no step of its own.
 Column {
     id: row
 
@@ -22,7 +21,7 @@ Column {
 
     Field {
         width: row.width
-        label: row.requirement.name
+        label: row.requirement.title
         inline: true
         hint: row.requirement.purpose
         Item {

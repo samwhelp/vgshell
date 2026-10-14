@@ -3,8 +3,8 @@
 # terminal, every text that names one of them has it offered, with nothing
 # found and in a partial search whose row names Accounts, and the AI model
 # setting reads its empty text, closed, beside Add key; without a command
-# only Accounts needs, the search row withholds Accounts and offers no step,
-# and Add key stays offered. With a Copilot account, and only then, Settings shows the
+# only Accounts needs, both stay offered, since a press asks for what its
+# terminal lacks. With a Copilot account, and only then, Settings shows the
 # Copilot Memory step and its link to GitHub. The AI model status hint
 # draws a link that opens Settings; plain words fail the link reading.
 # A click on the Microphone
@@ -122,43 +122,12 @@ named=sorted({button for button in ("Add key", "Accounts") for text in texts if 
 print(json.dumps([named, [button for button in named if button not in offered]]))
 '
 }
-expect_poll "every text that names Add key has the button offered" '[["Add key"], []]' page_named_buttons
-# Rename every page action for the key TUI, so no other row can supply
-# the button the unchanged keyring hint names.
-python3 - "$page_manifest" <<'PY'
-from pathlib import Path
-import json,sys
-p=Path(sys.argv[1])
-assert not p.is_symlink()
-s=p.read_text()
-manifest=json.loads(s)
-changed_keys=[]
-for key,row in manifest["status"].items():
-    for action in [row.get("action", {})] + list(row.get("actions", {}).values()):
-        if action.get("tui") == "add-key":
-            action["label"]="Add an API key"
-            changed_keys.append(key)
-assert "keyStore" in changed_keys
-changed=json.dumps(manifest, indent=2)+"\n"
-assert changed != s
-p.write_text(changed)
-PY
-jarvis_rescan
-expect_poll "the label control offers its own step" '["Add an API key", true, "info"]' page_offered keyStore
-page_button_control() {
-  (failures=0 behaviour_failures=0
-   expect "a hint must name only a button the page offers" '[["Add key"], []]' page_named_buttons >"$sandbox/jarvis-page-button-control.log"
-   echo "$failures")
-}
-expect "a hint that names a missing button breaks the named-button read" 1 page_button_control
-cp -- "$sandbox/page-manifest-original" "$page_manifest"
-jarvis_rescan
-expect_poll "the restored page offers Add key again" '["Add key", true, "info"]' page_offered keyStore
+expect_poll "no text names a button the page does not offer" '[[], []]' page_named_buttons
 # A partial search's row names Accounts, which it offers.
 printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "a partial search warns and offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch
-expect_poll "every text that names Add key or Accounts has the button offered" '[["Accounts", "Add key"], []]' page_named_buttons
+expect_poll "every text that names Accounts has the button offered" '[["Accounts"], []]' page_named_buttons
 # A manifest copy whose search step reads another label: the search
 # row's text then names a button the page lacks.
 python3 - "$page_manifest" <<'PY'
@@ -178,7 +147,7 @@ jarvis_rescan
 expect_poll "the search label control offers its own step" '["Find accounts", true, "warning"]' page_offered accountSearch
 page_accounts_control() {
   (failures=0 behaviour_failures=0
-   expect "a text must name only a button the page offers" '[["Accounts", "Add key"], []]' page_named_buttons >"$sandbox/jarvis-page-accounts-control.log"
+   expect "a text must name only a button the page offers" '[["Accounts"], []]' page_named_buttons >"$sandbox/jarvis-page-accounts-control.log"
    echo "$failures")
 }
 expect "a search text that names a missing button breaks the named-button read" 1 page_accounts_control
@@ -192,12 +161,11 @@ page_field_state() { page_field | py_reply 'import json,sys; d=json.load(sys.std
 expect_poll "with nothing found the closed AI model setting reads its empty text" '[[], "", false, true]' page_field_state
 expect "Add key is offered beside it" '["Add key", true, "info"]' page_offered keyStore
 
-# Each step is withheld only for a command its own terminal needs. Every
-# sandbox shell lacks tesseract, which neither step needs, so both are
-# offered above. Without ss, which Accounts needs and Add key does not,
-# the partial search, whose own text names Accounts, withholds Accounts,
-# until the required tool is available, and no text
-# names a step the page lacks.
+# A step stays offered whatever command its own terminal lacks: its press
+# asks for that command first. Every sandbox shell lacks tesseract, which
+# neither step needs. Without ss, which Accounts needs and Add key does
+# not, the partial search, whose own text names Accounts, still offers
+# Accounts, and no text names a step the page lacks.
 expect "the sandbox shell lacks tesseract" none shell_resolves tesseract
 printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
@@ -206,9 +174,9 @@ page_ss="$(shell_resolves ss)"
 [[ $page_ss == "$sandbox/host-path/ss" ]] || fail "ss resolves outside the sandbox's host links: $page_ss"
 mv -- "$page_ss" "$sandbox/page-ss"
 rescan "the page rescans without ss"
-expect_poll "without ss the search row withholds Accounts" '["Accounts", false, "warning"]' page_offered accountSearch
+expect_poll "without ss the search row still offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch
 expect_poll "without ss Add key is still offered" '["Add key", true, "info"]' page_offered keyStore
-expect_poll "without ss every text that names Add key or Accounts has the button offered" '[["Add key"], []]' page_named_buttons
+expect_poll "without ss every text that names Accounts has the button offered" '[["Accounts"], []]' page_named_buttons
 mv -- "$sandbox/page-ss" "$page_ss"
 rescan "the page rescans with ss back"
 expect_poll "with ss back the partial search offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch

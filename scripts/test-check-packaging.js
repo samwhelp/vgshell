@@ -197,7 +197,7 @@ function plantPluginDbusRequirement(tree, name, packages) {
     const requirements = manifest.requirements || [];
     const nameOf = entry => entry.command || entry.dbus.name;
     if (requirements.some(entry => nameOf(entry) === name)) throw new Error("plugin requirement: refused: declared=" + name);
-    manifest.requirements = requirements.concat([{ dbus: { bus: "system", name }, packages, optional: false, purpose: "A planted bus requirement" }]);
+    manifest.requirements = requirements.concat([{ dbus: { bus: "system", name, label: "Planted service" }, packages, optional: false, purpose: "A planted bus requirement" }]);
     fs.writeFileSync(file, JSON.stringify(manifest));
 }
 

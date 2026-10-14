@@ -16,7 +16,11 @@ import qs.Ui
 // group never leaves its value column empty. Its lines sit `field.gap` apart: one group of the row's GroupList.
 //
 // The step is one of: `actionLabel` while `actionOffered`, an action in
-// `actionTone` that emits `act`; or, for a line that is the presence of a
+// `actionTone` that emits `act`, with `asideLabel` while `asideOffered`
+// after it, which emits `aside`, and one more action for each of
+// `moreSteps`, { label, tone, enabled, reason }, which emits `moreStep`
+// with its index, its `reason` on hover while it takes no press; or, for a
+// line that is the presence of a
 // secret, by `access`: `connect`, an Add key action, and `disconnect`, a
 // Replace action before a Remove action in the danger tone that emits
 // `clearSecret`. Add key and Replace open a masked field under the line
@@ -24,7 +28,9 @@ import qs.Ui
 // it. A line with no
 // value, such as a secret nothing is stored for, starts its step on the
 // value column. `busy` disables the step while its write runs; `error`,
-// when set, reads in the hint's place in the error colour.
+// when set, reads in the hint's place in the error colour. A line that ends
+// in a hint, lines or an error takes the room under it a Field takes
+// (Theme.subTextRoom), `subText`.
 Column {
     id: line
 
@@ -45,6 +51,7 @@ Column {
     property string asideLabel: ""
     property bool asideOffered: false
     property string asideTone: ""
+    property var moreSteps: []
     property bool busy: false
     property string error: ""
     // What the masked field asks for: the plugin's `secrets` label.
@@ -54,10 +61,12 @@ Column {
     // What the line offers for its secret: Add key, or Replace and Remove.
     readonly property bool adds: access === "connect"
     readonly property bool stored: access === "disconnect"
-    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || asideOffered || adds || stored
+    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || asideOffered || moreSteps.length > 0 || adds || stored
+    readonly property bool subText: field.subText
 
     signal act()
     signal aside()
+    signal moreStep(int index)
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal storeSecret(string value)
@@ -79,6 +88,7 @@ Column {
     }
 
     spacing: Theme.field.gap
+    bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
 
     readonly property bool valued: tone !== "" || text !== ""
 
@@ -172,6 +182,19 @@ Column {
                         text: line.asideLabel
                         tone: line.asideTone === "danger" ? "danger" : "accent"
                         onClicked: line.aside()
+                    }
+                    Repeater {
+                        model: line.moreSteps
+                        RowAction {
+                            id: moreAction
+                            required property var modelData
+                            required property int index
+                            enabled: !line.busy && modelData.enabled
+                            text: modelData.label
+                            tone: modelData.tone === "danger" ? "danger" : "accent"
+                            onClicked: line.moreStep(index)
+                            Tooltip { text: moreAction.modelData.reason }
+                        }
                     }
                     RowAction {
                         visible: line.adds

@@ -5,8 +5,8 @@
 # shell's PATH, which holds no host claude or codex (qml-smoke.sh's
 # shell_hidden_commands), finds the stand-in scripts/fixtures/ai-usage/codex
 # and a claude the row plants. Both stand-ins answer reset times relative
-# to each request. It reads the Settings page's Sign in per tool, withheld
-# while that tool is missing, whose TUI the stand-in terminal records; the
+# to each request. It reads the Settings page's Sign in per tool, offered
+# whether that tool is installed or not, whose TUI the stand-in terminal records; the
 # widget's share, tone and hidden state; the panel's rows, notes, figure
 # shared check age, reset times and height cap, half its output's logical height; that
 # opening the panel publishes no read and sends the endpoint no request;
@@ -106,8 +106,7 @@ usage_widget_state() {
   python3 -c 'import json,sys; v,w,p,t=(json.loads(a) for a in sys.argv[1:]); print(json.dumps([v, w > 0, p, t]))' "$visible" "$width" "$percent" "$tone"
 }
 # Each sign-in row's step as the Settings page draws it: [key, `sign-in`
-# while it offers the manifest's own Sign in, else `withheld`, offered]. A
-# withheld row keeps its label and offers no button.
+# while it offers the manifest's own Sign in, else `withheld`, offered].
 usage_steps() {
   offered_actions vgs.ai-usage | py_reply 'import json,sys
 labels = {k: v["action"]["label"] for k, v in json.load(open(sys.argv[1]))["status"].items() if "action" in v}
@@ -299,8 +298,8 @@ usage_poll_control() { # LOG LABEL WANT CMD...
    echo "$failures")
 }
 
-# Sign in per tool: with claude present and codex missing, Settings offers
-# Claude Code's Sign in and withholds Codex's; with both present, both.
+# Sign in per tool: Settings offers each tool's Sign in whether the tool is
+# installed or not, since a press without it asks for it first.
 printf '#!/bin/sh\nexit 9\n' >"$usage_dir/claude"
 chmod 755 "$usage_dir/claude"
 ln -sfn -- "$usage_dir/claude" "$shim/claude"
@@ -312,7 +311,7 @@ expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
 expect_poll "with no account the service publishes none" '[]' usage_states
 expect_poll "with no account the widget is hidden and empty" '[false, false, null, "normal"]' usage_widget_state
 expect "the Settings window is summoned" ok ipc shell summon window vgs.settings '{}'
-expect_poll "a missing codex withholds Codex's Sign in and not Claude Code's" '[["claude", "sign-in", true], ["codex", "withheld", false]]' usage_steps
+expect_poll "a missing codex keeps Codex's Sign in beside Claude Code's" '[["claude", "sign-in", true], ["codex", "sign-in", true]]' usage_steps
 ln -sfn -- "$source_repo/scripts/fixtures/ai-usage/codex" "$shim/codex"
 rescan "the stand-in codex is scanned"
 expect "the shell finds the stand-in codex" "$shim/codex" shell_resolves codex
@@ -786,8 +785,8 @@ usage_keys_copy="$home/.config/vgshell/plugins/vgs.settings"
 rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
 mkdir -p -- "$home/.config/vgshell/plugins"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$usage_keys_copy"
-if usage_edit "$usage_keys_copy/Steps.js" 'return status.filter(function (entry) { return entry.setting === key; });' 'return status.filter(function (entry) { return entry.setting === key && !listsKeys(entry); });' \
-  && usage_edit "$usage_keys_copy/Steps.js" '!declaresStep(entry) && entry.setting === "" && entry.step === ""' 'listsKeys(entry) || (!declaresStep(entry) && entry.setting === "" && entry.step === "")'
+if usage_edit "$usage_keys_copy/Steps.js" '    field.keyLists.forEach(function (key) {' '    [].forEach(function (key) {' \
+  && usage_edit "$usage_keys_copy/Steps.js" '!declaresStep(entry) && entry.setting === "" && entry.step === ""' 'entry.type === "presenceList" || (!declaresStep(entry) && entry.setting === "" && entry.step === "")'
 then ok "the control copy draws its stored keys on Details"; else fail "the control copy could not be written"; fi
 rescan "a rescan picks the key placement control copy"
 expect "the control copy's page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'

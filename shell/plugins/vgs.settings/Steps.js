@@ -3,33 +3,45 @@
 // One page judge owns placement and required readiness. The manifest judge
 // validates every reference before these manager rows reach the page.
 function requirementApplies(requirement) { return requirement.state !== "present"; }
-function listsKeys(entry) { return entry.type === "presenceList"; }
 function declaresStep(entry) { return entry.setup === true; }
 function stepOpen(entry) { return entry.report !== "reported" || entry.tone !== "success"; }
 function stepRank(entry) { return stepOpen(entry) ? 0 : 1; }
-function stepView(entry, timeText) {
+// What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error }:
+// To do or Done, and under the chip the published state's own text, or,
+// while the plugin is on and has published nothing for the step, why:
+// ERROR, its failed build, or that it has not reported yet.
+function stepView(entry, timeText, plugin) {
     var view = statusView(entry, timeText);
     view.text = stepOpen(entry) ? "To do" : "Done";
     view.tone = stepOpen(entry) ? "warning" : "success";
     // The published state explains the work beneath the two-state chip.
     if (entry.report === "reported" && entry.type === "state" && entry.value.text !== "" && entry.value.text !== view.text)
         view.lines = [entry.value.text].concat(view.lines);
+    if (entry.report !== "reported" && plugin.enabled)
+        view.lines = [plugin.error !== "" ? plugin.error : plugin.name + " has not reported this step yet"];
     return view;
 }
 function detailEntries(status) {
     return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === ""; });
 }
-function settingEntries(status, key) { return status.filter(function (entry) { return entry.setting === key; }); }
-function settingRequirements(requirements, key) { return requirements.filter(function (entry) { return entry.optional && entry.setting === key; }); }
 function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional && entry.setting === ""; }); }
+// The action that opens the plugin's notice for every missing or outdated
+// tool, the one install action of Setup's Tools step and of a field's
+// tools line.
+var REVIEW_LABEL = "Review all missing or outdated tools";
+function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", enabled: true, reason: "" }; }
+// REQUIREMENTS by title, each that is missing or outdated marked so.
+function toolsText(requirements) {
+    return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
+}
 function requirementStep(requirements) {
     var required = requirements.filter(function (row) { return !row.optional; });
     if (required.length === 0) return null;
     var lacking = required.filter(requirementApplies);
     return { done: lacking.length === 0, label: "Tools", text: lacking.length === 0 ? "Done" : "To do",
         tone: lacking.length === 0 ? "success" : "warning",
-        hint: lacking.length === 0 ? "Every required tool is available" : lacking.map(function (row) { return row.name + (row.state === "outdated" ? " (outdated)" : " (missing)"); }).join(", "),
-        button: lacking.length === 0 ? "" : "Review all missing or outdated tools" };
+        hint: lacking.length === 0 ? "Every required tool is installed" : toolsText(lacking),
+        button: lacking.length === 0 ? null : reviewButton() };
 }
 function setupSections(tuis, status, requirements) {
     var steps = status.filter(declaresStep);
@@ -47,7 +59,7 @@ function setupSections(tuis, status, requirements) {
         var toolEntry = { key: "required-tools", label: tools.label, type: "state", setup: true, report: "reported", tone: tools.tone,
             value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
         var toolItem = { key: toolEntry.key, slot: toolEntry.key + ":" + tools.done, keys: false, tools: true, entry: toolEntry,
-            label: tools.label, step: true, button: tools.done ? null : { name: "", label: tools.button, tone: "" }, aside: null };
+            label: tools.label, step: true, button: tools.button, aside: null };
         var firstDone = items.findIndex(function (item) { return !item.keys && !stepOpen(item.entry); });
         if (!tools.done && firstDone !== -1) items.splice(firstDone, 0, toolItem);
         else items.push(toolItem);
@@ -59,27 +71,109 @@ function setupNeeds(status, requirements, enabled) {
         || requirements.some(function (entry) { return !entry.optional && requirementApplies(entry); })) };
 }
 function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
+// The action ENTRY's line offers while the plugin is on: { kind, key,
+// name, label, tone, enabled, reason }, kind `tui` for an action that opens
+// a listed screen, whose reply is the screen's, else `status`; null while
+// none is offered.
 function stepButton(tuis, entry) {
     if (entry.action === null || !entry.action.offered) return null;
     var tui = entry.action.tui === "" ? undefined : tuis.find(function (row) { return row.name === entry.action.tui; });
-    return { key: entry.key + " " + entry.action.label, name: tui === undefined ? "" : tui.name, label: entry.action.label, tone: entry.action.tone };
+    return { kind: tui === undefined ? "status" : "tui", key: entry.key + " " + entry.action.label, name: tui === undefined ? "" : tui.name,
+        label: entry.action.label, tone: entry.action.tone, enabled: true, reason: "" };
 }
 function asideButton(entry) {
     if (entry.aside === null || !entry.aside.offered) return null;
-    return { name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone };
+    return { kind: "tui", key: entry.key + " " + entry.aside.label, name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone, enabled: true, reason: "" };
 }
-function freeScreens(tuis, status, place) {
-    var declared = [];
-    status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
-    return tuis.filter(function (tui) {
-        return declared.indexOf(tui.name) === -1 && (place === "Settings" ? tui.settings : place === "Details" ? !tui.settings && tui.setting === "" : tui.setting === place);
-    }).map(function (tui) {
-        var enabled = tui.withheld === "";
-        return { key: tui.name + " " + tui.label + " " + enabled, name: tui.name, label: tui.label, tone: "", enabled: enabled, reason: enabled ? "" : tui.withheld };
+// The one action a page offers for a plugin that is off, which turns it on
+// through the Enabled switch's route, and why its screens take no press.
+function turnOn(name) { return { kind: "enable", key: "enable", name: "", label: "Turn on " + name, tone: "", enabled: true, reason: "" }; }
+function offReason(name) { return "Turn on " + name + " first"; }
+// The action a line draws for PLUGIN, { enabled, name }: BUTTON, the one
+// its entry offers, while the plugin is on; while it is off, Turn on for a
+// line that holds work (OPEN), a To do step or an action field, else none,
+// since the page reads the plugin's settings alone while it is off.
+function lineAction(button, open, plugin) {
+    if (!plugin.enabled) return open ? turnOn(plugin.name) : null;
+    return button;
+}
+// The listed screens TUIS that NAMES holds, as buttons: disabled while
+// PLUGIN is off, with the reason.
+function screenButtons(tuis, names, plugin) {
+    return tuis.filter(function (tui) { return names.indexOf(tui.name) !== -1; }).map(function (tui) {
+        return { kind: "tui", key: tui.name + " " + tui.label + " " + plugin.enabled, name: tui.name, label: tui.label, tone: "", enabled: plugin.enabled, reason: plugin.enabled ? "" : offReason(plugin.name) };
     });
 }
+// The listed screens a page draws apart from its fields: PLACE "Settings",
+// a configuration screen's More settings link, or "Details", a task, each
+// one no status entry and no field declares.
+function freeScreens(tuis, status, place, plugin) {
+    var declared = [];
+    status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
+    return screenButtons(tuis, tuis.filter(function (tui) {
+        return declared.indexOf(tui.name) === -1 && (place === "Settings" ? tui.settings : !tui.settings && tui.setting === "");
+    }).map(function (tui) { return tui.name; }), plugin);
+}
+// Why BUTTONS take no press, "" while they do: they all take none while
+// their plugin is off, for one reason (screenButtons).
 function withheldHint(buttons) {
-    return buttons.filter(function (button) { return !button.enabled; }).map(function (button) { return button.label + ": " + button.reason; }).join(" ");
+    var held = buttons.filter(function (button) { return !button.enabled; });
+    return held.length === 0 ? "" : held[0].reason;
+}
+
+// What a Settings page draws for FIELD, one row of the manager row's
+// `fieldRows` (PluginLogic.fieldRows), from ROW, that manager row, for
+// PLUGIN, { enabled, name }: the lines under the field's control, in drawn
+// order, each { slot, kind, label, key, hint, lines, action, aside, more }.
+// An action field has no control, so its first line is its head and takes
+// the field's label: its own entry's line, else its screens', else its
+// tools'. `kind` is `own`, the field's one entry, with no label of its own
+// beside a control; `entry`, one of two or more, with its label; `keys`, a
+// key list; `screens`, the field's listed screens; or `tools`, its optional
+// tools by title, with the Review action while one is missing or outdated.
+// KEY names the entry the line draws, HINT what the line reads where its
+// entry has no hint, or what a line with no entry reads, LINES what it
+// reads under that, ACTION and ASIDE its actions (lineAction), and MORE its
+// further actions.
+function featureRow(field, row, plugin) {
+    var spec = row.schema[field.key], acting = spec.type === "action";
+    var description = spec.description === undefined ? "" : spec.description;
+    var head = acting;
+    var lines = [];
+    function entryOf(key) { return row.status.find(function (entry) { return entry.key === key; }) || null; }
+    // An entry the row no longer holds, such as a state published hidden,
+    // draws no line.
+    function entryLine(kind, key, label) {
+        var entry = entryOf(key);
+        if (entry === null) return;
+        lines.push({ slot: kind + " " + key, kind: kind, label: label, key: key, hint: head ? description : "", lines: [],
+            action: lineAction(stepButton(row.tuis, entry), head, plugin), aside: plugin.enabled ? asideButton(entry) : null, more: [] });
+        head = false;
+    }
+    if (field.own !== "") entryLine("own", field.own, acting ? spec.label : "");
+    field.entries.forEach(function (key) {
+        var entry = entryOf(key);
+        if (entry !== null) entryLine("entry", key, entry.label);
+    });
+    field.keyLists.forEach(function (key) {
+        if (entryOf(key) !== null) lines.push({ slot: "keys " + key, kind: "keys", label: "", key: key, hint: "", lines: [], action: null, aside: null, more: [] });
+    });
+    var screens = screenButtons(row.tuis, field.screens, plugin);
+    if (screens.length > 0) {
+        var off = head && !plugin.enabled;
+        lines.push({ slot: "screens", kind: "screens", label: head ? spec.label : "", key: "", hint: head ? description : withheldHint(screens), lines: [],
+            action: off ? turnOn(plugin.name) : null, aside: null, more: off ? [] : screens });
+        head = false;
+    }
+    var tools = row.requirements.filter(function (requirement) { return field.tools.indexOf(requirement.name) !== -1; });
+    if (tools.length > 0) {
+        var review = tools.some(requirementApplies) ? reviewButton() : null;
+        var enable = head && !plugin.enabled;
+        lines.push({ slot: "tools", kind: "tools", label: head ? spec.label : "", key: "", hint: "Tools: " + toolsText(tools),
+            lines: head && description !== "" ? [description] : [], action: enable ? turnOn(plugin.name) : review, aside: null,
+            more: enable && review !== null ? [review] : [] });
+    }
+    return lines;
 }
 
 // The words a `presence` value reads as on the page.

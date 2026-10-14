@@ -286,7 +286,7 @@ var SERVICE_UNOFFERED = {
 };
 function setupState(tone, text, hint, action) { return { tone: tone, text: text, hint: hint, action: action }; }
 function setup(context) {
-    if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Choose Review all missing or outdated tools beside [Tailscale in Settings](page:vgs.vpn/Settings) to use it.", "");
+    if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Choose Review all missing or outdated tools to use it.", "");
     if (context.state === "service-off") {
         if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
         var unoffered = Object.prototype.hasOwnProperty.call(SERVICE_UNOFFERED, context.service) ? SERVICE_UNOFFERED[context.service]

@@ -39,7 +39,7 @@
     "account": {"type": "state", "label": "Google Drive", "group": "Google Drive", "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file.", "actions": {"reconnect": {"label": "Connect again", "tui": "connect"}, "signOut": {"label": "Sign out", "tui": "sign-out", "tone": "danger"}}, "setting": "googleDrive"},
     "lastSync": {"type": "time", "label": "Last sync"},
     "cloud": {"type": "data", "label": "Cloud Sync status"},
-    "connection": {"type": "state", "label": "Google Drive connection", "setup": true, "hint": "Add the Google Drive keys, then select Connect", "action": {"label": "Connect", "tui": "connect"}, "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file."},
+    "connection": {"type": "state", "label": "Google Drive connection", "setup": true, "hint": "Connects Cloud Sync to Google Drive with the keys below", "action": {"label": "Connect", "tui": "connect"}, "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file."},
     "firstPair": {"type": "state", "label": "First folder pair", "setup": true, "hint": "Choose the first folders to keep on this computer and in Google Drive", "action": {"label": "Add a folder pair", "tui": "add-pair"}}
   },
   "secrets": { "service": "vgs-cloud-sync", "label": "VGS Cloud Sync" },

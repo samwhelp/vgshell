@@ -26,7 +26,18 @@ const CASES = [
     ["two references, the first wins", "[Models](page:acme.models/Setup) or [Voice](page:vgs.voice).",
         { text: "Models or [Voice](page:vgs.voice).", words: "Models", page: "acme.models", tab: "Setup", reference: "[Models](page:acme.models/Setup)" }, "Models or [Voice](page:vgs.voice)."],
     ["spaces inside the words", "Add a key on the [Models page](page:acme.models/Setup).",
-        { text: "Add a key on the Models page.", words: "Models page", page: "acme.models", tab: "Setup", reference: "[Models page](page:acme.models/Setup)" }, "Add a key on the Models page."]
+        { text: "Add a key on the Models page.", words: "Models page", page: "acme.models", tab: "Setup", reference: "[Models page](page:acme.models/Setup)" }, "Add a key on the Models page."],
+    ["a Settings field", "Choose it in [Home folder](page:acme.models/Settings/home).",
+        { text: "Choose it in Home folder.", words: "Home folder", page: "acme.models", tab: "Settings/home", reference: "[Home folder](page:acme.models/Settings/home)" }, "Choose it in Home folder."],
+    ["a field on another tab is no reference", "Open [Home](page:acme.models/Setup/home).",
+        { text: "Open [Home](page:acme.models/Setup/home).", words: "", page: "", tab: "", reference: "" }, "Open [Home](page:acme.models/Setup/home)."]
+];
+
+// Each row: [name, tab, place].
+const PLACES = [
+    ["a tab alone", "Setup", { tab: "Setup", field: "" }],
+    ["no tab", "", { tab: "", field: "" }],
+    ["Settings at a field", "Settings/home", { tab: "Settings", field: "home" }]
 ];
 
 // The names of the rows LIBRARY fails.
@@ -41,13 +52,23 @@ function failures(library) {
             failed.push(name);
         }
     }
+    for (const [name, tab, place] of PLACES) {
+        try {
+            same(library.place(tab), place, name + ": place");
+        } catch (e) {
+            if (!(e instanceof assert.AssertionError)) throw e;
+            failed.push(name);
+        }
+    }
     return failed;
 }
 same(failures(load(file)), [], "every row holds");
 
 // Each control: [name, text to replace, replacement, rows that must fail].
 const CONTROLS = [
-    ["a parser without the tab group", "(?:\\/([^\\s()\\/]+))?", "", ["a page and a tab", "spaces inside the words"]]
+    ["a parser without the tab group", "(?:\\/(Settings\\/[^\\s()\\/]+|[^\\s()\\/]+))?", "", ["a page and a tab", "spaces inside the words", "a Settings field"]],
+    ["a parser without the field form", "Settings\\/[^\\s()\\/]+|", "", ["a Settings field"]],
+    ["a place that keeps the field in the tab", "return at === -1 ?", "return true ?", ["Settings at a field"]]
 ];
 const source = fs.readFileSync(file, "utf8");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "page-reference-control-"));

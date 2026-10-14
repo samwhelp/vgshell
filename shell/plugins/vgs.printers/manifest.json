@@ -16,13 +16,13 @@
     {"command": "ipptool", "packages": {"pacman": "cups", "apt": "cups-ipp-utils", "dnf": "cups-ipptool", "nix": "cups"}, "optional": true, "purpose": "Asks the printing service to report printer changes", "setting": "printerTools"},
     {"command": "dbus-monitor", "packages": {"pacman": "dbus", "apt": "dbus-bin", "dnf": "dbus-tools", "nix": "dbus"}, "purpose": "Receives the printer changes the printing service reports"},
     {"command": "gdbus", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "purpose": "Sends printer changes to the printer helper"},
-    {"dbus": {"bus": "system", "name": "org.opensuse.CupsPkHelper.Mechanism"}, "packages": {"pacman": "cups-pk-helper", "apt": "cups-pk-helper", "dnf": "cups-pk-helper", "nix": "cups-pk-helper"}, "optional": true, "purpose": "The printer helper, which adds, removes and sets the default printer after you give permission", "setting": "printerTools"},
+    {"dbus": {"bus": "system", "name": "org.opensuse.CupsPkHelper.Mechanism", "label": "Printer helper"}, "packages": {"pacman": "cups-pk-helper", "apt": "cups-pk-helper", "dnf": "cups-pk-helper", "nix": "cups-pk-helper"}, "optional": true, "purpose": "The printer helper, which adds, removes and sets the default printer after you give permission", "setting": "printerTools"},
     {"command": "system-config-printer", "packages": {"pacman": "system-config-printer", "apt": "system-config-printer", "dnf": "system-config-printer", "nix": "system-config-printer"}, "optional": true, "purpose": "Print Settings, for drivers, paper size, two-sided printing and quality", "setting": "printerTools"}
   ],
   "systemSteps": ["service-cups"],
   "status": {
-    "printing": {"type": "state", "label": "Printing", "action": {"label": "Turn on printing", "system": "service-cups"}, "setup": true},
+    "printing": {"type": "state", "label": "Printing", "hint": "Starts the printing service through the system setup", "action": {"label": "Turn on printing", "system": "service-cups"}, "setup": true},
     "printers": {"type": "data", "label": "Printers"}
   },
-  "schema": {"printerTools": {"type": "action", "label": "Printer tools", "description": "Add and manage printers in [Printers](page:vgs.printers/Settings)"}}
+  "schema": {"printerTools": {"type": "action", "label": "Printer tools", "description": "Lets VGS find, add and manage your printers"}}
 }

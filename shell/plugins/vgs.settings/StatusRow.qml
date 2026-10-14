@@ -53,9 +53,14 @@ GroupList {
     // moves on with the clock.
     readonly property var view: Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
 
+    // Whether the row's last line ends in sub-text (StatusLine.subText), so
+    // a row that holds it takes the room under it a Field takes.
+    readonly property bool subText: itemLines.count > 0 ? itemLines.itemAt(itemLines.count - 1) !== null && itemLines.itemAt(itemLines.count - 1).subText : head.subText
+
     visible: entry !== null
 
     StatusLine {
+        id: head
         width: row.width
         label: row.view.label
         hint: row.view.hint
@@ -71,6 +76,7 @@ GroupList {
     }
 
     Repeater {
+        id: itemLines
         model: ScriptModel {
             values: row.view.items
             objectProp: "key"
