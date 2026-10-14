@@ -1361,13 +1361,15 @@ unset THEME_BIN
 tinst "theme update without a name is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: name=missing" theme update
 
 # The lock, held the way a running apply holds it: add, update and remove
-# each refuse busy and change nothing.
+# add and remove refuse at once; update refuses past its wait bound.
 exec 7>>"$cfg/vgshell/theme.lock"
 flock 7
 tinst "theme add while the theme lock is held is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: theme=fern reason=busy" theme add "$src/fern.git"
 check "a busy add lands nothing" test ! -e "$themes/fern"
 check "a busy add leaves no staging directory" unstaged "$cfg"
-tinst "theme update while the theme lock is held is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: theme=moss reason=busy" theme update moss
+tree_control update-wait-bound bin/vgshell 'theme_lock_wait_s=10' 'theme_lock_wait_s=1'
+tinst "theme update past the lock wait bound is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: theme=moss reason=busy" theme update moss
+unset THEME_BIN
 tinst "theme remove while the theme lock is held is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: theme=moss reason=busy" theme remove moss
 check "a busy remove leaves the package" test -f "$moss/theme.json"
 # The must-fail control: a copy of vgshell whose install verbs never take the

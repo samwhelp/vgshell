@@ -145,6 +145,7 @@ case "$1 $2" in
     [ ! -e "$FIX/rescan-$5" ] || { printf "error: failed to commit transaction (conflicting files)\nvgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
     [ ! -e "$FIX/hup-$5" ] || hup_tee ;;
   "plugin update"|"theme update")
+    if [ "$1" = theme ] && [ -x "$FIX/theme-update" ]; then exec "$FIX/theme-update" "$@"; fi
     for id; do :; done
     [ ! -e "$FIX/decline-$id" ] || { printf "vgshell: update %s? [y/N] vgshell: refused: declined=%s\nthe checkout stays at its commit\n" "$id" "$id" >&2; exit 1; }
     [ ! -e "$FIX/offline-$id" ] || { printf "vgshell: refused: fetch=%s\nfatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org\n" "$id" >&2; exit 1; } ;;
@@ -1286,5 +1287,64 @@ control credentials-kept 'if [[ $line =~ ^([^:/]+://)[^/@]*@(.*)$ ]]; then' 'if 
 control agent-fetches 'if ! (cd -- "$dir/build" && "$_updates_review_helper" -G "${_updates_review_aur[@]}"); then' 'if false; then' row_review_clean
 control aur-command-keeps-repository 'for name in "${_updates_skip_aur[@]}" "${_updates_skip_repo[@]}"; do' 'for name in "${_updates_skip_aur[@]}"; do' row_review_flagged
 control aur-reviewed-without-helper '      if [[ -n $aur_binary ]]; then review_aur=1' '      if true; then review_aur=1' row_review_no_helper
+
+# The pipeline keeps its other command stand-ins. Theme updates run the real
+# command and judge over local git sources. Before each update, a holder
+# releases the lock only after /proc/locks reports the blocked update.
+(
+  pipeline_stubs="$stubs"
+  pipeline_command="$tree/bin/vgshell"
+  tmp="$tmp/real-themes"; mkdir -p "$tmp"
+  ln -s -- "${tmp%/*}/terminal-input" "$tmp/terminal-input"
+  theme_tree
+  mv -- "$tree/bin/vgshell" "$tree/bin/vgshell.real"
+  cp -- "$pipeline_command" "$tree/bin/vgshell"
+  stubs="$pipeline_stubs"
+  state="$tmp/state"; log="$state/vgshell/updates/update.log"
+  cfg="$tmp/config"; mkdir -p "$cfg/vgshell"
+  run_real() {
+    "${base_env[@]}" PATH="$theme_path" XDG_CONFIG_HOME="$cfg" XDG_STATE_HOME="$state" "$tree/bin/vgshell.real" "$@"
+  }
+  for name in amberbyte tokyo-night vengeance; do
+    theme_source "$name" "$(doc "$name")"
+    run_real theme add "$tmp/tsrc/$name.git" >/dev/null
+    theme_commit "$name" theme.json "$(doc "$name" '{ "palette": { "accent": "#123456" } }')"
+  done
+  cp -R -- "$cfg" "$tmp/old-config"
+  tree_control update-no-wait bin/vgshell.real '  theme_lock_change "theme=$name" -w "$theme_lock_wait_s"' '  theme_lock_change "theme=$name" -n'
+  mutant_command="${THEME_BIN%/*}/vgshell.real"
+  for command in "$tree/bin/vgshell.real" "$mutant_command"; do
+    rm -rf -- "${cfg:?}"; cp -R -- "$tmp/old-config" "$cfg"
+    reset_fix
+    settings "" true
+    run_real theme outdated --json >"$fix/themes.json"
+    {
+      printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+      printf 'PATH=%q\ntmp=%q\n' "$base_path" "$tmp/lock-holder"
+      printf 'mkdir -p "$tmp"\nfail() { echo "$*" >&2; exit 1; }\n'
+      declare -f theme_lock_holder
+      printf 'theme_lock_holder exclusive %q\n' "$cfg/vgshell/theme.lock"
+      printf 'status=0\n'
+      printf '%q ' "${base_env[@]}" PATH="$theme_path" XDG_CONFIG_HOME="$cfg" XDG_STATE_HOME="$state" "$command"
+      printf '"$@" || status=$?\n'
+      printf ': >"$tmp/release"\nwait "$holder"\nexit "$status"\n'
+    } >"$fix/theme-update"
+    chmod +x "$fix/theme-update"
+    pipeline update.sh -y
+    if [[ $command == "$tree/bin/vgshell.real" ]]; then
+      check "the pipeline updates three themes behind the apply lock" test "$status" == 0
+      for name in amberbyte tokyo-night vengeance; do
+        check "the pipeline installs $name's new commit" test "$(head_of "$cfg/vgshell/themes/$name")" == "$(head_of "$tmp/tsrc/$name")"
+      done
+    else
+      check "the planted busy refusal fails the three-theme pipeline" test "$status" == 1
+      for name in amberbyte tokyo-night vengeance; do
+        check "the refusal leaves $name at its old commit" test "$(head_of "$cfg/vgshell/themes/$name")" != "$(head_of "$tmp/tsrc/$name")"
+        check "the control reaches $name's busy lock refusal" diag_has "updates: failed source=theme:$name exit=75"
+      done
+    fi
+  done
+  rows_done test-updates-pipeline-themes
+)
 
 rows_done test-updates-pipeline

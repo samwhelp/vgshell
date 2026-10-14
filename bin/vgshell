@@ -189,7 +189,8 @@
 # does for that package, its line last and its exit status update's; remove
 # deletes only an installed package, never a shipped one.
 # Each holds the theme lock while it changes the package, update through
-# its question too; a held lock is reason=busy.
+# its question too; update waits for the apply's hold to end, up to the
+# theme lock wait bound, then refuses with reason=busy.
 # docs/architecture/themes.md.
 #
 # `theme install` lands the catalog package themes/catalog/<name> the same
@@ -1659,8 +1660,11 @@ theme_lock_hold() { # KEY FLOCK_OPTION...
 # Hold the theme lock as theme_lock_hold does, then finish or undo each
 # catalog update an interruption left, so add, install, update and remove
 # start from whole packages: docs/architecture/themes.md § Catalog.
-theme_lock_change() { # KEY
-  theme_lock_hold "$1" -n
+theme_lock_change() { # KEY [FLOCK_OPTION...]
+  local key="$1"
+  shift
+  (($#)) || set -- -n
+  theme_lock_hold "$key" "$@"
   node "$theme_judge" recover "$config_home/vgshell" || exit $?
 }
 
@@ -1763,7 +1767,7 @@ offer_theme_apply() { # NAME
 
 theme_update() { # NAME
   local name="$1" dir origin line
-  theme_lock_change "theme=$name"
+  theme_lock_change "theme=$name" -w "$theme_lock_wait_s"
   dir="$(node "$theme_judge" installed "$config_home/vgshell" "$name")" || exit $?
   origin="$(node "$theme_judge" origin "$config_home/vgshell" "$name")" || exit $?
   case "$origin" in

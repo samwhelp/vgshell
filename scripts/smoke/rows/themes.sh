@@ -280,9 +280,11 @@ expect "the fixture applies smoke for the follow rows" ok probe theme-apply smok
 expect "the smoke apply for the follow rows ends" idle theme_idle
 cp -- "$installed/smoke/theme.json" "$sandbox/smoke-theme.json"
 printf '%s\n' '{ "schemaVersion": 1, "name": "smoke", "tokens": { "palette": { "accent": "#12ab37" } } }' >"$installed/smoke/theme.json"
+theme_follow_started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 rescan "a rescan for the follow is accepted"
 expect_poll "the follow re-applies the changed package" '"#ff12ab37"' ipc smoke themeValue palette.accent
 expect "the follow ends" idle theme_idle
+python3 -c 'import sys,time; print("theme-follow: rescan-to-idle-ms=" + str((time.monotonic_ns() - int(sys.argv[1])) // 1000000))' "$theme_follow_started_ns"
 expect "last holds the follow's re-apply" '"reapplied"' last_part result.follow
 cp -- "$sandbox/smoke-theme.json" "$installed/smoke/theme.json"
 expect "the fixture applies vgs after the follow rows" ok probe theme-apply vgs

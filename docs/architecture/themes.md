@@ -38,7 +38,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Never follow a symlink below a package directory. `scripts/test-vgshell-package-links.sh` pins it.
 - Do clone an install or update into a staging directory and judge it there before it lands, with no git hook or submodule. `scripts/test-vgshell.sh` pins both.
 - Do ask before an update and roll back a version the judge refuses. `scripts/test-vgshell.sh` pins both.
-- Do hold the theme lock for apply, follow, reload, a background change and every install verb; a second holder is refused as busy, except that a follow first waits up to 10 s for the holder to end. `scripts/test-vgshell.sh` and `scripts/test-vgshell-follow.sh` pin it.
+- Do hold the theme lock for apply, follow, reload, a background change and every install verb; a second holder is refused as busy, except that follow and update first wait up to 10 s for the holder to end. `scripts/test-vgshell.sh` and `scripts/test-vgshell-follow.sh` pin it.
 - Never remove a shipped package; remove deletes an installed directory only. `scripts/test-vgshell.sh` pins it.
 - Do write every file through `replaceFile` in `bin/lib/judge-files.js`, so no reader sees a partial file. `scripts/test-judge-files.js` pins it.
 - Never add a layer that merges over the applied package. The user's Appearance values are the one exception ([D104](../decisions/D104-appearance-values-over-the-theme.md)). Review.
