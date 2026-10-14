@@ -28,9 +28,14 @@ row_class=behaviour
 # reads the host window's own size in place of a held mode of another
 # size counts in mode_resets under every class, `hold` included: the
 # output read the held mode once the hold began, so a host configure
-# moved it back (held_mode_host_sized).
+# moved it back (held_mode_host_sized). These excuses apply to temporary
+# holds. The persistent startup base excuses only geometry and render.
 mode_hold=()
 mode_hold_window=""
+# The mode owner keeps complete parents here. The harness marks its
+# acquired bottom hold for the sandbox lifetime without copying its state.
+mode_hold_parents=()
+mode_hold_run_base=false
 mode_resets=0
 # A row that could not measure on this host, as `ROW:REASON` words, which
 # not_measured alone writes: a prerequisite the row needs is missing, or a
@@ -54,7 +59,9 @@ mode_reset() {
 }
 # fail MESSAGE: one failed row, counted by its class and printed.
 fail() {
-  if [[ ${#mode_hold[@]} -gt 0 ]] && { [[ $row_class != hold && $(held_mode_state) == reset ]] || held_mode_host_sized; }; then
+  if [[ ${#mode_hold[@]} -gt 0 ]] &&
+    [[ $mode_hold_run_base == false || ${#mode_hold_parents[@]} -gt 0 || $row_class == geometry || $row_class == render ]] &&
+    { [[ $row_class != hold && $(held_mode_state) == reset ]] || held_mode_host_sized; }; then
     mode_reset "$*" "${mode_hold[0]} left the held mode ${mode_hold[1]}"
     return
   fi

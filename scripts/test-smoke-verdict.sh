@@ -106,6 +106,14 @@ held_mode_state() { printf "%s\n" "$stub_state"; }
 held_mode_host_sized() { [[ $stub_host == host ]]; }
 row_class="$2"
 [[ $3 == none ]] || mode_hold=(WAYLAND-1 "480x720 scale=1")
+if [[ $3 == base || $3 == inner ]]; then
+  mode_hold_run_base=true
+  mode_hold=(WAYLAND-1 "3510x1866 scale=2")
+  mode_hold_window=1250x720
+fi
+if [[ $3 == inner ]]; then
+  mode_hold_parents=(WAYLAND-1 "3510x1866 scale=2" 1250x720 "parent rule")
+fi
 fail "a row" >"$6"
 read -r word _ <"$6"
 printf "%s %s %s %s\n" "$failures" "$behaviour_failures" "$mode_resets" "$word"
@@ -116,7 +124,7 @@ smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets"
   return 1
 }
 
-# Rows: label | row class | hold, `none` or `held` | the state the stub
+# Rows: label | row class | hold, `none`, `held`, `base` or `inner` | the state the stub
 # held_mode_state reads | whether the stub held_mode_host_sized reads the
 # host window's own size, `host` or `other` | failures, behaviour failures
 # and mode resets | verdict status | the first word fail prints. A row with
@@ -129,6 +137,15 @@ tallies=(
   "a row failing on an unreadable hold is behaviour|behaviour|held|unreadable|other|1 1 0|1|FAIL"
   "a hold row failing after the held mode's reset is behaviour|hold|held|reset|other|1 1 0|1|FAIL"
   "a hold row failing at the host window's own size is a mode reset|hold|held|reset|host|1 0 1|77|SKIP"
+  "a behaviour row under the run base stays behaviour at host size|behaviour|base|reset|host|1 1 0|1|FAIL"
+  "a behaviour row under the run base stays behaviour after another reset|behaviour|base|reset|other|1 1 0|1|FAIL"
+  "a behaviour row under the held run base is behaviour|behaviour|base|held|other|1 1 0|1|FAIL"
+  "a behaviour row under an unreadable run base is behaviour|behaviour|base|unreadable|other|1 1 0|1|FAIL"
+  "a geometry row under the reset run base is not measured|geometry|base|reset|host|1 0 1|77|SKIP"
+  "a render row under the reset run base is not measured|render|base|reset|other|1 0 1|77|SKIP"
+  "a hold row under the run base stays behaviour at host size|hold|base|reset|host|1 1 0|1|FAIL"
+  "an inner temporary hold keeps its reset policy above the run base|behaviour|inner|reset|other|1 0 1|77|SKIP"
+  "an inner hold row keeps host-size classification above the run base|hold|inner|reset|host|1 0 1|77|SKIP"
 )
 for row in "${tallies[@]}"; do
   if run_tally "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -213,6 +230,7 @@ mutate() {
 # Rows: label | text | replacement | the case label that must go red. A
 # field holds no `|`, the separator.
 controls=(
+  "the run base excuses behaviour|\$mode_hold_run_base == false|true|a behaviour row under the run base stays behaviour at host size"
   "fail counts no mode reset|  mode_resets=\$((mode_resets + 1))|  mode_resets=\$((mode_resets + 0))|a row failing after the held mode's reset is a mode reset"
   "fail also counts a mode reset as behaviour|left the held mode \${mode_hold[1]}\"|left the held mode \${mode_hold[1]}\"; behaviour_failures=\$((behaviour_failures + 1))|a row failing after the held mode's reset is a mode reset"
   "fail asks the hold with no mode held|\${#mode_hold[@]} -gt 0 ]] &&|\${#mode_hold[@]} -ge 0 ]] &&|a behaviour row failing with no hold is behaviour"

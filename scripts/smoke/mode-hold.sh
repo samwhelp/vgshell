@@ -92,10 +92,6 @@ print(json.dumps([e for e in json.loads(errors) if e]))'
 # took can read as another mode. The bound stops the retries when the
 # host keeps configuring the window.
 mode_attempts=3
-mode_hold_parents=()
-# The harness marks its acquired bottom hold for the sandbox lifetime.
-# Its mode and rule stay in the same stack as every temporary row hold.
-mode_hold_run_base=false
 # take_mode NAME MODE SCALE: output NAME takes the rule already written
 # to mode_hold_file. A config-only reload applies monitor rules directly.
 # hl.monitor through eval only schedules their application on render.preChecks
