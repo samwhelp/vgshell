@@ -204,7 +204,7 @@
   },
   "tui": {
     "preview-voice": { "script": "tui/preview-voice.sh", "title": "Preview Jarvis voice", "requires": ["gum"] },
-    "edit-personality": { "script": "tui/edit-personality.sh", "title": "Edit Jarvis personality", "presentation": "plain", "requires": ["gio"] },
+    "edit-personality": { "script": "tui/edit-personality.sh", "title": "Edit Jarvis personality", "presentation": "plain", "requires": ["gum"] },
     "check-microphone": { "script": "tui/check-microphone.sh", "title": "Check Jarvis microphone", "requires": [], "entry": { "label": "Check microphone", "icon": "mic", "group": "Jarvis" } },
     "sign-in": { "script": "tui/sign-in.sh", "title": "Sign in to Jarvis AI", "requires": ["gum", "node", "setpriv"],
       "entry": { "label": "Sign in", "icon": "log-in", "group": "Jarvis" } },

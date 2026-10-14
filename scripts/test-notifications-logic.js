@@ -38,6 +38,33 @@ const themeLogic = load(path.join(__dirname, "..", "shell", "Commons", "ThemeLog
 // The core's status judge, which the Slack token rows the service publishes
 // must pass.
 const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+
+// The real Open declaration selects its picker even though Gum is optional
+// for the plugin as a whole. This tests the requirement judge, not the
+// separate direct-run path used by notification cards.
+{
+    const directory = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications");
+    const raw = JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"));
+    function verifyOpenRequirements(source) {
+        const judged = pluginLogic.validateManifest(source, directory);
+        assert.equal(judged.ok, true);
+        for (const [missing, expected] of [[[], []], [["gum"], ["gum"]], [["xdg-open"], ["xdg-open"]], [["gum", "xdg-open", "node"], ["xdg-open", "gum"]], [["node"], []]]) {
+            assert.deepEqual(Array.from(pluginLogic.tuiMissingRequirements(judged.manifest, "open", missing)), expected);
+            const request = pluginLogic.tuiRunFor(judged.manifest, true, "/snapshot", { launcher: "present", busy: [], run: "fixture" }, "open", missing);
+            assert.equal(request.ok, true);
+            assert.equal(request.kind || "launch", expected.length ? "install" : "launch");
+        }
+    }
+    verifyOpenRequirements(raw);
+    const withoutPicker = structuredClone(raw);
+    delete withoutPicker.tui.open.requires;
+    assert.throws(() => verifyOpenRequirements(withoutPicker), assert.AssertionError);
+    console.log("test-notifications-logic: control=open-picker-requirement rejected=true");
+    const withoutFileOpener = structuredClone(raw);
+    withoutFileOpener.tui.open.requires = ["gum"];
+    assert.throws(() => verifyOpenRequirements(withoutFileOpener), assert.AssertionError);
+    console.log("test-notifications-logic: control=open-file-requirement rejected=true");
+}
 const IMAGES = "/state/vgshell/notifications/images";
 // The logic runs in its own context, whose arrays and objects are not this
 // one's; values are compared as JSON.

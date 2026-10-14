@@ -110,6 +110,27 @@ function verifyEditAction(script, root) {
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
 
+// The real Edit declaration must raise the installation notice when its
+// picker is unavailable. Other Jarvis tools do not hold this file editor.
+{
+    const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
+    function verifyEditRequirements(source) {
+        const judged = judge.validateManifest(source, path.dirname(file));
+        assert.equal(judged.ok, true);
+        for (const [missing, expected] of [[[], []], [["gum"], ["gum"]], [["gio"], []], [["gio", "gum"], ["gum"]]]) {
+            assert.deepEqual(Array.from(judge.tuiMissingRequirements(judged.manifest, "edit-personality", missing)), expected);
+            const request = judge.tuiRunFor(judged.manifest, true, "/snapshot", { launcher: "present", busy: [], run: "fixture" }, "edit-personality", missing);
+            assert.equal(request.ok, true);
+            assert.equal(request.kind || "launch", expected.length ? "install" : "launch");
+        }
+    }
+    verifyEditRequirements(raw);
+    const withoutPicker = structuredClone(raw);
+    withoutPicker.tui["edit-personality"].requires = ["gio"];
+    assert.throws(() => verifyEditRequirements(withoutPicker), assert.AssertionError);
+    console.log("test-jarvis-setup-gate: control=edit-picker-requirement rejected=true");
+}
+
 // The Jarvis entries outside the Setup group that declare an action each
 // draw once, as a step of the Setup tab in the section the table names,
 // with the action its value offers, and Details draws no action: [key,
