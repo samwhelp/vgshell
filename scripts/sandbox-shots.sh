@@ -5,7 +5,7 @@
 #                                 [--size WxH] [--scale N]
 #                                 [--theme-card NAME] [--hidden]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
-#                                 [--dotfiles DIR] [--pages LIST] [--enable LIST]
+#                                 [--dotfiles DIR] [--pages LIST] [--enable LIST] [--disable LIST]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #                                 [--title-inventory]
 #       scripts/sandbox-shots.sh --check-desktop-pair BEFORE_DIR AFTER_DIR
@@ -187,10 +187,22 @@
 # themes/catalog/NAME, so a shot shows a component under any catalog theme;
 # a NAME the catalog lacks is refused as `sandbox-shots: refused: mode=`.
 # --enable LIST is a comma list of plugin ids. In each mode, before its
-# first scene, the run turns each one on and waits until it is built. An id
+# first scene, the run turns each one on and waits for published enablement.
+# Services, bars and backgrounds also wait for their live build. Windows
+# and panes build when their scene opens them. An id
 # of another shape is refused as `sandbox-shots: refused: enable=<value>`,
 # and one the tree does not ship as
 # `sandbox-shots: refused: enable=<id> tree=<rev or checkout>`.
+# --disable LIST requests off states after scene fixtures are ready, before
+# each mode's scenes. The active bar stays on so the capture retains its
+# active surface; plugin-states.tsv records requested and actual states
+# and that reason. Other requested plugins turn off, Themes included.
+# The two lists must not share an id. plugin-states.tsv also records every
+# shipped plugin's actual enablement and tool readings before each scene.
+# page-states.tsv records each plugin-page image's actual theme, enablement,
+# settings, choices, status and tools. It records live state; it does not
+# freeze a service's poller. Pair readers compare these records before
+# claiming equal states across themes or revisions.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
@@ -354,6 +366,7 @@ declare -A preview_wallpaper=()
 preview_dotfiles=""
 page_ids=()
 enable_ids=()
+disable_ids=()
 require_window=""
 scenes=()
 title_inventory=false
@@ -370,6 +383,7 @@ while [[ $# -gt 0 ]]; do
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --pages) IFS=, read -r -a page_ids <<<"$2"; shift 2 ;;
     --enable) enable_arg="$2"; shift 2 ;;
+    --disable) disable_arg="$2"; shift 2 ;;
     --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
@@ -395,6 +409,15 @@ if [[ -n ${enable_arg+set} ]]; then
   [[ $enable_arg =~ ^$plugin_id(,$plugin_id)*$ ]] || { printf 'sandbox-shots: refused: enable=%s\n' "$enable_arg" >&2; exit 2; }
   IFS=, read -r -a enable_ids <<<"$enable_arg"
 fi
+if [[ -n ${disable_arg+set} ]]; then
+  [[ $disable_arg =~ ^$plugin_id(,$plugin_id)*$ ]] || { printf 'sandbox-shots: refused: disable=%s\n' "$disable_arg" >&2; exit 2; }
+  IFS=, read -r -a disable_ids <<<"$disable_arg"
+fi
+for id in "${enable_ids[@]}"; do
+  for disabled in "${disable_ids[@]}"; do
+    [[ $id != "$disabled" ]] || { printf 'sandbox-shots: refused: state=%s reason=enabled-and-disabled\n' "$id" >&2; exit 2; }
+  done
+done
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
@@ -586,6 +609,9 @@ for mode in "${mode_list[@]}"; do
 done
 for id in "${enable_ids[@]}"; do
   ships_plugin "$id" || { printf 'sandbox-shots: refused: enable=%s tree=%s\n' "$id" "${rev:-checkout}" >&2; exit 2; }
+done
+for id in "${disable_ids[@]}"; do
+  ships_plugin "$id" || { printf 'sandbox-shots: refused: disable=%s tree=%s\n' "$id" "${rev:-checkout}" >&2; exit 2; }
 done
 
 # shellcheck disable=SC2034 # the harness sourced below reads it
@@ -970,12 +996,18 @@ set_mode() { # dark|light|rounded|catalog-NAME
 # Sample before opening the scene: a modal scrim changes the displayed
 # pixel, so its colour cannot identify the desktop behind it.
 scene_desktop() { # SCENE MODE
-  local sample
+  local sample enabled
   bg_state_names "$repo/themes/vgs/backgrounds/black.png" || return 1
-  expect_poll "the $1 $2 desktop image is ready" "$repo/themes/vgs/backgrounds/black.png ready" background_image_on "$main_name"
-  expect_poll "the $1 $2 desktop draws black" 000000 pixel 100 100
+  enabled="$(plugin_enabled vgs.themes)" || return 1
+  case $enabled in
+    True)
+      expect_poll "the $1 $2 desktop image is ready" "$repo/themes/vgs/backgrounds/black.png ready" background_image_on "$main_name"
+      expect_poll "the $1 $2 desktop draws black" 000000 pixel 100 100 ;;
+    False) expect_poll "the $1 $2 desktop has no Themes background" False record_exists vgs.themes ;;
+    *) fail "the $1 $2 background owner's enablement is unreadable: $enabled"; return 1 ;;
+  esac
   sample="$(pixel 100 100)" || return 1
-  [[ $sample == 000000 ]] || { fail "the $1 $2 desktop sample is $sample"; return 1; }
+  [[ $sample =~ ^[0-9a-f]{6}$ && ( $enabled == False || $sample == 000000 ) ]] || { fail "the $1 $2 desktop sample is $sample"; return 1; }
   printf '%s\t%s\t%s\t100\t100\t%s\n' "$1" "$2" "$capture_source" "$sample" >>"$SHOT_DIR/desktop.tsv"
   printf 'sandbox-shots: desktop scene=%s mode=%s source=%s sample=100,100 rgb=%s\n' "$1" "$2" "$capture_source" "$sample"
 }
@@ -1781,6 +1813,20 @@ plugin_pages_list() {
   ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; print("\n".join(p["id"] for p in json.load(sys.stdin)))'
 }
 
+# Record the manager's state, not credentials. Stored secrets never enter
+# manager rows; this is the same state the page uses to draw its fields.
+page_state_record() { # IMAGE MODE ID
+  local state theme
+  theme="$(ipc smoke themeName)" || { fail "the $3 page theme is unreadable"; return 1; }
+  state="$(ipc smoke readInstance "$settings_kind" vgs.settings plugins | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+row=next((r for r in rows if r.get("id")==sys.argv[1]),None) if isinstance(rows,list) else None
+keys=("enabled","kinds","settings","settingChoices","status","requirements","errors")
+print("absent" if row is None or not all(k in row for k in keys) else json.dumps({k:row[k] for k in keys},sort_keys=True,separators=(",",":")))' "$3")" || { fail "the $3 page state is unreadable"; return 1; }
+  [[ $state == \{* ]] || { fail "the $3 page state is $state"; return 1; }
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$capture_source" "$theme" "$3" "$state" >>"$SHOT_DIR/page-states.tsv"
+}
+
 # plugin_page_shots MODE ID [NAME [TAB]]: every screen of plugin ID's page.
 # A requested Setup tab that is absent leaves Settings visible, so the
 # captured strip proves that the plugin has no Setup tab.
@@ -1811,6 +1857,7 @@ plugin_page_shots() {
     image="$name"
     (( suffix == 1 )) || image="$name-$suffix"
     take "$image"
+    page_state_record "$image" "$1" "$id"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$image" "$1" "$capture_source" "$id" "$requested" "$shown" "$cy" >>"$SHOT_DIR/pages.tsv"
     (( cy + h < ch )) || break
     y=$(( cy + h - 40 ))
@@ -5581,12 +5628,14 @@ shot_reset_ask() { "${shell_env[@]}" "$tree/bin/vgshell" reset </dev/null; }
 # PLUGIN's, JSON-quoted as notice_plugin prints it.
 notice_moved_from() { local now; now="$(notice_plugin)" || return 1; if [[ $now != "$1" ]]; then echo closed; else echo "$now"; fi; }
 # close_notices: every requirement notice the scene's enabling raised
-# closed in queue order, at most four. The notices queue and show one at a
+# closed in queue order. The published queue supplies the count. The notices show one at a
 # time; Escape closes the shown one once its layer maps and its dialog
 # holds the keyboard, and the next then shows.
 close_notices() {
-  local shown
-  for _ in 1 2 3 4; do
+  local shown count i
+  count="$(ipc shell lent | py_reply 'import json,sys; n=json.load(sys.stdin)["notices"]; print(len(n["waiting"])+(n["shown"] is not None))')" || { fail "the requirement notice queue is unreadable"; return; }
+  [[ $count =~ ^[0-9]+$ ]] || { fail "the requirement notice count is $count"; return; }
+  for ((i=0; i<count; i++)); do
     shown="$(notice_plugin)" || shown=unread
     [[ $shown == null ]] && break
     expect_poll "the requirement notice of $shown maps" 1 layer_count vgs:notice
@@ -5595,6 +5644,7 @@ close_notices() {
     expect_poll "Escape closes the requirement notice of $shown" closed notice_moved_from "$shown"
   done
   expect_poll "Escape closed every requirement notice" null notice_shown
+  expect_poll "the requirement notice layer is gone" 0 layer_count vgs:notice
 }
 # Initial focus and the title block on a Settings dialog, an anchored
 # Network panel and the join form. Posed shots preserve the keyboard ring
@@ -6787,23 +6837,88 @@ SH
   automations_stand_ins_restore "$cs/systemd"
 }
 
-# The sleep hook and the idle watch stay off in vgs.lock's row: no logind
-# stand-in runs here, and an idle lock would cover the other scenes.
+# Idle covers stay off during page captures. A lock or screensaver would
+# cover a long page set; no sleep hook should run from its idle state.
 lock_row_quiet() {
-  python3 - "$home/.config/vgshell/shell.json" <<'PY' || fail "writing vgs.lock's row failed"
+  python3 - "$home/.config/vgshell/shell.json" "$repo" <<'PY' || fail "writing the quiet idle rows failed"
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
 rows = config.setdefault("plugins", [])
-row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
-if row is None:
-    row = {"id": "vgs.lock"}
-    rows.append(row)
-row.update({"lockBeforeSleep": False, "idleLockSeconds": 0})
+for id, values in (("vgs.lock", {"lockBeforeSleep": False, "idleLockSeconds": 0}), ("vgs.screensaver", {"idleEnabled": False})):
+    if not os.path.isfile(os.path.join(sys.argv[2], "shell/plugins", id, "manifest.json")): continue
+    row = next((r for r in rows if r.get("id") == id), None)
+    if row is None:
+        row = {"id": id}
+        rows.append(row)
+    row.update(values)
 with open(path + ".tmp", "w") as out:
     json.dump(config, out)
 os.replace(path + ".tmp", path)
 PY
+}
+
+# Release the probe through its fixture owner. The product judge decides
+# which requested provider conflicts with the fixture's capabilities.
+capture_probe_release() {
+  local conflicts
+  [[ ${#enable_ids[@]} -gt 0 && -f $home/.config/vgshell/plugins/acme.probe/manifest.json ]] || return 0
+  conflicts="$("$node_bin" - "$checkout" "$repo" "$home/.config/vgshell/plugins/acme.probe/manifest.json" "${enable_ids[@]}" <<'JS'
+const fs = require("node:fs");
+const path = require("node:path");
+const [checkout, tree, fixture, ...ids] = process.argv.slice(2);
+const { load } = require(path.join(checkout, "bin/lib/qml-library.js"));
+const logic = load(path.join(tree, "shell/Core/PluginLogic.js"));
+const probe = JSON.parse(fs.readFileSync(fixture, "utf8"));
+const held = Object.fromEntries(probe.capabilities.map(name => [name, probe.id]));
+console.log(ids.filter(id => logic.lendRefusal(held, JSON.parse(fs.readFileSync(path.join(tree, "shell/plugins", id, "manifest.json"), "utf8"))) !== "").join(","));
+JS
+  )" || { fail "the requested providers' fixture conflicts are unreadable"; return 1; }
+  [[ -n $conflicts ]] || return 0
+  expect "the probe releases its capabilities for $conflicts" ok ipc shell setPluginEnabled acme.probe false
+  expect_poll "the probe's exclusive providers are gone" False record_exists acme.probe
+}
+
+# Apply requested states after every scene fixture has been installed.
+# On-demand window and pane hosts own their own first build in the scene.
+capture_plugin_states() { # MODE
+  local id active_bar live
+  active_bar="$(ipc shell listShellConfig | py_reply 'import json,sys; print(json.load(sys.stdin)["bar"]["id"])')" || { fail "the active bar is unreadable"; return 1; }
+  for id in "${disable_ids[@]}"; do
+    if [[ $id == "$active_bar" ]]; then
+      printf 'sandbox-shots: state mode=%s id=%s requested=off reason=active-bar\n' "$1" "$id"
+      continue
+    fi
+    expect "disabling $id for the run is allowed" ok ipc shell setPluginEnabled "$id" false
+    expect_poll "$id publishes off for the run" False plugin_enabled "$id"
+    expect_poll "$id has no instance for the off run" False record_exists "$id"
+  done
+  capture_probe_release || return 1
+  for id in "${enable_ids[@]}"; do
+    expect "enabling $id for the run is allowed" ok ipc shell setPluginEnabled "$id" true
+    expect_poll "$id publishes on for the run" True plugin_enabled "$id"
+    live="$(python3 -c 'import json,sys; kinds=json.load(open(sys.argv[1]))["kinds"]; print(any(k in kinds for k in ("service","bar","background")))' "$repo/shell/plugins/$id/manifest.json")" || { fail "the $id host kinds are unreadable"; return 1; }
+    [[ $live != True ]] || expect_poll "$id is built for its live host" True record_exists "$id"
+  done
+  close_notices
+}
+
+# The published inventory supplies actual state for every plugin, including
+# required active surfaces not present in a requested state list.
+capture_state_record() { # SCENE MODE
+  local state theme
+  theme="$(ipc smoke themeName)" || { fail "the capture theme is unreadable"; return 1; }
+  state="$(ipc shell listPlugins | py_reply 'import json,sys
+rows=json.load(sys.stdin).get("plugins")
+enabled,disabled=(set(a.split()) for a in sys.argv[1:])
+def state(r):
+    value={k:r[k] for k in ("id","enabled","kinds","requirements")}
+    value["requested"]="on" if r["id"] in enabled else "off" if r["id"] in disabled else "unchanged"
+    value["reason"]="active-bar" if value["requested"]=="off" and r["enabled"] and "bar" in r["kinds"] else ""
+    return value
+print("absent" if not isinstance(rows,list) or not rows else json.dumps([state(r) for r in rows],sort_keys=True,separators=(",",":")))' "${enable_ids[*]}" "${disable_ids[*]}")" || { fail "the capture plugin state is unreadable"; return 1; }
+  [[ $state == \[* ]] || { fail "the capture plugin state is $state"; return 1; }
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$capture_source" "$theme" "${enable_ids[*]}" "${disable_ids[*]}" "$state" >>"$SHOT_DIR/plugin-states.tsv"
 }
 for scene in "${scenes[@]}"; do
   case $scene in
@@ -7078,6 +7193,7 @@ TIPLINK
         expect_poll "$id is built for the comparison" True record_exists "$id"
       done ;;
     settings|plugin-pages)
+      lock_row_quiet
       # The Settings window lists the probe fixture, a plugin with many
       # grouped settings, and the launcher, a plugin with a key; both
       # enabled, so their pages are editable. Three more fixtures make the
@@ -7642,12 +7758,10 @@ park_pointer
 take "00-desktop"
 for mode in "${mode_list[@]}"; do
   set_mode "$mode"
-  for id in "${enable_ids[@]}"; do
-    expect "enabling $id for the run is allowed" ok ipc shell setPluginEnabled "$id" true
-    expect_poll "$id is built for the run" True record_exists "$id"
-  done
+  if [[ ${#enable_ids[@]} -gt 0 || ${#disable_ids[@]} -gt 0 ]]; then capture_plugin_states "$mode"; fi
   for scene in "${scenes[@]}"; do
     scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
+    capture_state_record "$scene" "$mode"
     "scene_$scene" "$mode"
   done
 done

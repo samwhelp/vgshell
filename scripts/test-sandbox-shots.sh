@@ -545,9 +545,11 @@ PY
     failures=0 undrawn=0 unmeasured=0
     mode_list=(dark)
     scenes=(screensaver capture)
+    enable_ids=() disable_ids=()
     park_pointer() { :; }
     set_mode() { :; }
     scene_desktop() { :; }
+    capture_state_record() { :; }
     take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\ts\tp\tsettled\thidden\tclean\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
     scene_capture() { take "capture-$1-panel"; }
     ok() { :; }
@@ -843,10 +845,14 @@ scene_cases=(
   "a malformed enable list is refused" 2 "sandbox-shots: refused: enable=vgs.themes," --enable vgs.themes, settings
   "a revision without the polkit plugin refuses enabling it" 2 "sandbox-shots: refused: enable=vgs.polkit tree=$old_rev" --rev "$old_rev" --enable vgs.polkit manager
   "a checkout with the polkit plugin takes enabling it" 77 "qml-smoke: status=not-measured" --enable vgs.polkit,vgs.themes settings
+  "a malformed disable list is refused" 2 "sandbox-shots: refused: disable=vgs.themes," --disable vgs.themes, settings
+  "a revision without the polkit plugin refuses disabling it" 2 "sandbox-shots: refused: disable=vgs.polkit tree=$old_rev" --rev "$old_rev" --disable vgs.polkit manager
+  "a checkout with the polkit plugin takes disabling it" 77 "qml-smoke: status=not-measured" --disable vgs.polkit,vgs.themes settings
+  "a plugin cannot be enabled and disabled together" 2 "sandbox-shots: refused: state=vgs.themes reason=enabled-and-disabled" --enable vgs.themes --disable vgs.themes settings
 )
 # Each case is label, status, line, then its arguments up to the next case,
 # counted by the arguments each row above carries.
-scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1 3 5 3 5 3)
+scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1 3 5 3 5 3 3 5 3 5)
 # Where each case starts in scene_cases and how many arguments it takes, by
 # label, for the controls below.
 declare -A scene_at scene_argc
@@ -1256,6 +1262,144 @@ assert changed != text
 pathlib.Path(sys.argv[2]).write_text(changed)
 PYCONTROL
   if power_scene_case "$power_mutant"; then fail "control: Power $defect stayed green"; else ok "control: Power $defect fails"; fi
+done
+
+# Drive the capture state owner against a published shell world. Windows
+# and panes are enabled without an instance. The probe initially owns lock,
+# Jarvis enablement adds a required-tool notice, and fixture preparation has
+# left the requested off plugins on. No compositor or authentication runs.
+capture_state_case() { # SCRIPT
+  local dir
+  dir="$(mktemp -d "$tmp/capture-state.XXXXXX")" || return 1
+  mkdir -p "$dir/home/.config/vgshell/plugins/acme.probe" "$dir/shots"
+  cp -- "$repo/scripts/smoke/fixtures/plugins/acme.probe/manifest.json" "$dir/home/.config/vgshell/plugins/acme.probe/"
+  printf '{"version":2,"plugins":[]}\n' >"$dir/home/.config/vgshell/shell.json"
+  python3 - "$1" "$repo/scripts/smoke/harness.sh" "$dir/helpers.sh" <<'PY'
+import pathlib,sys
+script,harness,dst=map(pathlib.Path,sys.argv[1:])
+parts=[]
+for source,names in ((script,("capture_probe_release","capture_plugin_states","capture_state_record","page_state_record","lock_row_quiet","scene_desktop","close_notices","notice_plugin","notice_moved_from")),(harness,("py_reply","notice_shown"))):
+    text=source.read_text()
+    for name in names:
+        start=text.index(name+"() {")
+        # One-line readers end on their declaration line.
+        line_end=text.index("\n",start)
+        if text[start:line_end].rstrip().endswith("}"): end=line_end
+        else: end=text.index("\n}\n",start)+3
+        parts.append(text[start:end])
+dst.write_text("\n".join(parts))
+PY
+  cat >"$dir/world.py" <<'PY'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1]); op=sys.argv[2]; args=sys.argv[3:]
+file=root/"world.json"
+if op=="plant":
+    rows={}
+    for id,kinds,on in (("vgs.gallery",["window"],False),("vgs.fonts",["pane"],False),("vgs.lock",["service"],False),("vgs.jarvis",["service"],False),("vgs.notifications",["service"],True),("vgs.devtools",["service","window"],True),("vgs.themes",["service","background"],True),("vgs.bar",["bar","service"],True),("acme.probe",["service"],True)):
+        rows[id]={"id":id,"enabled":on,"kinds":kinds,"requirements":[],"settings":{"model":"fixture-model","localTier":"small"},"settingChoices":{},"status":[],"errors":[]}
+    file.write_text(json.dumps({"rows":rows,"notices":["fixture."+str(i) for i in range(5)]}))
+    sys.exit(0)
+world=json.loads(file.read_text()); rows=world["rows"]; notices=world["notices"]
+if op=="set":
+    id,on=args; rows[id]["enabled"]=on=="true"
+    if id=="vgs.jarvis" and on=="true": notices.append(id)
+    file.write_text(json.dumps(world)); print("ok")
+elif op=="enabled": print(rows[args[0]]["enabled"])
+elif op=="built":
+    row=rows[args[0]]
+    print(row["enabled"] and "service" in row["kinds"] and not (row["id"]=="vgs.lock" and rows["acme.probe"]["enabled"]))
+elif op=="list": print(json.dumps({"plugins":list(rows.values())}))
+elif op=="manager": print(json.dumps(list(rows.values())))
+elif op=="lent": print(json.dumps({"notices":{"shown":None if not notices else {"plugin":notices[0],"commands":["missing-tool"],"required":True,"installing":False},"waiting":notices[1:]}}))
+elif op=="layer": print(int(bool(notices)))
+elif op=="escape":
+    if not notices: sys.exit(1)
+    notices.pop(0); file.write_text(json.dumps(world))
+PY
+  python3 "$dir/world.py" "$dir" plant || return 1
+  env -i PATH="$PATH" "$BASH" -c '
+    set -euo pipefail
+    at="$1" repo="$2" checkout="$2" home="$1/home" SHOT_DIR="$1/shots" capture_source=fixture-sha settings_kind=window main_name=WAYLAND-1
+    node_bin="$(command -v node)"
+    enable_ids=(vgs.gallery vgs.fonts vgs.lock vgs.jarvis)
+    disable_ids=(vgs.notifications vgs.devtools vgs.themes vgs.bar)
+    world() { python3 "$at/world.py" "$at" "$@"; }
+    ipc() {
+      case "$*" in
+        "shell listShellConfig") printf "{\"bar\":{\"id\":\"vgs.bar\"}}\n" ;;
+        "shell setPluginEnabled "*) world set "$3" "$4" ;;
+        "shell listPlugins") world list ;;
+        "shell lent") world lent ;;
+        "smoke readInstance window vgs.settings plugins") world manager ;;
+        "smoke themeName") printf "%s\n" "$mode_theme" ;;
+        "smoke noticeFocused") echo true ;;
+        *) exit 2 ;;
+      esac
+    }
+    plugin_enabled() { world enabled "$1"; }
+    record_exists() { world built "$1"; }
+    layer_count() { world layer; }
+    type_keys() { [[ $* == "-k Escape" ]] && world escape; }
+    fail() { echo "$*" >&2; exit 1; }
+    expect() { local label="$1" want="$2" got; shift 2; got="$("$@")" && [[ $got == "$want" ]] || fail "$label: $got != $want"; }
+    expect_poll() { expect "$@"; }
+    pixel() { echo 112233; }
+    bg_state_names() { :; }
+    background_image_on() { fail "an off Themes service was read"; }
+    source "$at/helpers.sh"
+    lock_row_quiet
+    for mode_theme in vgs flexoki-light; do
+      capture_plugin_states "$mode_theme"
+      [[ $(plugin_enabled vgs.gallery) == True && $(plugin_enabled vgs.fonts) == True && $(record_exists vgs.lock) == True ]]
+      [[ $(plugin_enabled vgs.notifications) == False && $(plugin_enabled vgs.devtools) == False && $(plugin_enabled vgs.themes) == False && $(plugin_enabled vgs.bar) == True ]]
+      [[ $(notice_shown) == null && $(layer_count vgs:notice) == 0 ]]
+      scene_desktop plugin-pages "$mode_theme"
+      capture_state_record plugin-pages "$mode_theme"
+      page_state_record "jarvis-$mode_theme" "$mode_theme" vgs.jarvis
+    done
+  ' _ "$dir" "$repo" >"$dir/out" 2>"$dir/err" || { cat -- "$dir/err" >&2; return 1; }
+  python3 - "$dir" <<'PY'
+import csv,json,pathlib,sys
+root=pathlib.Path(sys.argv[1])
+config=json.loads((root/"home/.config/vgshell/shell.json").read_text())
+rows={r["id"]:r for r in config["plugins"]}
+assert rows["vgs.lock"]["idleLockSeconds"]==0 and rows["vgs.lock"]["lockBeforeSleep"] is False
+assert rows["vgs.screensaver"]["idleEnabled"] is False
+with (root/"shots/plugin-states.tsv").open() as file:
+    records=list(csv.reader(file,delimiter="\t"))
+assert {r[3] for r in records}=={"vgs","flexoki-light"}
+for r in records:
+    states={p["id"]:p for p in json.loads(r[-1])}
+    assert states["vgs.themes"]["requested"]=="off" and states["vgs.themes"]["enabled"] is False
+    assert states["vgs.bar"]["requested"]=="off" and states["vgs.bar"]["enabled"] is True and states["vgs.bar"]["reason"]=="active-bar"
+with (root/"shots/page-states.tsv").open() as file:
+    records=list(csv.reader(file,delimiter="\t"))
+assert {r[3] for r in records}=={"vgs","flexoki-light"}
+for r in records:
+    state=json.loads(r[-1]); assert state["enabled"] is True and state["settings"]["model"]=="fixture-model" and "status" in state and "requirements" in state
+with (root/"shots/desktop.tsv").open() as file:
+    assert all(r[-1]=="112233" for r in csv.reader(file,delimiter="\t"))
+PY
+}
+if capture_state_case "$repo/scripts/sandbox-shots.sh"; then ok "capture states cover on-demand hosts, exclusive release, notices, explicit off and actual records in both themes"; else fail "capture state contract"; fi
+capture_controls=(
+  "on-demand builds are required" '[[ $live != True ]] || expect_poll' 'expect_poll'
+  "the probe retains its exclusive capability" '"the probe releases its capabilities for $conflicts" ok ipc shell setPluginEnabled acme.probe false' '"the probe releases its capabilities for $conflicts" ok echo ok'
+  "enable notices are not closed" $'  close_notices\n}\n\n# The published inventory' $'  :\n}\n\n# The published inventory'
+  "explicit off never writes" '"disabling $id for the run is allowed" ok ipc shell setPluginEnabled "$id" false' '"disabling $id for the run is allowed" ok echo ok'
+  "quiet lock keeps its idle timer" '"idleLockSeconds": 0' '"idleLockSeconds": 300'
+  "notice cleanup is capped before the queue ends" 'i<count' 'i<4'
+)
+for ((i=0; i<${#capture_controls[@]}; i+=3)); do
+  label="${capture_controls[i]}"; needle="${capture_controls[i+1]}"; replacement="${capture_controls[i+2]}"
+  capture_mutant="$tmp/capture-mutant.sh"
+  if ! mutate "$repo/scripts/sandbox-shots.sh" "$needle" "$replacement" "$capture_mutant"; then
+    fail "control: $label could not be planted"
+  elif capture_state_case "$capture_mutant" >"$tmp/capture-control.out" 2>&1; then
+    fail "control: $label stayed green"
+  else
+    ok "control: $label fails the capture state contract"
+  fi
 done
 
 if [[ $failures -gt 0 ]]; then
