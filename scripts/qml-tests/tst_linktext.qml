@@ -160,23 +160,22 @@ Item {
             compare(linked.Accessible.name, linked.text);
             compare(linked.Accessible.role, Accessible.Link);
             compare(linked.visualFocus, false);
-            // Qt 6.11.2 QuickTestResult::waitForRendering waits for frameSwapped
-            // without requesting a frame. init() already gave this focus reason,
-            // so the unchanged hidden ring needs no rendering wait.
+            // The ring's visible is bound to its target's visualFocus, so each
+            // check reads it at once. Qt 6.11.2 QuickTestResult::waitForRendering
+            // waits for the next frameSwapped and requests no frame: a frame
+            // that swaps before it connects leaves it to time out.
             compare(ring.visible, false);
             keyClick(Qt.Key_Tab);
             compare(escaped.activeFocus, true);
             compare(escaped.visualFocus, true);
             const nextRing = ringOf(escaped);
             verify(nextRing !== undefined, "the next linked word owns its ring");
-            verify(waitForRendering(escaped));
             compare(nextRing.visible, true);
             compare(linked.visualFocus, false);
             compare(ring.visible, false);
             keyClick(Qt.Key_Backtab);
             compare(linked.activeFocus, true);
             compare(linked.visualFocus, true);
-            verify(waitForRendering(linked));
             compare(ring.visible, true);
         }
 
