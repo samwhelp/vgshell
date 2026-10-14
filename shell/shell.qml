@@ -155,6 +155,7 @@ ShellRoot {
         // `vgshell plugin add` landed plugin `id`: the same scan, then the
         // requirement notice for it.
         function pluginInstalled(id: string): string { return root.ifGuarded(() => Notices.installed(id)); }
+        function themeCompleted(verb: string, resultJson: string): string { return root.ifGuarded(() => Capabilities.themes.completed(verb, resultJson)); }
         function setPluginEnabled(id: string, enabled: bool): string { return root.ifGuarded(() => Plugins.setEnabled(id, enabled)); }
         function setPluginPlaced(id: string, placed: bool): string { return root.ifGuarded(() => Plugins.setPlaced(id, placed)); }
         function movePluginWidget(id: string, section: string, index: int): string { return root.ifGuarded(() => Plugins.moveWidget(id, section, index, null)); }

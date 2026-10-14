@@ -20,6 +20,30 @@ import "../Commons/ThemeLogic.js" as ThemeLogic
 // changed; no plugin reaches it.
 Scope {
     id: root
+    required property var notificationHub
+
+    // CLI, Settings and the add TUI share this completion IPC. The CLI
+    // sends it after the judge finished and released the theme lock.
+    // finish() only records queued results, so it cannot send a duplicate.
+    function completed(verb, resultJson) {
+        if (verb !== "add" && verb !== "apply") return "refused: theme-completed=verb";
+        let result;
+        try { result = JSON.parse(resultJson); }
+        catch (e) { return "refused: theme-completed=json"; }
+        if (result === null || typeof result !== "object" || Array.isArray(result)) return "refused: theme-completed=result";
+        const success = verb === "add" ? result.state === "ok"
+            : ["applied", "unchanged", "partial"].indexOf(result.state) !== -1 && result.shell !== "failed";
+        if (!success || result.readabilityShortfalls === undefined) return "ok";
+        if (!Array.isArray(result.readabilityShortfalls)) return "refused: theme-completed=shortfalls";
+        let message;
+        try { message = ThemeLogic.readabilityNotice(result.readabilityShortfalls); }
+        catch (e) { return "refused: theme-completed=shortfall-role"; }
+        if (message === "") return "ok";
+        return Notifier.send({ id: "core" }, "VGS", {
+            title: "Theme text may be hard to read", message: message,
+            tone: "warning", icon: "triangle-alert"
+        }, notificationHub);
+    }
 
     // The queue's jobs in order, the first one running once started. A job
     // is { verb, name, argv, started, waiters, lines, completion }: `verb`

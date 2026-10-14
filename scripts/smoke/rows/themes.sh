@@ -9,7 +9,7 @@
 # rows start from the defaults. The vgs.themes
 # block and its wallpaper block close the file, each delimited by its own
 # markers.
-# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml shell/Ui/controls/RowAction.qml shell/Commons/Glass.js shell/Core/Notifier.qml shell/Core/NotificationHub.qml shell/Core/Capabilities.qml shell/shell.qml shell/plugins/vgs.notifications/* scripts/smoke/Probe.qml
 set -euo pipefail
 installed="$home/.config/vgshell/themes"
 # What the fixture's last apply callback received: state, shell, theme and
@@ -1393,3 +1393,97 @@ expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
 expect "the follow after disabling the themes plugin ends" idle theme_idle
 rm -r -- "$scenic" "$plain"
 # ---- end vgs.themes wallpaper -----------------------------------------------
+
+# User readability advice passes through the real apply, completion IPC
+# and notifier. Wait for notify-send to end before counting cards, so a
+# second send cannot hide behind an early first-card reading.
+# The suppressed-send and duplicate-on-finish controls keep the apply.
+theme_notice_pkg="$installed/faint-user"
+mkdir -p -- "$theme_notice_pkg"
+printf '%s\n' '{"schemaVersion":1,"name":"faint-user","tokens":{"color":{"textFaint":"#000000"}}}' >"$theme_notice_pkg/theme.json"
+theme_notice_rows() {
+  ipc smoke modelRows vgs.notifications rows app,body,leaving | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+print(json.dumps([r[1] for r in rows if r[0] == "VGS" and r[2] == ""]) if isinstance(rows,list) else "absent")'
+}
+theme_notice_count() { theme_notice_rows | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) if isinstance(rows,list) else "absent")'; }
+theme_notice_evidence() {
+  theme_notice_rows | py_reply 'import json,re,sys
+rows=json.load(sys.stdin)
+lines=[line for body in rows for line in body.splitlines() if "Faint text" in line] if isinstance(rows,list) else []
+print(len(rows)==1 and len(lines)==1 and "desktop" in lines[0] and bool(re.search(r"\b1\.00:1\b",lines[0])) and not bool(re.search(r"color\.|vgshell",lines[0])))'
+}
+theme_notice_assertion_failures() {
+  (failures=0 behaviour_failures=0
+  expect "one notice carries the faint role, surface and ratio" True theme_notice_evidence >"$sandbox/theme-notice-control.log"
+  printf '%s\n' "$failures")
+}
+notes_on "theme readability"
+expect "the probe enables for the readability notice" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the readability probe is built" True service_built
+expect "reads settle before the readability apply" idle theme_idle
+expect "the user theme applies through the capability" ok probe theme-apply faint-user
+expect_poll "the user apply completes" 1 applies
+expect_poll "the notifier completes its send" 0 ipc smoke themeNoticeRuns
+expect_poll "one notice names the failed role, surface and ratio" True theme_notice_evidence
+expect_poll "the faint user theme remains applied" '"faint-user"' theme_member current
+notes_first_card "the theme readability notice"
+notes_clear "theme readability"
+
+cp -p -- "$repo/bin/vgshell" "$sandbox/vgshell.notice.real"
+python3 - "$sandbox/vgshell.notice.real" "$repo/bin/vgshell.notice.next" <<'PY'
+import pathlib, sys
+source, target = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+needle = '(ipc_call "$pid" shell themeCompleted "$1" "$2") >/dev/null 2>&1 || :'
+assert text.count(needle) == 1
+changed = text.replace(needle, ': # The control suppresses completion delivery.')
+assert changed != text
+target.write_text(changed)
+target.chmod(source.stat().st_mode)
+PY
+mv -T -- "$repo/bin/vgshell.notice.next" "$repo/bin/vgshell"
+expect "the suppressed-notice apply still runs" ok probe theme-apply faint-user
+expect_poll "the suppressed-notice apply completes" 2 applies
+expect "the suppressed notice leaves no send running" 0 ipc smoke themeNoticeRuns
+expect "the suppressed notice leaves no card" 0 theme_notice_count
+expect "the notice assertion rejects suppressed delivery" 1 theme_notice_assertion_failures
+expect "suppressed delivery keeps the user theme applied" '"faint-user"' theme_member current
+cp -p -- "$sandbox/vgshell.notice.real" "$repo/bin/vgshell.notice.next"
+mv -T -- "$repo/bin/vgshell.notice.next" "$repo/bin/vgshell"
+
+# Qt caches directory listings. Build the finish control in a fresh
+# directory and lend it the real hub through the existing runner reader.
+theme_notice_control="$(mktemp -d "$repo/shell/theme-notice-control.XXXXXX")"
+mkdir -p -- "$theme_notice_control/Core"
+ln -s -- "$repo/shell/Commons" "$theme_notice_control/Commons"
+python3 - "$repo/shell/Core/ThemeRunner.qml" "$theme_notice_control/Core/ThemeRunner.qml" <<'PY'
+import pathlib, sys
+source, target = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+needle = '        startNext();\n    }\n\n    function frozen(value)'
+assert text.count(needle) == 1
+changed = text.replace(needle, '        root.completed(job.verb, JSON.stringify(result));\n' + needle)
+changed = 'import qs.Core\n' + changed
+assert changed != text
+target.write_text(changed)
+PY
+expect "the duplicate-on-finish runner builds" ok ipc smoke runnerLoad "$theme_notice_control/Core/ThemeRunner.qml"
+expect "the duplicate-on-finish runner applies the user theme" ok ipc smoke runnerCall apply faint-user
+expect_poll "the duplicate-on-finish apply completes" 1 ipc smoke runnerAnswered apply
+expect_poll "both duplicate notifier sends complete" 0 ipc smoke themeNoticeRuns
+expect_poll "the finish control produces two notices" 2 theme_notice_count
+expect "the one-notice assertion rejects duplicate delivery" 1 theme_notice_assertion_failures
+expect "the duplicate control runner is destroyed" ok ipc smoke runnerDrop
+rm -r -- "$theme_notice_control"
+notes_clear "theme readability control"
+
+expect "a passing shipped theme applies after the controls" ok probe theme-apply vgs
+expect_poll "the passing apply completes" 3 applies
+expect "a passing theme creates no notice" 0 theme_notice_count
+expect "the passing theme leaves no notifier send" 0 ipc smoke themeNoticeRuns
+expect_poll "the passing theme is displayed" '"vgs"' theme_member current
+expect "the readability probe disables" ok ipc shell setPluginEnabled acme.probe false
+notes_off "theme readability"
+expect "the final readability scans settle" idle theme_idle
+rm -r -- "$theme_notice_pkg"

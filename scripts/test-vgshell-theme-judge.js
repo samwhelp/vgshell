@@ -10,12 +10,13 @@
 // code, one no target writes, one apply would not take and any symlink;
 // the package walk skips the catalog. Its controls at the end edit a copy
 // of the judge, one rule at a time, and require the catalog rows to fail on
-// each copy. Test directories live under repo tmp so the suite does not
-// depend on the host temporary directory.
+// each copy. User readability controls use an external scratch tree;
+// package and catalog fixture directories live under repo tmp.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 
 const repo = path.join(__dirname, "..");
@@ -43,6 +44,88 @@ function writeTarget(base, name, document, templates) {
 
 function run(base) {
     return spawnSync(process.execPath, [CHECK, "packages", base], { encoding: "utf8", env: ENV });
+}
+
+// Actual add and apply verdicts, isolated from applications and the host.
+// Their ratios come from a black-on-black faint role, not the judge.
+function verifyUserReadability(check, root, verb) {
+    for (const [name, tokens, expected] of [
+        ["faint", { color: { textFaint: "#000000" } }, ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"]],
+        ["passing", {}, []]
+    ]) {
+        const home = path.join(root, verb, name);
+        const config = path.join(home, ".config", "vgshell");
+        const state = path.join(home, ".local", "state", "vgshell");
+        const stage = path.join(home, "stage");
+        const pkg = verb === "add" ? path.join(stage, "package") : path.join(config, "themes", name);
+        fs.mkdirSync(path.join(config, "themes"), { recursive: true });
+        fs.mkdirSync(pkg, { recursive: true });
+        const theme = JSON.stringify({ schemaVersion: 1, name, tokens });
+        fs.writeFileSync(path.join(pkg, "theme.json"), theme);
+        const args = verb === "add" ? ["add", "json", config, stage, "held", "fixture.git"] : ["apply", "json", config, state, "held", name];
+        const proc = spawnSync(process.execPath, [check, ...args], {
+            encoding: "utf8", env: { HOME: home, PATH: "", LC_ALL: "C", VGS_TEST_RUN: "1" }
+        });
+        assert.equal(proc.status, 0, verb + ": " + proc.stderr);
+        const result = JSON.parse(proc.stdout);
+        assert.ok(Array.isArray(result.readabilityShortfalls), verb + ": user verdict carries the shortfall field");
+        assert.equal(result.reason, null);
+        assert.equal(result.theme, name);
+        assert.deepEqual(result.readabilityShortfalls.map(row => row.surface), expected);
+        for (const row of result.readabilityShortfalls) {
+            assert.equal(row.text, "color.textFaint");
+            assert.equal(row.floor, 4.5);
+            assert.ok(row.ratio >= 1 && row.ratio < row.floor);
+            if (row.surface === "color.background") assert.equal(row.ratio, 1);
+        }
+        const landed = verb === "add" ? path.join(config, "themes", name, "theme.json") : path.join(config, "theme.json");
+        assert.equal(fs.readFileSync(landed, "utf8"), theme, "shortfalls never change or refuse the user theme");
+    }
+}
+
+{
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "theme-notice-"));
+    try {
+        const tree = path.join(scratch, "tree");
+        fs.mkdirSync(path.join(tree, "bin"), { recursive: true });
+        fs.mkdirSync(path.join(tree, "themes"));
+        for (const dir of ["shell", "config", "bin/lib", "themes/vgs"])
+            fs.symlinkSync(path.join(repo, dir), path.join(tree, dir));
+        const check = path.join(tree, "bin", "vgshell-theme-judge");
+        const source = fs.readFileSync(path.join(repo, "bin", "vgshell-theme-judge"), "utf8");
+        fs.writeFileSync(check, source);
+        for (const verb of ["add", "apply"]) verifyUserReadability(check, path.join(scratch, "real"), verb);
+        // Shipped and catalog packages retain their offline hard floor.
+        // Their apply verdicts do not carry user advice, even if a private
+        // fixture deliberately gives their faint text the same weak ink.
+        for (const kind of ["shipped", "catalog"]) {
+            const home = path.join(scratch, kind);
+            const config = path.join(home, ".config", "vgshell");
+            const name = kind + "-probe";
+            const pkg = kind === "shipped" ? path.join(tree, "themes", name) : path.join(config, "themes", name);
+            fs.mkdirSync(pkg, { recursive: true });
+            fs.writeFileSync(path.join(pkg, "theme.json"), JSON.stringify({ schemaVersion: 1, name, tokens: { color: { textFaint: "#000000" } } }));
+            if (kind === "catalog") fs.writeFileSync(path.join(pkg, ".vgs-catalog.json"), JSON.stringify({ source: "catalog", digest: "0".repeat(64), imagery: null }));
+            const proc = spawnSync(process.execPath, [check, "apply", "json", config, path.join(home, "state"), "held", name], {
+                encoding: "utf8", env: { HOME: home, PATH: "", LC_ALL: "C", VGS_TEST_RUN: "1" }
+            });
+            assert.equal(proc.status, 0, proc.stderr);
+            assert.equal(Object.hasOwn(JSON.parse(proc.stdout), "readabilityShortfalls"), false, kind + ": no user advice");
+        }
+        for (const [verb, needle, replacement] of [
+            ["add", "    result.readabilityShortfalls = shortfalls;", "    // The control drops the add verdict's shortfall field."],
+            ["apply", "    if (shortfalls !== null) result.readabilityShortfalls = shortfalls;", "    // The control drops the apply verdict's shortfall field."]
+        ]) {
+            assert.equal(source.split(needle).length, 2, verb + ": control matches once");
+            const mutant = source.replace(needle, replacement);
+            assert.notEqual(mutant, source);
+            fs.writeFileSync(check, mutant);
+            assert.throws(() => verifyUserReadability(check, path.join(scratch, "control"), verb),
+                { code: "ERR_ASSERTION" }, verb + ": a verdict without the shortfall field fails");
+        }
+    } finally {
+        fs.rmSync(scratch, { recursive: true, force: true });
+    }
 }
 
 // --- catalog-check

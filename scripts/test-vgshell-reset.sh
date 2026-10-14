@@ -31,7 +31,7 @@ command -v script >/dev/null || { echo "test-vgshell-reset: status=not-measured 
 
 theme_tree
 bash_bin="$(command -v bash)"
-for tool in date rmdir realpath cp head script; do
+for tool in date rmdir realpath cp script; do
   tool_bin="$(command -v "$tool")" || { echo "test-vgshell-reset: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$theme_path/$tool"
 done

@@ -24,7 +24,7 @@ Singleton {
     NotificationHub { id: notifications; active: root.notificationsHeld }
     SessionLock { id: sessionLock }
     Component { id: screencopyPreview; ScreencopyPreview {} }
-    ThemeRunner { id: themes }
+    ThemeRunner { id: themes; notificationHub: notifications }
     TuiRunner { id: tuis }
     SecretWriter { id: secrets }
     SystemSteps { id: systemSteps; active: root.systemHeld }

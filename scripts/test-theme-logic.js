@@ -692,7 +692,47 @@ const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "tog
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
 
+function verifyReadabilityNotice(judge) {
+    assert.equal(judge.readabilityNotice([]), "", "a passing theme has no notice");
+    const worst = { text: "color.textFaint", surface: "color.surface", ratio: 1.25, floor: 4.5 };
+    const better = { text: "color.textFaint", surface: "color.background", ratio: 2.25, floor: 4.5 };
+    const notice = judge.readabilityNotice([worst]);
+    assert.equal(judge.readabilityNotice([better, worst, better]), notice, "each role names only its worst surface");
+    assert.equal(judge.readabilityNotice([worst, better]), notice, "worst selection does not depend on input order");
+    assert.equal(notice.split("\n").length, 2, "one introduction and one role line");
+    assert.ok(notice.includes("1.25:1"), "the notice contains the judged ratio");
+    assert.ok(!notice.includes("2.25:1"), "the notice omits stronger surfaces");
+    const translucent = Object.assign({}, worst, { surface: "color.surfaceRaised", ratio: null });
+    assert.equal(judge.readabilityNotice([better, translucent]), judge.readabilityNotice([translucent]), "an unmeasurable surface takes priority");
+    assert.equal(judge.readabilityNotice([translucent, worst]), judge.readabilityNotice([translucent]), "a measurable ratio cannot replace an unmeasurable one");
+    // Discover the source table's roles and surfaces, including composites.
+    const pairs = judge.READABILITY_PAIRS.concat(judge.BOUNDARY_PAIRS);
+    const keys = new Set(judge.READABILITY_TEXT_ROLES.concat(judge.READABILITY_SURFACES, judge.BOUNDARY_ROLES,
+        judge.RAIL_TEXT_ROLES, judge.RAIL_MARK_ROLES, judge.TOOLTIP_TEXT_ROLES,
+        [judge.MODAL_BORDER, judge.MODAL_FILL, judge.MODAL_SCRIM, judge.RAIL_WALLPAPER,
+            judge.FAILURE_LINE, judge.FAILURE_PLATE, judge.TYPED_FILTER, judge.SEARCH_HINT, judge.TOOLTIP_FILL, judge.GLASS_SOLID]));
+    for (const pair of pairs) for (const key of pair) keys.add(key);
+    assert.ok(keys.has("color.textFaint") && keys.has("glass.fill solid"), "label coverage reaches text and glass");
+    for (const key of keys) {
+        const words = judge.readabilityName(key);
+        assert.equal(typeof words, "string");
+        assert.ok(words.trim().length > 0 && !words.includes(".") && !words.includes("#"), key + ": labels use user words");
+        const composite = judge.readabilityName(key + " over color.surfaceRaised");
+        assert.ok(!composite.includes("color.") && composite.length > words.length, key + ": composite surfaces use user words");
+    }
+    const roles = Array.from(new Set(judge.READABILITY_TEXT_ROLES.concat(judge.BOUNDARY_ROLES,
+        pairs.map(pair => pair[0]), judge.RAIL_TEXT_ROLES, judge.RAIL_MARK_ROLES, judge.TOOLTIP_TEXT_ROLES,
+        [judge.MODAL_BORDER, judge.MODAL_FILL, judge.FAILURE_LINE, judge.TYPED_FILTER, judge.SEARCH_HINT])));
+    const crowded = judge.readabilityNotice(roles.map(text => ({ text, surface: "color.scrim over color.surfaceRaised", ratio: 1.25, floor: 4.5 })));
+    assert.ok(crowded.length <= 600, "one notice stays within the notifier's message limit");
+    const omitted = /^(\d+)\b/.exec(crowded.split("\n").slice(-1)[0]);
+    assert.notEqual(omitted, null, "a bounded notice names how many roles remain");
+    assert.equal(crowded.split("\n").length - 2 + Number(omitted[1]), roles.length, "each role is listed or counted");
+    assert.ok(!/color\.|badge\.|segmented\.|carousel\.|vgshell/.test(crowded), "no internal key or command reaches the notice");
+}
+
 function verify(judge) {
+    verifyReadabilityNotice(judge);
     assert.equal(judge.tableError(TOKENS), "");
     for (const [table, start] of BAD_TABLES)
         assert.ok(judge.tableError(table).startsWith(start), `${start}: got ${JSON.stringify(judge.tableError(table))}`);
@@ -1858,6 +1898,9 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["notice groups each role", "if (!hasOwn(worst, row.text)) { worst[row.text] = row; roles.push(row.text); }", "if (true) { worst[row.text] = row; roles.push(row.text); }"],
+    ["notice picks the weakest surface", "row.ratio < worst[row.text].ratio", "row.ratio > worst[row.text].ratio"],
+    ["notice message limit", 'lines.concat([line]).join("\\n").length + tail.length > 600', 'lines.concat([line]).join("\\n").length + tail.length > 6000'],
     ["regular drawn ink", "regular: 0.966", "regular: 1"],
     ["bold drawn ink", "bold: 1.000", "bold: 0.966"],
     ["drawn ink on every text pair", "pairs[q][2] === READABILITY_FLOOR", "false"],

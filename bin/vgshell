@@ -172,8 +172,10 @@
 # the reload's `{ state, targets, reason }`, the background step's
 # `{ state, background, theme, path, reason }`, the set's, that result with
 # its `screen`, or the background list's `{ state, images, reason }`,
-# refusals included, as one JSON line on stdout. `theme` commands never
-# contact the shell: docs/architecture/themes.md.
+# refusals included, as one JSON line on stdout. Successful add and apply
+# send completion IPC to the running shell for readability advice. A missing
+# shell or failed delivery stays silent and keeps the operation's result:
+# docs/architecture/themes.md.
 #
 # `theme add`, `update` and `remove` follow the plugin rules above for
 # ${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>, remove without a
@@ -475,7 +477,7 @@ Subcommands:
   background [--json] next|previous Show another background image
   background [--json] set <path> [--screen <output> | --every-screen]
   background [--json] list [--all]  List background images
-  add [<git url>]                   Install a theme package from git
+  add [--json] [<git url>]          Install a theme package from git
   update [--yes] <name>             Fast-forward an installed theme
   remove <name>                     Remove an installed theme
   catalog [--json]                  List catalog themes
@@ -1704,21 +1706,39 @@ theme_stage() { # KIND
 }
 
 theme_add() { # URL
-  local url="$1" name target line
+  local url="$1" result status=0
   theme_added=""
   mkdir -p -- "$user_themes"
   theme_stage add
   git_or_refuse "clone=$url" clone --quiet --no-recurse-submodules -- "$url" "$stage/package"
-  accept_theme "$stage/package" || refuse 1 "package=$url $verdict"
-  name="$verdict"
-  target="$user_themes/$name"
-  theme_lock_change "theme=$name"
-  [[ -e $target || -L $target ]] && refuse 1 "theme=$name reason=exists path=$target"
-  mv -T -- "$stage/package" "$target" || refuse 1 "theme=$name reason=move path=$target"
-  line="ok added=$name path=$target"
-  [[ -d $root/themes/$name ]] && line+=" shadows=$root/themes/$name"
-  echo "$line"
-  theme_added="$name"
+  theme_lock_verdict
+  result="$(node "$theme_judge" add json "$config_home/vgshell" "$stage" "$verdict" "$url")" || status=$?
+  exec 9>&-
+  if [[ $status == 0 ]]; then
+    theme_added="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).theme)' <<<"$result")" || exit $?
+    theme_completed add "$result"
+  fi
+  node "$theme_judge" display "$format" add <<<"$result" || exit $?
+  return "$status"
+}
+
+# Completion delivery is advice. A missing shell or a failed call cannot
+# change the successful add/apply result. The existing IPC owner judges
+# its reply; the subshell contains its exit and keeps stdout for the verdict.
+theme_completed() { # VERB RESULT
+  local pid
+  pid="$(shell_pid 2>/dev/null)" || return 0
+  (ipc_call "$pid" shell themeCompleted "$1" "$2") >/dev/null 2>&1 || :
+}
+
+theme_apply() { # NAME
+  local result status=0
+  theme_lock_verdict
+  result="$(node "$theme_judge" apply json "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$1")" || status=$?
+  exec 9>&-
+  if [[ $status == 0 || $status == 3 ]]; then theme_completed apply "$result"; fi
+  node "$theme_judge" display "$format" apply <<<"$result" || exit $?
+  return "$status"
 }
 
 # After an interactive theme add: show the apply command and, on a yes,
@@ -2643,8 +2663,7 @@ case "$cmd" in
         name="${1:-}"
         if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
         if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
-        theme_lock_verdict
-        exec node "$theme_judge" apply "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$name"
+        theme_apply "$name"
         ;;
       reload)
         if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
@@ -2718,7 +2737,7 @@ case "$cmd" in
         theme_install "$format" "$name"
         ;;
       add|update|remove)
-        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; try_help; exit 2; }
+        [[ $format == json && $sub != add ]] && { printf 'vgshell: refused: argument=--json\n' >&2; try_help; exit 2; }
         if [[ $sub == update && ${1:-} == --yes ]]; then assume_yes=1; shift; fi
         if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         arg="${1:-}"

@@ -45,7 +45,7 @@ Item {
         property int lastChanges: 0
 
         function init() {
-            runner = createTemporaryObject(runnerComponent, root);
+            runner = createTemporaryObject(runnerComponent, root, { notificationHub: null });
             verify(runner !== null, "the runner builds");
             lastChanges = 0;
             runner.lastChanged.connect(() => lastChanges++);

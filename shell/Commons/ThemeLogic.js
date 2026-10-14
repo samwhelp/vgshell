@@ -351,6 +351,70 @@ var TOOLTIP_TEXT_ROLES = ["tooltip.foreground", "tooltip.detail"];
 var TOOLTIP_FILL = "tooltip.background";
 var GLASS_SOLID = "glass.fill solid";
 
+// Notice copy shared by the terminal and ThemeRunner. Each role names
+// its weakest surface; the verdict keeps every shortfall unchanged.
+var READABILITY_NAMES = {
+    "color.text": "Body text", "color.textHeading": "Headings",
+    "color.textMuted": "Muted text", "color.textFaint": "Faint text",
+    "color.accent": "Accent text", "color.success": "Success text",
+    "color.warning": "Warning text", "color.danger": "Error text", "color.info": "Information text",
+    "color.background": "desktop", "color.surface": "panels",
+    "color.surfaceRaised": "raised panels", "color.surfaceSunken": "inset panels",
+    "segmented.foreground": "Choice text", "segmented.selectedForeground": "Selected choice text",
+    "segmented.background": "choices", "segmented.selected": "selected choices",
+    "listItem.selectedForeground": "Selected row text", "listItem.selected": "selected rows",
+    "checkbox.borderColor": "Checkbox outline", "checkbox.checked": "Selected checkbox",
+    "checkbox.mark": "Checkbox mark", "radio.borderColor": "Radio outline", "radio.checked": "Selected radio",
+    "textField.borderColor": "Text field outline", "toggle.off": "Switch off track", "toggle.on": "Switch on track",
+    "toggle.knobOff": "Switch off knob", "toggle.knobOn": "Switch on knob",
+    "segmented.indicatorColor": "Selected choice mark", "dialog.border": "Dialog outline",
+    "dialog.background": "Dialog fill", "color.scrim": "dimmed backdrop",
+    "carousel.hint": "Theme browser hints", "carousel.hintActive": "Selected theme text",
+    "carousel.tabIndicator": "Theme browser tab mark", "carousel.hintDanger": "Theme browser errors",
+    "carousel.typed": "Theme search text", "carousel.searchHint": "Theme search hint",
+    "carousel.failurePlate": "theme browser message", "tooltip.foreground": "Tooltip text",
+    "tooltip.detail": "Tooltip details", "tooltip.background": "tooltips",
+    "glass.fill solid": "glass panels", "#000000": "black wallpaper"
+};
+var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
+
+function readabilityName(key) {
+    var parts = key.split(" over ");
+    if (parts.length === 2) return readabilityName(parts[0]) + " over " + readabilityName(parts[1]);
+    if (hasOwn(READABILITY_NAMES, key)) return READABILITY_NAMES[key];
+    var badge = /^badge\.tone\.([^.]+)\.(foreground|background)$/.exec(key);
+    if (badge !== null && hasOwn(READABILITY_BADGE_NAMES, badge[1]))
+        return READABILITY_BADGE_NAMES[badge[1]] + (badge[2] === "foreground" ? " badge text" : " badges");
+    throw new Error("theme: unknown readability role=" + key);
+}
+
+function readabilityNotice(shortfalls) {
+    var worst = {};
+    var roles = [];
+    for (var i = 0; i < shortfalls.length; i++) {
+        var row = shortfalls[i];
+        if (!hasOwn(worst, row.text)) { worst[row.text] = row; roles.push(row.text); }
+        else if (worst[row.text].ratio !== null && (row.ratio === null || row.ratio < worst[row.text].ratio)) worst[row.text] = row;
+    }
+    if (roles.length === 0) return "";
+    var lines = ["Some parts may be hard to read."];
+    for (var j = 0; j < roles.length; j++) {
+        var shortfall = worst[roles[j]];
+        var ratio = shortfall.ratio === null ? "contrast cannot be measured" : (Math.floor(shortfall.ratio * 100) / 100).toFixed(2) + ":1";
+        var line = readabilityName(shortfall.text) + ": " + ratio + " on " + readabilityName(shortfall.surface) + ".";
+        // PluginLogic.notifyOptions accepts at most 600 message characters.
+        // Reserve the final line before adding a role so omission is explicit.
+        var remaining = roles.length - j - 1;
+        var tail = remaining > 0 ? "\n" + remaining + " more roles may be hard to read." : "";
+        if (lines.concat([line]).join("\n").length + tail.length > 600) {
+            lines.push((roles.length - j) + " more roles may be hard to read.");
+            break;
+        }
+        lines.push(line);
+    }
+    return lines.join("\n");
+}
+
 function valueAt(values, path) {
     var node = values;
     var parts = path.split(".");

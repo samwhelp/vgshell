@@ -64,6 +64,12 @@
 //       theme update` (NAME: it must still be that package). Prints the
 //       accepted name and exits 0; prints one verdict line on stdout,
 //       `reason=<key>[ token=<path>][ <detail>]`, and exits 1 on a refusal.
+//   vgshell-theme-judge add <text|json> <config-dir> <stage> <held|busy|failed> <url>
+//       judge and land the user's staged git package. A successful result
+//       carries the complete readabilityShortfalls array as advice.
+//   vgshell-theme-judge display <text|json> <add|apply>
+//       print the add or apply verdict on stdin in the requested format.
+//       Text includes the same readability advice the core notice uses.
 //   vgshell-theme-judge installed <config-dir> <name>
 //       print the directory of installed package NAME under
 //       <config-dir>/themes, which `vgshell theme update` and `remove` act on.
@@ -1515,6 +1521,8 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     const row = packageSet(configDir, key, [name]).resolved.get(name);
     if (row === undefined) refuse(key + "=unknown", "unknown");
     if (row.state !== "ok") refuse(key + "=" + row.reason + " path=" + row.path, row.reason);
+    const shortfalls = row.source === "installed" && installOrigin(row.path, key).origin !== "catalog"
+        ? userReadability(row.values) : null;
     // The shipped defaults lend their slots only to a package with none, so
     // only that apply reads and judges them: the judgment took a median of
     // 5.02, 4.79 and 4.88 ms over 13 applies a round (hrtime around the
@@ -1624,6 +1632,7 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
         : result.targets[droppedRows.length + i]));
     writePending(stateDir, stillPending(result.targets, due), due, key);
     result.state = applyState(result.shell, result.targets);
+    if (shortfalls !== null) result.readabilityShortfalls = shortfalls;
 }
 
 // The apply's state from its shell and target states: `partial` when a
@@ -1658,6 +1667,10 @@ function report(format, result, run, tail) {
         // A reload row carries no `dropped`: reload renders nothing.
         for (const t of result.targets) console.log("target=" + t.name + " state=" + t.state + (t.reason === null ? "" : " reason=" + t.reason) +
             (t.dropped === undefined || t.dropped.length === 0 ? "" : " dropped=" + t.dropped.join(",")));
+        if (result.readabilityShortfalls !== undefined) {
+            const notice = logic.readabilityNotice(result.readabilityShortfalls);
+            if (notice !== "") console.log(notice);
+        }
         console.log((result.state === "partial" ? "partial" : "ok") + " " + tail(result));
     }
     if (result.state === "partial") process.exitCode = PARTIAL_STATUS;
@@ -2243,6 +2256,53 @@ function backgroundCall(args) {
 }
 
 // --- install
+
+// User packages keep their colours. The same drawn-ink judge as the
+// catalog supplies advice, never a refusal or a second readability floor.
+function userReadability(values) {
+    const glass = load(path.join(repo, "shell", "Commons", "Glass.js"));
+    const look = logic.acceptAppearance(glass.TOKENS, glass.LIGHT, values);
+    if (!look.ok) throw new Error("theme: glass " + logic.refusalLine(look));
+    return logic.readabilityShortfalls(values, look.values);
+}
+
+function add(result, configDir, stage, lock, url) {
+    const pkg = path.join(stage, "package");
+    const verdict = acceptInstall(pkg);
+    if (!verdict.ok) refuse("package=" + url + " " + refusalFields(verdict), verdict.reason);
+    const name = verdict.name;
+    result.theme = name;
+    const { dir, key } = installedPath(configDir, name);
+    themeLockChange(key, lock, configDir);
+    if (fs.lstatSync(dir, { throwIfNoEntry: false }) !== undefined)
+        refuse(key + "=exists path=" + dir, "exists");
+    const shortfalls = userReadability(verdict.values);
+    moveInto(pkg, dir, key);
+    result.path = dir;
+    result.shadows = fs.existsSync(path.join(SHIPPED, name)) ? path.join(SHIPPED, name) : null;
+    result.readabilityShortfalls = shortfalls;
+    result.state = "ok";
+}
+
+function addedLines(result) {
+    const lines = ["ok added=" + result.theme + " path=" + result.path + (result.shadows === null ? "" : " shadows=" + result.shadows)];
+    const notice = logic.readabilityNotice(result.readabilityShortfalls);
+    if (notice !== "") lines.unshift(notice);
+    return lines;
+}
+
+// bin/vgshell captures one verdict for the completion IPC, then uses this
+// same output owner to preserve the requested terminal format.
+function display(format, verb) {
+    const result = JSON.parse(fs.readFileSync(0, "utf8"));
+    if (result.state === "failed") {
+        if (format === "json") console.log(JSON.stringify(result));
+    } else if (verb === "add") {
+        resultReport(format, result, () => {}, addedLines);
+    } else {
+        report(format, result, () => {}, r => "theme=" + r.theme + " state=" + r.state + " shell=" + r.shell);
+    }
+}
 
 // The judge's verdict on the package in DIR as an installed package named
 // NAME, or named by its document when NAME is undefined. The document's
@@ -3050,6 +3110,18 @@ main(() => {
     case "accept":
         if (args.length < 1 || args.length > 2) usage("arguments=" + command);
         acceptCommand(args[0], args[1]);
+        break;
+    case "add": {
+        if (args.length !== 5 || !FORMATS.includes(args[0]) || !LOCK_VERDICTS.includes(args[3])) usage("arguments=" + command);
+        const [format, configDir, stage, lock, url] = args;
+        const result = { state: "failed", theme: null, path: null, shadows: null, reason: null };
+        resultReport(format, result, () => add(result, configDir, stage, lock, url),
+            addedLines);
+        break;
+    }
+    case "display":
+        if (args.length !== 2 || !FORMATS.includes(args[0]) || !["add", "apply"].includes(args[1])) usage("arguments=" + command);
+        display(...args);
         break;
     case "installed":
         if (args.length !== 2) usage("arguments=" + command);

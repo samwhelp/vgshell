@@ -3034,7 +3034,7 @@ Scope {
             if (root.runnerCopy !== null) return "loaded";
             const component = Qt.createComponent("file://" + file);
             if (component.status !== Component.Ready) return IpcPages.answer("error: " + component.errorString());
-            const made = component.createObject(root);
+            const made = component.createObject(root, { notificationHub: Capabilities.themes.notificationHub });
             if (made === null) return "error: create";
             root.runnerAnswers = {};
             root.runnerCopy = made;
@@ -3054,6 +3054,7 @@ Scope {
         function runnerAnswered(verb: string): int {
             return verb in root.runnerAnswers ? root.runnerAnswers[verb].count : 0;
         }
+        function themeNoticeRuns(): int { return Notifier.runs.length; }
         // The copy's lending record, or `absent`.
         function runnerRecord(): string { return root.runnerCopy === null ? "absent" : root.json(root.runnerCopy.record()); }
         function runnerDrop(): string {

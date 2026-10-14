@@ -248,7 +248,7 @@ declare -a CONTROLS=(
   "theme add with a url stays non-interactive" '        if [[ $sub == add && $prompted == 1 ]]; then offer_theme_apply "$theme_added"; fi' '        if [[ $sub == add ]]; then offer_theme_apply "$theme_added"; fi' row_theme_arg_no_offer
   "the apply offer runs apply on yes" '  "$self" theme apply "$name"' '  :' row_theme_apply_yes
   "the apply offer skips apply on no" '    1 | 130) return 0 ;;' '    1 | 130) ;;' row_theme_url
-  "a refused theme add offers nothing" '  [[ -e $target || -L $target ]] && refuse 1 "theme=$name reason=exists path=$target"' '  [[ -e $target || -L $target ]] && { offer_theme_apply "$name"; refuse 1 "theme=$name reason=exists path=$target"; }' row_theme_refused_no_offer
+  "a refused theme add offers nothing" '  node "$theme_judge" display "$format" add <<<"$result" || exit $?' '  [[ $status == 0 ]] || offer_theme_apply moss; node "$theme_judge" display "$format" add <<<"$result" || exit $?' row_theme_refused_no_offer
   "the url loses its leading blanks" 'url="${url#"${url%%[![:space:]]*}"}"' ':' row_plugin_url
   "the url loses its trailing blanks" 'url="${url%"${url##*[![:space:]]}"}"' ':' row_plugin_url
   "an empty url refuses" '  [[ -n $url ]] || refuse 2 "url=missing"' '  [[ -n $url ]] || true' row_empty_url
@@ -266,6 +266,11 @@ for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
   [[ $row_fns == *" $fn "* ]] || { echo "test-vgshell-prompts: control=$((i / 4)) row=unknown value=[$fn]" >&2; exit 1; }
   tree_control "prompt-$((i / 4))" bin/vgshell "${CONTROLS[i + 1]}" "${CONTROLS[i + 2]}"
   if run_row "$fn" "$THEME_BIN"; then fail "control: $label: $fn passes without the rule"; else ok "control: $fn fails without the rule: $label"; fi
+  if [[ $fn == row_theme_refused_no_offer ]]; then
+    check "the refused add control preserves the refusal status" test "$term_status" == 1
+    check "the refused add control reaches the apply question" gum_confirmed "Apply theme moss now?"
+    check "the refused add control applies the package after yes" theme_file
+  fi
   unset THEME_BIN
 done
 
