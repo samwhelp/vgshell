@@ -235,6 +235,8 @@ Item {
         visible: false
         width: 480
         height: 260
+        property string settingsPage: "VPN"
+        function openSettingsPage() {}
         Pane {
             id: repeatedPane
             anchors.fill: parent
