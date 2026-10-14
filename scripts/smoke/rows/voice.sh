@@ -112,6 +112,9 @@
 # stops the dictation. A right click opens the widget menu, which reads
 # Hide, Voxtype Settings, Readme, Settings, and Voxtype Settings hands the terminal
 # Configure.
+# A refused start opens the existing correction: Setup for an absent or
+# failed daemon, Settings at Other dictation service for a foreign one.
+# The failure keeps its current typed state and the existing action.
 # Without voxtype, a click on the widget starts no recording and offers
 # voxtype and its bridge in the requirement notice; Not now closes it, and
 # a click after it raises the notice again.
@@ -589,6 +592,10 @@ expect_poll "a missing model keeps the core daemon absent" "absent idle -" voice
 expect_poll "a missing model starts neither daemon nor follower" "daemon=0 follower=0 other=0 children=0" dictation_processes
 expected_errors+=('WARN qml: voice: start refused: dictation=daemon-absent')
 expect "a start with a missing model is refused" "refused: dictation=daemon-absent" voice_toggle
+expect_poll "the absent daemon refusal opens the existing correction window" 1 window_count Plugins
+expect_poll "the absent daemon refusal shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
+expect "the absent daemon refusal keeps the setup action available" setup voice_setup_offered
+settings_page_close vgs.voice
 touch -- "$voice_installed"
 expect "the holder rereads setup after installing the model" ok ipc smoke invokeInstance service vgs.voice restartDaemon ""
 expect_poll "the core lends Voice dictation and starts its daemon" "ready running vgs.voice" dictation_lent
@@ -1294,6 +1301,20 @@ fi
 expect_poll "control: Voice reads the ended daemon failed" "failed idle -" voice_state
 expect_poll "control: an ended daemon draws Setup needed with Set up first" "$voice_setup_needed" voice_setup_section
 expect "control: the Setup section draws the service's one setup line for the ended daemon" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
+expected_errors+=('WARN qml: voice: start refused: dictation=daemon-failed')
+settings_page_close vgs.voice
+expect "the toggle shortcut delivers a failed start" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
+expect_poll "the failed toggle opens the existing correction window" 1 window_count Plugins
+expect_poll "the failed toggle shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
+expect_poll "the failed toggle draws the existing setup action" "$voice_setup_needed" voice_setup_section
+expect "the failed toggle draws the current failure lines" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
+settings_page_close vgs.voice
+voice_widget_point
+hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the failed daemon microphone click failed"
+expect_poll "the failed microphone click opens the existing correction window" 1 window_count Plugins
+expect_poll "the failed microphone click shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
+expect_poll "the failed microphone click draws the existing setup action" "$voice_setup_needed" voice_setup_section
+expect "refused starts leave the daemon failed and no recording held" "failed idle -" voice_state
 voice_forget
 forget_record
 expect "Set up after the ended daemon is answered" ok settings_act vgs.voice setup
@@ -1379,7 +1400,10 @@ voice_stop_other() { # LABEL
   settings_page_open vgs.voice
   settings_setup
   expect_poll "$1: Setup stays To do and offers no stop action" '{"chips": [["To do", "warning"]], "buttons": []}' voice_setup_section
-  settings_tab_click Settings || fail "$1: opening Voice Settings failed"
+  settings_page_close vgs.voice
+  expect "$1: a start beside the other daemon is refused" "refused: dictation=daemon-elsewhere" voice_toggle
+  expect_poll "$1: the foreign daemon refusal opens the correction window" 1 window_count Plugins
+  expect_poll "$1: the foreign daemon refusal opens Voice Settings" '"vgs.voice/Settings"' ipc smoke readInstance window vgs.settings shownPage
   expect_poll "$1: Settings offers Stop beside Other dictation service" '["otherService", "otherService", [["Stop the other voxtype", true]]]' voice_other_service
   voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread
   forget_record
@@ -1400,6 +1424,7 @@ if [[ $(shell_resolves systemctl) == none ]]; then
   fail "the shell resolves no systemctl, which Stop the other voxtype requires, so its press would raise a notice"
 fi
 voice_shell_started="$(voice_shell_start)"
+expected_errors+=('WARN qml: voice: start refused: dictation=daemon-elsewhere')
 voice_stop_other "Stop the other voxtype"
 expect_poll "the run's end with code 0 has the core start its own daemon" started voice_noted
 voice_restart_ms="$(( $(now_ms) - voice_stop_other_at ))"

@@ -9,6 +9,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
 const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
+const widgetSource = fs.readFileSync(path.join(path.dirname(file), "Widget.qml"), "utf8");
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const pageReference = load(path.join(repo, "shell", "Commons", "PageReference.js"));
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
@@ -18,6 +19,78 @@ const readsReady = { engine: "parakeet", model: "parakeet-tdt-0.6b-v3", version:
 const readsMissing = Object.assign({}, readsReady, { compiled: false, installed: false });
 // The `dictation` capability's state (DictationModel.state).
 const lent = (daemon, phase, holder) => ({ daemon: daemon, phase: phase, holder: holder, engine: "", model: "", device: "" });
+
+// Execute the shipped handlers and publishers. Only capability effects
+// are replaced, so every user entry must reach the shared correction.
+function verifyStartCorrection(source, manifest) {
+  const logic = load(file);
+  const functions = ["start", "stop", "toggle", "refreshSetup", "publishSetup"].map(name => {
+    const found = source.match(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+    assert.ok(found, "the service declares " + name);
+    return found[0];
+  }).join("\n");
+  const registration = source.match(/    onShellChanged: \{\n([\s\S]*?)^    \}/m);
+  const widgetToggle = widgetSource.match(/^    function toggle\(\) \{\n[\s\S]*?^    \}/m);
+  assert.ok(registration && widgetToggle, "the service and widget entry points exist");
+  assert.ok(manifest.capabilities.includes("surfaces"), "the service receives the page route");
+  for (const [label, daemon, reads, answer, tab, action] of [
+    ["failed daemon", "failed", readsReady, "refused: dictation=daemon-failed", "Setup", "setup"],
+    ["failed setup read", "failed", null, "refused: dictation=daemon-failed", "Setup", "setup"],
+    ["missing model", "absent", readsMissing, "refused: dictation=daemon-absent", "Setup", "setup"],
+    ["absent daemon", "absent", readsReady, "refused: dictation=daemon-absent", "Setup", "setup"],
+    ["foreign daemon", "elsewhere", readsReady, "refused: dictation=daemon-elsewhere", "Settings/otherService", "stop"],
+    ["foreign daemon before setup", "elsewhere", readsMissing, "refused: dictation=daemon-elsewhere", "Settings/otherService", "stop"],
+    ["ready daemon", "ready", readsReady, "ok", "", ""],
+    ["another holder", "ready", readsReady, "refused: dictation=busy holder=acme.dictation", "", ""],
+    ["transcribing", "ready", readsReady, "refused: dictation=engine-busy state=transcribing", "", ""],
+    ["starting daemon", "starting", null, "refused: dictation=daemon-starting", "", ""]
+  ]) {
+    const pages = [], starts = [], stops = [], warnings = [], handlers = {}, values = {};
+    const world = { VoiceLogic: logic, registeredWith: null, voxtypePresent: true,
+      daemon, dictationState: Object.assign(lent(daemon, "idle", label === "another holder" ? "acme.dictation" : ""), { setup: reads }),
+      setupValue: logic.setupState(readsReady, "ready"),
+      Qt: { callLater: () => {} }, osdLayer: {}, readFeedback: () => {}, chooseFeedback: () => {},
+      console: { warn: value => warnings.push(value), error: value => assert.fail(value) },
+      publishModel: () => {},
+      publish: (key, value) => {
+        assert.equal(pluginLogic.statusValueFits("state", value), true, label + ": status accepts the current result");
+        values[key] = value;
+      },
+      shell: {
+        dictation: { start: mode => { starts.push(mode); return answer; }, stop: () => { stops.push(true); return "ok"; } },
+        surfaces: { openPage: (page, target) => { pages.push([page, target]); return "ok"; } },
+        shortcut: { register: (name, description, press, release) => { handlers[name] = { press, release }; } },
+        ipc: { handle: (name, handler) => { handlers[name + "-ipc"] = { press: handler }; } },
+        layers: { show: () => {} }, sounds: { hold: () => "ok" }
+      }
+    };
+    world.root = world;
+    vm.runInNewContext(functions + "\n(function () {\n" + registration[1] + "\n})();", world);
+    const widget = { shell: { ipc: { call: () => handlers["toggle-ipc"].press() } } };
+    vm.runInNewContext(widgetToggle[0], widget);
+    for (const [entry, invoke] of [["toggle", handlers.toggle.press], ["tap", handlers.tap.press], ["hold", handlers.talk.press], ["microphone", widget.toggle]]) {
+      pages.length = starts.length = stops.length = warnings.length = 0;
+      assert.equal(invoke(), answer, label + ": " + entry + " retains the capability answer");
+      same(starts, ["type"], label + ": " + entry + " asks for one typed recording");
+      same(stops, [], label + ": " + entry + " stops no recording");
+      same(pages, tab === "" ? [] : [["vgs.voice", tab]], label + ": " + entry + " opens the correction for this cause");
+      if (answer !== "ok") assert.ok(warnings.some(value => value.endsWith(answer)), label + ": the diagnostic cause remains in the log");
+      if (tab !== "") {
+        same([world.setupValue.tone, world.setupValue.action], ["warning", action], label + ": current typed setup replaces stale Ready");
+        const request = pluginLogic.statusActionRequest(manifest, "vgs.voice", true, values, action === "stop" ? "otherService" : "setup");
+        same(request, action === "stop" ? { ok: true, kind: "tui", name: "stop-other" } : { ok: true, kind: "core", name: "dictation-setup" }, label + ": the existing action corrects the reported cause");
+      }
+    }
+    if (label === "ready daemon") {
+      world.dictationState.holder = "vgs.voice";
+      starts.length = 0;
+      assert.equal(handlers.toggle.press(), "ok", "toggle stops Voice's own recording");
+      same(starts, [], "an own-recording toggle starts nothing");
+      same(stops, [true], "an own-recording toggle stops once");
+      assert.equal(handlers.talk.release(), "ok", "hold release retains its stop route");
+    }
+  }
+}
 
 // Run the shipped publisher against the states the core publishes during
 // initial setup and restart. A stale Ready value must be replaced even
@@ -355,6 +428,27 @@ function verifyRequirements(raw) {
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);
+const judgedVoice = pluginLogic.validateManifest(shipped, path.dirname(manifestFile));
+assert.ok(judgedVoice.ok, "the Voice manifest supplies the correction route");
+verifyStartCorrection(serviceSource, judgedVoice.manifest);
+const startControls = [
+  ["the correction is not opened", "            shell.surfaces.openPage(", "            if (false) shell.surfaces.openPage("],
+  ["the correction uses stale Ready", "            refreshSetup();\n            shell.surfaces.openPage(", "            if (false) refreshSetup();\n            shell.surfaces.openPage("],
+  ["the foreign daemon opens Setup", 'setupValue.action === "stop" ? "Settings/otherService" : "Setup"', 'setupValue.action === "stop" ? "Setup" : "Setup"']
+];
+const startTemp = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "voice-start-control-"));
+try {
+  for (const [label, needle, replacement] of startControls) {
+    assert.equal(serviceSource.split(needle).length, 2, label + ": the mutation matches once");
+    const copy = path.join(startTemp, "Service.qml");
+    const changed = serviceSource.replace(needle, replacement);
+    assert.notEqual(changed, serviceSource, label + ": the source changes");
+    fs.writeFileSync(copy, changed);
+    assert.throws(() => verifyStartCorrection(fs.readFileSync(copy, "utf8"), judgedVoice.manifest), assert.AssertionError, "control: " + label);
+  }
+} finally {
+  fs.rmSync(startTemp, { recursive: true, force: true });
+}
 for (const name of VOXTYPE_TUIS) {
   const unrequired = JSON.parse(JSON.stringify(shipped));
   assert.deepEqual(unrequired.tui[name].requires, ["voxtype"], `control unrequired ${name}: the shipped screen requires voxtype`);
@@ -392,4 +486,4 @@ delete stored.sounds.feedback.held;
 stored.sounds.feedback.default = "own";
 assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
 
-console.log(`test-voice-logic: ok controls=${controls.length + VOXTYPE_TUIS.length + 2 + manifestControls.length + 1}`);
+console.log(`test-voice-logic: ok controls=${controls.length + startControls.length + VOXTYPE_TUIS.length + 2 + manifestControls.length + 1}`);

@@ -23,6 +23,7 @@
     "shortcut",
     "sounds",
     "status",
+    "surfaces",
     "tui"
   ],
   "defaultSection": "right",

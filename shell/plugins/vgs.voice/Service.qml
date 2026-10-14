@@ -276,11 +276,15 @@ Item {
 
     // The recording is the core's, in mode `type`, which sends the words
     // to voxtype's configured output. A refusal, as during another
-    // plugin's recording or while the daemon is not ready, is logged and
-    // changes nothing.
+    // plugin's recording or while the daemon is not ready, is logged.
+    // A daemon refusal opens the existing correction without starting it.
     function start() {
         const answer = shell.dictation.start("type");
         if (answer !== "ok") console.warn("voice: start " + answer);
+        if (answer === "refused: dictation=daemon-failed" || answer === "refused: dictation=daemon-absent" || answer === "refused: dictation=daemon-elsewhere") {
+            refreshSetup();
+            shell.surfaces.openPage(VoiceLogic.HOLDER, setupValue.action === "stop" ? "Settings/otherService" : "Setup");
+        }
         return answer;
     }
 
