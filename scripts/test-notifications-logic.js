@@ -743,7 +743,7 @@ function verify(logic) {
     const fullWanted = { boot: BOOT, sound: true, dnd: true, readBefore: 1500, live: [], history: Array.from({ length: 720 }, (_, i) => stored(1000 + i, i)) };
     const fullConverted = logic.parseState(logic.migrateState(fullSecond, BOOT).text);
     same(fullConverted, { ok: true, state: fullWanted }, "every entry in a full version 2 history survives conversion");
-    same(logic.parseState(logic.serializeState(fullConverted.state)), fullConverted, "the converted full history opens again as current state");
+    same(logic.parseState(logic.serializeState(fullConverted.state)), { ok: true, state: fullWanted }, "the converted full history opens again as current state");
     for (const [label, text, want] of STATE_REFUSED)
         same(logic.parseState(text), { ok: false, error: want }, "state: " + label);
 
