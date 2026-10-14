@@ -111,6 +111,7 @@ ORCH_OVERSEER_LANES = "12"
 ORCH_OVERSEER_PREFERENCE = "claude:claude-opus-5-5:high,codex:gpt-6.1-sol:high"
 ORCH_HANDOFF_HEADROOM_PCT = "3"
 ORCH_LANE_MAX_PCT = "95"
+ORCH_LANE_CODEX_CREDIT_FLOOR = "0"
 
 # Execute the audit's accepted creations and cancellations without a question.
 PM_CREATE_AUTONOMY = "auto"
