@@ -100,7 +100,9 @@ for engine in brands:
         elif engine == "cohere":
             language = "Arabic, Asian and European languages"
         state = "Downloaded" if row["installed"] else "Not downloaded"
-        print(f"{engine}:{arg}:{int(engine in compiled)}\t{brands[engine]} {label.replace('-', ' ').title()} · {mb} MB · {language} · {state}")
+        value = f"{engine}:{arg}:{int(engine in compiled)}"
+        display = f"{brands[engine]} {label.replace('-', ' ').title()} · {mb} MB · {language} · {state}"
+        print(f"{display}\t{value}")
 PY
 )"
 if [[ -z $choices ]]; then

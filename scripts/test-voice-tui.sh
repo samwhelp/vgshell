@@ -13,12 +13,14 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
-for tool in bash sleep python3 paste grep script; do
+for tool in bash sleep python3 paste grep script gum; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'test-voice-tui: status=not-measured missing=%s\n' "$tool"
     exit 77
   fi
 done
+gum_bin="$(command -v gum)"
+gum_bin="$(readlink -f -- "$gum_bin")"
 
 # The screens' whole world: a gum that prints, an rm, a voxtype that
 # records its call and answers `status` with the `alt` word in
@@ -37,7 +39,9 @@ if [[ \$1 == choose ]]; then
   printf '%s\n' "\$choices" >"$TMP_ROOT/choices"
   [[ ! -f $TMP_ROOT/choose-exit ]] || exit "\$(<"$TMP_ROOT/choose-exit")"
   wanted="\$(<"$TMP_ROOT/chosen")"
-  while IFS=\$'\t' read -r key label; do
+  # gum 2.0.2 choose/command.go uses label, value = strings.Cut(option,
+  # LabelDelimiter), then maps each displayed label to its returned value.
+  while IFS=\$'\t' read -r label key; do
     [[ \$key == "\$wanted":* ]] || continue
     printf '%s\n' "\$key"
     exit 0
@@ -202,11 +206,11 @@ for build in whisper onnx; do
     if [[ $status == 0 && $calls == "$expected" ]] && ! grep -Eiq 'rebuild|--features' "$TMP_ROOT/out"; then
       ok "model $build selects $choice with required engine before download and activation"
     else fail "model $build $choice: status=$status calls=[$calls] out=$(cat "$TMP_ROOT/out")"; fi
-    # gum parses the key before TAB. The remaining cells carry model data;
+    # gum prints the key after TAB. The displayed cells carry model data;
     # check the sizes and distinct language/download states, not full copy.
     if python3 - "$TMP_ROOT/choices" <<'PY'
 import pathlib, sys
-rows = dict(line.split("\t",1) for line in pathlib.Path(sys.argv[1]).read_text().splitlines())
+rows = {key: label for label, key in (line.split("\t",1) for line in pathlib.Path(sys.argv[1]).read_text().splitlines())}
 values = {key.split(":",1)[0]:label.split(" · ") for key,label in rows.items()}
 assert all(len(fields)==4 and all(fields) for fields in values.values())
 assert values["whisper"][1] == "142 MB"
@@ -219,10 +223,24 @@ PY
     then ok "model $build offers model data to gum"; else fail "model $build data"; fi
   done
 done
+model_key_returned() {
+  local row selected
+  IFS= read -r row <"$TMP_ROOT/choices" || return
+  # Exercise the real parser on a row the production picker emitted.
+  # model.sh consumes this structured value after gum choose returns it.
+  selected="$("$gum_bin" choose --label-delimiter=$'\t' --select-if-one -- "$row")" || return
+  [[ $selected == whisper:base.en:1 ]]
+}
+model_world onnx
+model_run protocol "$model_screen" whisper:base.en
+if model_key_returned; then ok "real gum returns the production row's structured model key"; else fail "real gum returned a different model value"; fi
+model_copy reversed-columns 'print(f"{display}\t{value}")' 'print(f"{value}\t{display}")'
+model_run reversed-columns "$control" whisper:base.en
+if model_key_returned; then fail "control reversed columns still returns the model key"; else ok "control reversed columns turns the real-gum value assertion red"; fi
 for reason in missing absent cpu gpu; do
   model_world "$reason"
   model_run "$reason" "$model_screen" whisper:base.en
-  if [[ $status == 0 && $calls == "$model_read|$download base.en --no-post-install --activate" ]] && ! grep -q '^parakeet:' "$TMP_ROOT/choices"; then
+  if [[ $status == 0 && $calls == "$model_read|$download base.en --no-post-install --activate" ]] && ! grep -q $'\tparakeet:' "$TMP_ROOT/choices"; then
     ok "model excludes ONNX models when its shipped build is $reason"
   else fail "model unsupported $reason: status=$status calls=[$calls]"; fi
 done
@@ -231,7 +249,7 @@ for flag in installed runs_on_this_cpu gpu_available; do
   model_world "$reason"
   model_copy "no-$flag" " and row[\"$flag\"]" ''
   model_run "control-$flag" "$control" whisper:base.en
-  if [[ $status == 0 ]] && ! grep -q '^parakeet:' "$TMP_ROOT/choices"; then fail "control model $flag still excludes ONNX"; else ok "control model $flag turns unsupported-build case red"; fi
+  if [[ $status == 0 ]] && ! grep -q $'\tparakeet:' "$TMP_ROOT/choices"; then fail "control model $flag still excludes ONNX"; else ok "control model $flag turns unsupported-build case red"; fi
 done
 # shellcheck disable=SC2016 # source text, not an expansion in this test
 model_copy no-override '  VOXTYPE_ENGINE="$engine" ' '  '
