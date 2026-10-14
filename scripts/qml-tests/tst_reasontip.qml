@@ -250,7 +250,7 @@ Item {
             Vpn.VpnBody {
                 id: repeatedBody
                 width: repeatedPane.contentWidth
-                shell: ({ status: { values: { vpn: Object.assign(VpnLogic.unread(), { state: "running", text: "Connected through Zurich, Switzerland" }) }, rows: [{ key: "setup", action: { offered: true, label: "Let my login control Tailscale" }, hint: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password." }] } })
+                shell: ({ settings: { pollSeconds: 30 }, status: { values: { vpn: Object.assign(VpnLogic.unread(), { state: "running", text: "Connected through Zurich, Switzerland" }) }, rows: [{ key: "setup", action: { offered: true, label: "Let my login control Tailscale" }, hint: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password." }] } })
             }
         }
     }

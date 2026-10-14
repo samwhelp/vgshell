@@ -384,9 +384,12 @@ Item {
         current = -1;
         scene = null;
     }
-    onOpenedChanged: if (side === "clear") {
+    function publishCoverage() {
+        if (side !== "clear") return;
         OverlayState.coveredReason = opened && scene !== null ? survey({ x: placed.x + scene.origin.x, y: placed.y + scene.origin.y, width: placed.width, height: placed.height }).covered : null;
     }
+    onOpenedChanged: publishCoverage()
+    onPlacedChanged: if (opened) publishCoverage()
     onCurrentChanged: held = current === -1 ? null : linkAt(links[current])
     // Every assign of the text or the details makes new `links`, the same
     // lines included, so the current link is kept by what it holds.
