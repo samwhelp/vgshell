@@ -62,7 +62,7 @@ theme_source moss "$(doc moss)"
 term() { local bin="$1"; shift; INST_BIN="$bin" INST_PATH="$prompt_path" on_terminal "$@"; }
 out_has() { tr -d '\r' <"$tmp/out" | grep -qxF -- "$1"; }
 out_holds() { tr -d '\r' <"$tmp/out" | grep -qF -- "$1"; }
-gum_asked() { [[ "$(cat -- "$gum_args.input" 2>/dev/null)" == "$(printf '%s\n' input --prompt "$1" --placeholder https://)" ]]; }
+gum_asked() { [[ "$(cat -- "$gum_args.input" 2>/dev/null)" == "$(printf '%s\n' input --padding "0 0 0 3" --prompt "$1" --placeholder https://)" ]]; }
 gum_confirmed() { [[ "$(cat -- "$gum_args.confirm" 2>/dev/null)" == "$(printf '%s\n' confirm "${confirm_margins[@]}" --default=false -- "$(confirm_prompt "$1")")" ]]; }
 installed() { [[ -f $cfg/vgshell/plugins/acme.probe/manifest.json ]]; }
 theme_file() { [[ -f $cfg/vgshell/theme.json ]]; }

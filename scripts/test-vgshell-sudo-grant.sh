@@ -448,7 +448,7 @@ check "a grant with no answer arms no timer" test ! -e "$tmp/systemd-run.log"
 installed
 start="$("$date_bin" +%s)"
 run_tty "a granted grant succeeds" 0 grant
-check "the duration question starts on the default among the four durations" test "$(cat "$tmp/gum-choose.log")" == "$(printf '%s\n' choose --header "Turn on passwordless sudo for how long?" --selected "15 minutes" "15 minutes" "1 hour" "1 day" Indefinitely)"
+check "the duration question starts on the default among the four durations" test "$(cat "$tmp/gum-choose.log")" == "$(printf '%s\n' choose --padding "0 0 0 3" --header "Turn on passwordless sudo for how long?" --selected "15 minutes" "15 minutes" "1 hour" "1 day" Indefinitely)"
 check "the grant asks once, defaulting to no" test "$(cat "$tmp/gum.log")" == "$(printf '%s\n' confirm "${confirm_margins[@]}" --default=false -- "$(confirm_prompt "Enable passwordless sudo for 15 minutes? This is a significant security"$'\n'"risk!")")"
 check "the rule is the one grant for the account" grep -qxE -- "vgsuser ALL=\(ALL\) NOTAFTER=[0-9]{14}Z NOPASSWD: ALL" "$rule"
 check "the rule holds one line" test "$(wc -l <"$rule")" == 1
@@ -496,7 +496,7 @@ for row in "${durations[@]}"; do
   installed; printf '1\n' >"$tmp/gum-answer"
   run_tty "grant $duration asks, then is declined" 1 grant "$duration"
   IFS=, read -r -a labels <<<"$offered"
-  check "grant $duration starts the question on $selected" test "$(cat "$tmp/gum-choose.log")" == "$(printf '%s\n' choose --header "Turn on passwordless sudo for how long?" --selected "$selected" "${labels[@]}")"
+  check "grant $duration starts the question on $selected" test "$(cat "$tmp/gum-choose.log")" == "$(printf '%s\n' choose --padding "0 0 0 3" --header "Turn on passwordless sudo for how long?" --selected "$selected" "${labels[@]}")"
 done
 
 # The bounds are inclusive; another choice than the default is the one
