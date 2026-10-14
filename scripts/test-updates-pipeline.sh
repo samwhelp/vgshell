@@ -180,10 +180,7 @@ esac'
 stub "$stubs" gum 'case "$1" in
   confirm)
     for q; do :; done
-    nl="
-"
-    q=${q%%"$nl"*}
-    case "$q" in "Start the update?") f=start ;; Remove*) f=orphans ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
+    case "$q" in "Start the update?"*) f=start ;; Remove*) f=orphans ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
     st=0; [ ! -e "$FIX/answer-$f" ] || read -r st <"$FIX/answer-$f"; exit "$st" ;;
   style) while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done; [ "$#" -gt 0 ] && shift; for a; do printf "%s\n" "$a"; done ;;
 esac'
@@ -420,7 +417,15 @@ import pathlib
 import re
 import sys
 
-text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", pathlib.Path(sys.argv[1]).read_text())
+raw = pathlib.Path(sys.argv[1]).read_text()
+assert "Update result" in raw, "end block missing"
+raw_end = raw.rsplit("Update result", 1)[1].split("\n", 1)[1]
+for line in raw_end.splitlines():
+    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line)
+    if re.match(r"^ +[0-9]+ of [0-9]+ parts failed$", plain):
+        break
+    assert "\x1b" not in line, ("tool colour in result", line)
+text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw)
 assert "Update result\n" in text, "end block missing"
 end = text.rsplit("Update result\n", 1)[1]
 assert sys.argv[2] in " ".join(end.split()), (sys.argv[2], end)
