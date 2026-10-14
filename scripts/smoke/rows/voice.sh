@@ -114,7 +114,8 @@
 # Configure.
 # A refused start opens the existing correction: Setup for an absent or
 # failed daemon, Settings at Other dictation service for a foreign one.
-# The failure keeps its current typed state and the existing action.
+# A failed-state start reports pending while it retries. The open page
+# follows the actual result, including a continuing child failure.
 # Without voxtype, a click on the widget starts no recording and offers
 # voxtype and its bridge in the requirement notice; Not now closes it, and
 # a click after it raises the notice again.
@@ -1301,12 +1302,16 @@ fi
 expect_poll "control: Voice reads the ended daemon failed" "failed idle -" voice_state
 expect_poll "control: an ended daemon draws Setup needed with Set up first" "$voice_setup_needed" voice_setup_section
 expect "control: the Setup section draws the service's one setup line for the ended daemon" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
-expected_errors+=('WARN qml: voice: start refused: dictation=daemon-failed')
+# Keep the child failure true while these starts retry. A repaired child
+# correctly reaches ready and cannot be a continuing-failure control.
+: >"$sandbox/voxtype-daemon-fail"
+expected_errors+=('WARN qml: voice: start refused: dictation=daemon-starting' 'WARN qml: dictation: daemon=failed reason=ended code=1$')
 settings_page_close vgs.voice
-expect "the toggle shortcut delivers a failed start" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
+expect "the toggle shortcut delivers the failed-state retry" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
 expect_poll "the failed toggle opens the existing correction window" 1 window_count Plugins
 expect_poll "the failed toggle shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
 expect_poll "the failed toggle draws the existing setup action" "$voice_setup_needed" voice_setup_section
+expect_poll "the pending toggle retry publishes the actual continuing failure" "failed idle -" voice_state
 expect "the failed toggle draws the current failure lines" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 settings_page_close vgs.voice
 voice_widget_point
@@ -1314,7 +1319,37 @@ hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$v
 expect_poll "the failed microphone click opens the existing correction window" 1 window_count Plugins
 expect_poll "the failed microphone click shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
 expect_poll "the failed microphone click draws the existing setup action" "$voice_setup_needed" voice_setup_section
-expect "refused starts leave the daemon failed and no recording held" "failed idle -" voice_state
+expect_poll "the pending microphone retry publishes the actual continuing failure" "failed idle -" voice_state
+expect_poll "continuing failure leaves no child or follower" 'daemon=0 follower=0 other=0 children=0' dictation_processes
+# Control: remove the pending result from the same correction branch.
+# The child still fails, but the same user start no longer opens its page.
+settings_page_close vgs.voice
+voice_pending_file="$repo/shell/plugins/vgs.voice/Service.qml"
+cp -- "$voice_pending_file" "$sandbox/voice-pending-before"
+expect "disabling Voice for the pending correction control is allowed" ok ipc shell setPluginEnabled vgs.voice false
+python3 - "$voice_pending_file" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); assert not p.is_symlink()
+needle = ' || answer === "refused: dictation=daemon-starting"'
+s = p.read_text(); assert s.count(needle) == 1
+changed = s.replace(needle, ""); assert changed != s
+p.write_text(changed)
+PY
+rescan "the Voice pending correction control copy is scanned"
+expect "enabling Voice for the pending correction control is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "control: Voice reads the continuing child failure" "failed idle -" voice_state
+expect "control: a user start still reports pending" 'refused: dictation=daemon-starting' voice_toggle
+expect_poll "control: the pending retry still ends in actual failure" "failed idle -" voice_state
+expect "control: ignoring pending leaves the correction window closed" 0 window_count Plugins
+expect "disabling Voice after the pending correction control is allowed" ok ipc shell setPluginEnabled vgs.voice false
+cp -- "$sandbox/voice-pending-before" "$voice_pending_file"
+rescan "the shipped Voice correction branch is scanned again"
+expect "enabling Voice after the pending correction control is allowed" ok ipc shell setPluginEnabled vgs.voice true
+expect_poll "the restored service reads the continuing child failure" "failed idle -" voice_state
+rm -f -- "${sandbox:?}/voxtype-daemon-fail"
+settings_page_open vgs.voice
+settings_setup
 voice_forget
 forget_record
 expect "Set up after the ended daemon is answered" ok settings_act vgs.voice setup

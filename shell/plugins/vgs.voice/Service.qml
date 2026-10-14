@@ -281,7 +281,7 @@ Item {
     function start() {
         const answer = shell.dictation.start("type");
         if (answer !== "ok") console.warn("voice: start " + answer);
-        if (answer === "refused: dictation=daemon-failed" || answer === "refused: dictation=daemon-absent" || answer === "refused: dictation=daemon-elsewhere") {
+        if (answer === "refused: dictation=daemon-failed" || answer === "refused: dictation=daemon-absent" || answer === "refused: dictation=daemon-elsewhere" || answer === "refused: dictation=daemon-starting") {
             refreshSetup();
             shell.surfaces.openPage(VoiceLogic.HOLDER, setupValue.action === "stop" ? "Settings/otherService" : "Setup");
         }

@@ -51,12 +51,12 @@ var STOP_TIMEOUT_S = 60;
 // the cap voxtype drops the file override and sends the text to its
 // configured output, so it is typed (src/daemon.rs:3995-4027).
 var CAP_MARGIN_S = 1;
-// What `status` prints as `alt` for a daemon that runs; `stopped` is the
-// one word of a daemon that does not (src/app/status.rs:50-56).
+// The live readiness words in `status`. A live daemon with no readable
+// state file also prints `stopped` (src/app/status.rs:47-58).
 var LIVE = ["idle", "recording", "streaming", "transcribing"];
 var MODES = ["type", "text"];
-// What each daemon start reads before the child starts, in order: whether
-// a daemon answers already, then the config values the model needs.
+// What each daemon start reads before the child starts, in order: public
+// liveness independent of readiness, then the config values the model needs.
 // `config get KEY` prints the resolved value bare (src/app/config_get.rs).
 var PROBE = "probe";
 // The tag of the one-shot read after a recording's last command.
@@ -108,7 +108,7 @@ function record(s) {
 }
 
 function steps(s) {
-    var out = [{ tag: PROBE, argv: STATUS_ARGV }];
+    var out = [{ tag: PROBE, argv: ["voxtype", "info", "variants", "--json"] }];
     for (var i = 0; i < CONFIG_KEYS.length; i++)
         out.push({ tag: CONFIG_KEYS[i], argv: ["voxtype", "config", "get", CONFIG_KEYS[i]] });
     out.push({ tag: "version", argv: ["voxtype", "--version"] });
@@ -256,6 +256,12 @@ function start(s, id, mode) {
     var t = clone(s), effects = [], answer = refusal(t, id, "start");
     if (MODES.indexOf(mode) === -1) answer = "refused: dictation=mode value=" + JSON.stringify(mode);
     else if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;
+    else if (t.daemon === "failed") {
+        // A refused start keeps no recording intent. A hold released while
+        // setup runs must not become a recording after readiness arrives.
+        var recovery = restart(t);
+        return { model: recovery.model, effects: recovery.effects, answer: "refused: dictation=daemon-" + recovery.model.daemon };
+    }
     else if (t.daemon !== "ready") answer = "refused: dictation=daemon-" + t.daemon;
     // A start the daemon gets while it transcribes starts nothing, and
     // one queued behind an earlier recording's commands would run among
@@ -382,6 +388,20 @@ function engineAvailable(enginesText, wanted) {
     return false;
 }
 
+// `info variants --json` serializes Inventory.daemon_pid: Option<i32>,
+// from read_pid_if_alive, independently of the readiness file (voxtype
+// v1.1.0, src/setup/binary.rs:541-555, 839-845; src/daemon_status.rs:27-58).
+// Explicit null is upstream's no-observed-live-PID result, which also
+// folds unreadable locks into absence. Missing or invalid public output
+// is unreadable here. This PID never grants authority to signal a process.
+function ownershipOf(text) {
+    var data = parseJson(text, null);
+    if (!isObject(data)) return "unread";
+    if (data.daemon_pid === null) return "absent";
+    if (!Number.isInteger(data.daemon_pid) || data.daemon_pid <= 1 || data.daemon_pid > 2147483647) return "unread";
+    return "elsewhere";
+}
+
 // One start step ended with CODE and OUT.
 function stepped(s, effects, tag, code, out) {
     var text = out.trim();
@@ -390,11 +410,13 @@ function stepped(s, effects, tag, code, out) {
         return;
     }
     if (tag === PROBE) {
-        var alt = statusOf(text);
-        if (alt === null) {
-            fail(s, effects, "probe status=unread");
+        var ownership = ownershipOf(text);
+        if (ownership === "unread") {
+            fail(s, effects, "probe liveness=unread");
         } else {
-            s.elsewhere = alt.word !== "stopped";
+            // begin waits for our Process to exit before this probe. A
+            // live PID here belongs elsewhere, including during model load.
+            s.elsewhere = ownership === "elsewhere";
             step(s, effects, CONFIG_KEYS[0]);
         }
         return;

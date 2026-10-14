@@ -19,7 +19,11 @@ const DIR = "/run/user/1000/vgshell/dictation";
 const STATE_PATH = "/run/user/1000/voxtype/state";
 // What `voxtype status --format json` prints, src/status_json.rs.
 const line = (alt, model) => JSON.stringify({ text: "", alt: alt, class: alt, tooltip: "", model: model || "parakeet-tdt-0.6b-v3", device: "default", backend: "ONNX CPU" });
-const PROBE = ["ran", "probe", 0, line("stopped") + "\n"];
+// Inventory.daemon_pid is independent of the readiness word and variant.
+const inventory = pid => JSON.stringify({ daemon_pid: pid, running_variant: null }) + "\n";
+const PROBE = ["ran", "probe", 0, inventory(null)];
+const FOREIGN = ["ran", "probe", 0, inventory(42)];
+const PROBE_RUN = "run:voxtype info variants --json";
 const CONFIG = [
     ["ran", "audio.max_duration_secs", 0, "210\n"],
     ["ran", "audio.device", 0, "default\n"],
@@ -52,8 +56,8 @@ const answer = (status, text) => JSON.stringify({ chars: text.length, message: n
 const CASES = [
     ["a lease probes for a daemon before it starts one",
         ["|", ["lease", "a"]],
-        { daemon: "starting", child: "none" }, ["run:voxtype status --format json"]],
-    ["the probe's stopped reads the config, one key at a time",
+        { daemon: "starting", child: "none" }, [PROBE_RUN]],
+    ["the probe's explicit null reads the config, one key at a time",
         [["lease", "a"], "|", PROBE, CONFIG[0]],
         { daemon: "starting", child: "none" }, ["run:voxtype config get audio.max_duration_secs", "run:voxtype config get audio.device"]],
     ["the last start step removes the killed daemon's state file before the child starts",
@@ -85,10 +89,23 @@ const CASES = [
         { daemon: "absent", child: "none" }, ["timer=0"]],
     ["a lease taken while the daemon ends probes again from its exit",
         [...READY, ["release", "a"], ["lease", "b"], "|", ["exited", 0]],
-        { daemon: "starting", child: "none" }, ["timer=0", "run:voxtype status --format json"]],
+        { daemon: "starting", child: "none" }, ["timer=0", PROBE_RUN]],
     ["a daemon that answers the probe reads elsewhere and starts nothing",
-        [["lease", "a"], ["ran", "probe", 0, line("idle") + "\n"], ...CONFIG, ...SETUP.slice(0, -1), "|", SETUP[3], ["start", "a", "type", "refused: dictation=daemon-elsewhere"]],
+        [["lease", "a"], FOREIGN, ...CONFIG, ...SETUP.slice(0, -1), "|", SETUP[3], ["start", "a", "type", "refused: dictation=daemon-elsewhere"]],
         { daemon: "elsewhere", child: "none" }, []],
+    ["foreign liveness survives stopped readiness and prevents cleanup and launch",
+        [["lease", "a"], FOREIGN, ["status", line("stopped")], ...CONFIG, ...SETUP.slice(0, -1), "|", SETUP[3]],
+        { daemon: "elsewhere", child: "none", setup: { engine: "parakeet", model: "parakeet-tdt-0.6b-v3", version: "voxtype 1.1.0", compiled: true, installed: true } }, []],
+    ["a foreign daemon followed by unreadable setup returns failure without cleanup or launch",
+        [["lease", "a"], FOREIGN, "|", ["ran", "audio.max_duration_secs", 1, ""]],
+        { daemon: "failed", child: "none" }, ["log", "abort"]],
+    ...["", "bad-json", "null", "[]", "{}", '{"daemon_pid":"42"}', '{"daemon_pid":false}', '{"daemon_pid":0}', '{"daemon_pid":1}', '{"daemon_pid":-2}', '{"daemon_pid":2.5}', '{"daemon_pid":2147483648}'].map(out =>
+        ["unreadable public liveness fails without cleanup or launch: " + out,
+            [["lease", "a"], "|", ["ran", "probe", 0, out]],
+            { daemon: "failed", child: "none" }, ["log", "abort"]]),
+    ["a liveness process that did not start fails without cleanup or launch",
+        [["lease", "a"], "|", ["ran", "probe", null, ""]],
+        { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["a probe that fails reads failed and starts nothing",
         [["lease", "a"], "|", ["ran", "probe", 1, ""]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
@@ -107,6 +124,36 @@ const CASES = [
     ["a daemon that ends on its own reads failed",
         [...READY, "|", ["exited", 1]],
         { daemon: "failed", child: "none" }, ["unfollow", "log", "abort"]],
+    ["a failed child retries through restart only on a user start",
+        [...READY, ["exited", 1], "|", ["start", "a", "type", "refused: dictation=daemon-starting"]],
+        { daemon: "starting", child: "none", holder: "" }, ["abort", PROBE_RUN]],
+    ["a repaired tool reaches ready without accepting the refused recording",
+        [...READY, ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], PROBE, ...CONFIG, ...SETUP,
+            ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], "|", ["status", line("idle")]],
+        { daemon: "ready", child: "running", holder: "", mode: "" }, []],
+    ["a fresh type start after repair keeps its requested mode",
+        [...READY, ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], PROBE, ...CONFIG, ...SETUP,
+            ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
+        { daemon: "ready", holder: "a", mode: "type" }, [TYPE_START]],
+    ["pending user starts preserve holders without duplicate startup or recording effects",
+        [...READY, ["lease", "b"], ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], "|",
+            ["start", "b", "type", "refused: dictation=daemon-starting"], ["start", "a", "text", "refused: dictation=daemon-starting"]],
+        { daemon: "starting", child: "none", holders: ["a", "b"], holder: "", mode: "" }, []],
+    ["release of the retrying holder leaves no recording intent for another holder",
+        [...READY, ["lease", "b"], ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], ["release", "a"],
+            PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], "|", ["status", line("idle")]],
+        { daemon: "ready", holders: ["b"], holder: "", mode: "" }, []],
+    ["continuing tool failure stays typed and launches nothing",
+        [...READY, ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], "|", ["ran", "probe", 1, ""],
+            ["start", "a", "text", "refused: dictation=daemon-starting"], ["ran", "probe", 1, ""]],
+        { daemon: "failed", child: "none", holder: "" }, ["log", "abort", "abort", PROBE_RUN, "log", "abort"]],
+    ["continuing missing engine keeps its typed setup refusal on recovery",
+        [...READY, ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], PROBE, ...CONFIG, ...SETUP.slice(0, -1), "|",
+            ["ran", "engines", 0, '[{"name":"parakeet","compiled":false}]'], ["start", "a", "text", "refused: dictation=daemon-absent"]],
+        { daemon: "absent", child: "none", holder: "" }, []],
+    ["an invalid mode cannot restart a failed daemon",
+        [...READY, ["exited", 1], "|", ["start", "a", "paste", 'refused: dictation=mode value="paste"']],
+        { daemon: "failed", child: "none" }, []],
     ["a start before the daemon is ready is refused",
         [["lease", "a"], "|", ["start", "a", "text", "refused: dictation=daemon-starting"]],
         { daemon: "starting", holder: "" }, []],
@@ -267,7 +314,7 @@ const CASES = [
         { daemon: "absent", child: "none", timer: "none" }, ["timer=0", "unfollow", "abort"]],
     ["a lease taken while the daemon takes the cancel probes again from its exit",
         [...TAKEN, ["release", "a"], ["lease", "b"], ["ran", "cancel", 0, ""], ["ran", "remove", 0, ""], read("idle"), "|", ["exited", 0]],
-        { daemon: "starting", child: "none" }, ["timer=0", "run:voxtype status --format json"]],
+        { daemon: "starting", child: "none" }, ["timer=0", PROBE_RUN]],
     ["the last release with a type recording ends the daemon at once",
         [...READY, ["start", "a", "type", "ok"], ["ran", "start", 0, ""], "|", ["release", "a"]],
         { daemon: "absent", child: "stopping", holder: "", timer: "grace" }, END],
@@ -276,7 +323,15 @@ const CASES = [
         { daemon: "failed", child: "stopping", holder: "", timer: "drain" }, ["log", "abort", CANCEL, "done:" + JSON.stringify({ kind: "failed", reason: "daemon-follower-ended" }), REMOVE, "timer=2000"]],
     ["a restart while the failed daemon takes the cancel probes again from its exit",
         [...TAKEN, ["unfollowed"], ["restart", "ok"], ["ran", "cancel", 0, ""], ["ran", "remove", 0, ""], read("idle"), "|", ["exited", 0]],
-        { daemon: "starting", child: "none" }, ["timer=0", "run:voxtype status --format json"]],
+        { daemon: "starting", child: "none" }, ["timer=0", PROBE_RUN]],
+    ["a failed-state user start waits for the owned child's cancel and exit before liveness",
+        [...TAKEN, ["unfollowed"], "|", ["start", "a", "text", "refused: dictation=daemon-starting"],
+            ["start", "a", "type", "refused: dictation=daemon-starting"], ["ran", "cancel", 0, ""], ["ran", "remove", 0, ""], read("idle"), ["exited", 0]],
+        { daemon: "starting", child: "none", holder: "" }, [READ, ...END, "timer=0", PROBE_RUN]],
+    ["a failed-state user start waits for an owned child already stopping",
+        [...READY, ["unfollowed"], "|", ["start", "a", "type", "refused: dictation=daemon-starting"],
+            ["start", "a", "text", "refused: dictation=daemon-starting"], ["exited", 0]],
+        { daemon: "starting", child: "none", holder: "" }, ["abort", "timer=0", PROBE_RUN]],
     ["the deadline cancels a text recording",
         [...READY, ["start", "a", "text", "ok"], ["ran", "start", 0, ""], "|", ["deadline"]],
         { holder: "" }, ["log", CANCEL, REMOVE]],
@@ -297,10 +352,10 @@ const CASES = [
         { daemon: "ready", child: "running" }, []],
     ["restart ends the daemon and probes again from its exit",
         [...READY, "|", ["restart", "ok"], ["exited", 0]],
-        { daemon: "starting", child: "none" }, [...END, "timer=0", "run:voxtype status --format json"]],
+        { daemon: "starting", child: "none" }, [...END, "timer=0", PROBE_RUN]],
     ["restart reads a daemon elsewhere again",
-        [["lease", "a"], ["ran", "probe", 0, line("idle") + "\n"], "|", ["restart", "ok"], PROBE],
-        { daemon: "starting", child: "none" }, ["abort", "run:voxtype status --format json", "run:voxtype config get audio.max_duration_secs"]],
+        [["lease", "a"], FOREIGN, "|", ["restart", "ok"], PROBE],
+        { daemon: "starting", child: "none" }, ["abort", PROBE_RUN, "run:voxtype config get audio.max_duration_secs"]],
     ["a daemon that ends under a waiting stop hands over failed",
         [...READY, ["start", "a", "text", "ok"], ["ran", "start", 0, ""], ["stop", "a", "ok"], "|", ["exited", 1]],
         { daemon: "failed", holder: "" }, ["unfollow", "log", "abort", "done:" + JSON.stringify({ kind: "failed", reason: "daemon-ended code=1" }), REMOVE]],
@@ -321,6 +376,8 @@ const CASES = [
 const word = e => e.kind === "run" ? "run:" + e.argv.join(" ") : e.kind === "timer" ? "timer=" + e.ms : e.kind === "done" ? "done:" + JSON.stringify(e.result) : e.kind;
 
 function verify(M) {
+    for (const [value, expected] of [[null, "absent"], [2, "elsewhere"], [2147483647, "elsewhere"]])
+        assert.equal(M.ownershipOf(inventory(value)), expected, "public liveness PID domain: " + value);
     for (const [label, events, want, effects] of CASES) {
         let model = M.initial(DIR, STATE_PATH), seen = null;
         for (const event of events) {
@@ -372,12 +429,15 @@ verify(load(file));
 
 // [label, the text to replace, its replacement]: each must turn the suite red.
 const CONTROLS = [
+    ["failed user start retries through the existing owner", '    else if (t.daemon === "failed") {', '    else if (false) {'],
+    ["missing liveness differs from explicit null", '    if (data.daemon_pid === null) return "absent";', '    if (data.daemon_pid == null) return "absent";'],
+    ["invalid public PID cannot become foreign ownership", '    if (!Number.isInteger(data.daemon_pid) || data.daemon_pid <= 1 || data.daemon_pid > 2147483647) return "unread";', '    if (false) return "unread";'],
     ["a start while another recording runs is refused as busy", '    else if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;\n', ""],
     ["no daemon starts with no holder", '    if (t.daemon === "starting" && t.step === "exit") step(t, effects, PROBE);', "    step(t, effects, PROBE);"],
     ["the last release stops the daemon", "    if (t.holders.length === 0) {\n        end(t, effects, \"\");", "    if (t.holders.length === 0) {"],
     ["a release cancels that holder's recording", "    } else if (t.recording !== null && t.recording.holder === id) {\n        cancelRecording(t, effects, \"\");\n    }", "    }"],
     ["restart is refused while a recording runs", '    if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;\n    else if (t.holders.length === 0)', "    if (t.holders.length === 0)"],
-    ["a daemon elsewhere starts nothing", 's.elsewhere = alt.word !== "stopped";', "s.elsewhere = false;"],
+    ["a daemon elsewhere starts nothing", 's.elsewhere = ownership === "elsewhere";', "s.elsewhere = false;"],
     ["an unavailable engine starts no daemon", '!s.setup.compiled || !s.setup.installed', 'false || !s.setup.installed'],
     ["a missing model starts no daemon", '!s.setup.compiled || !s.setup.installed', '!s.setup.compiled || false'],
     ["engine compiled reading is required", 'return row.compiled === true;', 'return true;'],

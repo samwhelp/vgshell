@@ -32,6 +32,8 @@
 # capture device (start_recording_capture, src/daemon.rs:1136), and notes
 # no-capture. While voxtype-transcribing exists a stopped recording stays
 # transcribing, its words undelivered, until the file is removed.
+# voxtype-daemon-fail makes each child launch fail until tool repair removes
+# it. voxtype-variants-unreadable makes the public inventory command fail.
 #
 # rows/voice.sh's copy is a stub that sets the row's own files as the
 # voice_* variables and sources this file: the config and info verbs then
@@ -109,6 +111,11 @@ on_stop() {
 }
 
 run_daemon() {
+  if [[ -e $control/voxtype-daemon-fail ]]; then
+    printf '%s\n' 'Error: voxtype fixture cannot load its engine' >&2
+    note failed
+    exit 1
+  fi
   mkdir -p -- "$run"
   if daemon_pid >/dev/null; then
     printf '%s\n' 'Error: Another voxtype instance is already running' >&2
@@ -195,6 +202,14 @@ record_start() { # ARG...
 
 case "$*" in
   daemon) run_daemon ;;
+  'info variants --json')
+    # src/app/info.rs serializes Inventory, including its independent
+    # daemon_pid (src/setup/binary.rs:839-845). A source build can have a
+    # live PID and no readable running_variant.
+    [[ ! -e $control/voxtype-variants-unreadable ]] || { printf '%s\n' 'Error: voxtype fixture inventory unavailable' >&2; exit 1; }
+    pid="$(daemon_pid)" || pid=null
+    printf '{"daemon_pid":%s,"running_variant":null}\n' "$pid"
+    ;;
   'status --format json') state_json "$(state_now)" ;;
   'status --follow --extended --format json')
     last=""
