@@ -30,9 +30,9 @@ import "PluginLogic.js" as Logic
 // packages; once its run ends, one rescan follows, and
 // a notice whose required commands that scan and its version read find, at
 // their floor, is closed, while one the run left as it was says so. A notice a
-// plugin's own script request raised in place of itself (TuiRunner.run and
-// runFor) starts that script once it closes so, so one press of Set up ends
-// set up (D061).
+// plugin's own script request raised in place of itself (TuiRunner's run,
+// runFor and open) lists that script's own lacking commands and starts it
+// once it closes so, so one press of Set up ends set up (D061).
 // The core never elevates: the package manager asks in the terminal (D034).
 Singleton {
     id: root
@@ -292,7 +292,25 @@ Singleton {
     function raise(id, trigger, commands) {
         const owners = Registry.requirementOwners;
         if (!Logic.hasOwn(owners, id)) return "unknown: " + id;
-        const request = Logic.noticeRequest(owners[id], missingOf(id), Registry.commandVersions, trigger, commands);
+        return admit(id, trigger, Logic.noticeRequest(owners[id], missingOf(id), Registry.commandVersions, trigger, commands));
+    }
+
+    // Plugin ID's own script request HELD, TuiRunner's { name, args, ctx,
+    // done }, made while COMMANDS, the lacking requirements its script needs,
+    // are missing: the notice for COMMANDS alone (PluginLogic.noticeHeld),
+    // raised as a press, which no rest holds back, holds HELD until it closes
+    // (resume).
+    function raiseHeld(id, commands, held) {
+        const owners = Registry.requirementOwners;
+        if (!Logic.hasOwn(owners, id)) return "unknown: " + id;
+        const answer = admit(id, "offered", Logic.noticeHeld(owners[id], missingOf(id), Registry.commandVersions, commands));
+        if (answer === "ok") hold(id, held);
+        return answer;
+    }
+
+    // REQUEST, a notice request for owner ID by TRIGGER, joins the queue
+    // as PluginLogic.noticeAdmit decides.
+    function admit(id, trigger, request) {
         if (request.answer !== "ok") return request.answer;
         const admitted = Logic.noticeAdmit(queue, rest, id, request, trigger, Date.now());
         if (admitted.queue !== queue) {
@@ -366,12 +384,8 @@ Singleton {
     // with every missing command, the Settings window's Install all missing.
     // A plugin missing nothing raises no notice, so `satisfied` answers
     // `refused: requirements=<id> reason=satisfied` for the page to show.
-    // HELD, when given, is TuiRunner's request for the plugin's own script,
-    // which the notice starts once it closes with its commands found
-    // (resume).
-    function requested(id, held) {
+    function requested(id) {
         const answer = raise(id, "requested");
-        if (answer === "ok" && held !== undefined) hold(id, held);
         return answer === "satisfied" ? "refused: requirements=" + id + " reason=satisfied" : answer;
     }
 

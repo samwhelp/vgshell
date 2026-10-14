@@ -242,12 +242,12 @@ function suite(ctx, check) {
     }), { id: "acme.req", requirements: [{ command: "acme-sync", purpose: "Syncs" }] }), "/q").manifest);
     const needingArgv = (name, title) => ["launch", "--title", title, "--size", "default", "--presentation", "full", "--plugin", "acme.req", "--dir", "/run/src/r3", "--record", "acme.req/" + name, "--run", "7-1", "--", "tui/" + name + ".sh"];
     const installRows = [
-        ["a script whose required command is missing raises its notice", ["acme.req"], [], { "acme.req": ["acme-sync"] }, "acme.req/sync", { ok: true, kind: "install", id: "acme.req", name: "sync" }],
+        ["a script whose required command is missing raises the notice for the commands it lacks", ["acme.req"], [], { "acme.req": ["acme-other", "acme-sync"] }, "acme.req/sync", { ok: true, kind: "install", id: "acme.req", name: "sync", commands: ["acme-sync"] }],
         ["a script whose required command is present launches", ["acme.req"], [], { "acme.req": [] }, "acme.req/sync", needingArgv("sync", "Sync")],
         ["a script with requires [] launches while a command is missing", ["acme.req"], [], { "acme.req": ["acme-sync"] }, "acme.req/free", needingArgv("free", "Free")],
         ["another owner's missing command holds nothing", ["acme.req"], [], { "acme.other": ["acme-sync"] }, "acme.req/sync", needingArgv("sync", "Sync")],
         ["a disabled plugin is refused before its missing command", [], [], { "acme.req": ["acme-sync"] }, "acme.req/sync", ["refused: tui=acme.req/sync reason=disabled", "none"]],
-        ["a missing command is judged before a busy key, as tuiRunFor judges it", ["acme.req"], ["acme.req/sync"], { "acme.req": ["acme-sync"] }, "acme.req/sync", { ok: true, kind: "install", id: "acme.req", name: "sync" }],
+        ["a missing command is judged before a busy key, as tuiRunFor judges it", ["acme.req"], ["acme.req/sync"], { "acme.req": ["acme-sync"] }, "acme.req/sync", { ok: true, kind: "install", id: "acme.req", name: "sync", commands: ["acme-sync"] }],
     ];
     for (const [name, enabledIds, busy, missing, key, want] of installRows) {
         const r = ctx.tuiOpen({ "acme.req": needing }, enabledIds, "/run/src", "/core/bin", runner("present", busy), core, missing, key);
@@ -663,54 +663,117 @@ runnerSuite(RUNNER, load(LOGIC), report);
 }
 
 // TuiRunner's run and runFor share one judge, request, with the plugin's
-// missing commands: a script that lacks one raises its requirement notice
-// holding the request, and the notice's resume starts the same script with
-// the same arguments and `done`. run, request, resume and unstarted run as
-// TuiRunner.qml holds them, with the judge above, against stand-ins for
-// Registry, Notices and the launcher.
+// missing commands: a script that lacks one raises the notice for the
+// commands it lacks, holding the request, and the notice's resume starts the
+// same script with the same arguments and `done`. run, runFor, request,
+// resume and unstarted run as TuiRunner.qml holds them, and TuiRecords'
+// handOver as that file holds it, with the judge above, against stand-ins
+// for Registry, Notices and the launcher. The instance's snapshot and the
+// registered manifest carry different revisions, so the started --dir
+// names the one a request ran from.
+const RECORDS = fs.readFileSync(path.join(CORE, "TuiRecords.qml"), "utf8");
+const JARVIS = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json");
 function requestSuite(source, logic, check) {
-    const needing = Object.assign({ __revision: "r3" }, logic.validateManifest(Object.assign(manifestWith({
+    const judged = (raw, revision) => {
+        const result = logic.validateManifest(raw, "/q");
+        if (!result.ok) throw new Error("request fixture refused: " + result.error);
+        return Object.assign({ __revision: revision }, result.manifest);
+    };
+    const needingRaw = Object.assign(manifestWith({
         sync: { script: "tui/sync.sh", title: "Sync", requires: ["acme-sync"] },
-    }), { id: "acme.req", requirements: [{ command: "acme-sync", purpose: "Syncs" }] }), "/q").manifest);
-    const functions = ["run(ctx, name, args, done)", "request(id, manifest, held)", "resume(id, held)", "unstarted(held)"]
-        .map(header => runnerFunction(source, header)).join("");
-    const requested = (missing, busy, call) => {
+    }), { id: "acme.req", requirements: [{ command: "acme-sync", purpose: "Syncs" }, { command: "acme-other", purpose: "Others" }] });
+    const jarvisRaw = JSON.parse(fs.readFileSync(JARVIS, "utf8"));
+    const plugins = {
+        "acme.req": { live: judged(needingRaw, "r3"), registered: judged(needingRaw, "r9") },
+        "vgs.jarvis": { live: judged(jarvisRaw, "j3"), registered: judged(jarvisRaw, "j9") },
+    };
+    const functions = ["run(ctx, name, args, done)", "runFor(id, name)", "request(id, manifest, held)", "resume(id, held)", "unstarted(held)"]
+        .map(header => runnerFunction(source, header)).join("")
+        + ["handOver(id, done, result)", "frozen(value)"].map(header => runnerFunction(RECORDS, header)).join("")
+        + "const recordStore = { handOver: handOver };\n";
+    // STEPS run in order in one context, each [missing commands, busy keys,
+    // call]; a call reads `captured`, the request the last notice held.
+    const scenario = (id, steps) => {
         const seen = { notices: [], started: [], ends: [] };
-        const done = result => seen.ends.push(result);
-        const ctx = { id: "acme.req", manifest: needing, active: true };
-        const answer = vm.runInNewContext(functions + call, {
-            Logic: logic, JSON: JSON, Error: Error, ctx: ctx, done: done,
-            Registry: { isEnabled: id => id === "acme.req", sourceDir: "/run/src", manifests: { "acme.req": needing } },
+        const done = result => seen.ends.push(Object.isFrozen(result) ? result : "unfrozen");
+        const ctx = { id: id, manifest: plugins[id].live, active: true };
+        const gone = { id: id, manifest: plugins[id].live, active: false };
+        let missing = [];
+        let busy = [];
+        const sandbox = vm.createContext({
+            Logic: logic, JSON: JSON, Error: Error, Object: Object, ctx: ctx, gone: gone, done: done, captured: null,
+            console: { error: text => seen.ends.push("logged: " + text) },
+            Registry: { isEnabled: () => true, sourceDir: "/run/src", manifests: { [id]: plugins[id].registered } },
             Notices: {
-                missingOf: id => Object.prototype.hasOwnProperty.call(missing, id) ? missing[id] : [],
-                requested: (id, held) => { seen.notices.push([id, held.name, held.args]); return "ok"; },
+                missingOf: () => missing,
+                raiseHeld: (owner, commands, held) => {
+                    seen.notices.push([owner, commands, held.name, held.args]);
+                    sandbox.captured = held;
+                    return "ok";
+                },
             },
             runner: () => ({ launcher: "present", busy: busy, run: "7-1" }),
             start: (launch, startCtx, startDone) => {
                 if (!launch.ok) return launch.answer;
-                seen.started.push({ script: launch.argv.slice(-2), done: startDone === done });
+                seen.started.push({ dir: launch.argv[launch.argv.indexOf("--dir") + 1], script: launch.argv.slice(launch.argv.indexOf("--") + 1), done: startDone === done });
                 return "ok";
             },
         });
-        return { answer: answer, notices: seen.notices, started: seen.started, ends: seen.ends };
+        vm.runInContext(functions, sandbox);
+        const answers = steps.map(([stepMissing, stepBusy, call]) => {
+            missing = stepMissing;
+            busy = stepBusy;
+            return vm.runInContext(call, sandbox);
+        });
+        return { answers: answers, notices: seen.notices, started: seen.started, ends: seen.ends };
     };
-    const held = ctx => "{ name: \"sync\", args: [\"/file\"], ctx: " + ctx + ", done: done }";
-    const started = done => [{ script: ["tui/sync.sh", "/file"], done: done }];
-    // rows: [name, missing commands by owner, busy keys, the call, what it
-    // answers, hands the notice, starts and ends]
+    const held = owner => "{ name: \"sync\", args: [\"/file\"], ctx: " + owner + ", done: done }";
+    const sync = (dir, done) => ({ dir: "/run/src/" + dir, script: ["tui/sync.sh", "/file"], done: done });
+    const unstarted = { code: null, reason: "unstarted" };
+    // rows: [name, plugin id, steps, what the steps answer, the notices
+    // raised as [id, commands, held name, held args], the starts, the ends]
     const rows = [
-        ["run of a script whose required command is missing raises its notice", { "acme.req": ["acme-sync"] }, [], "run(ctx, \"sync\", [\"/file\"], done)",
-            { answer: "ok", notices: [["acme.req", "sync", ["/file"]]], started: [], ends: [] }],
-        ["run of a script whose commands are present starts it", {}, [], "run(ctx, \"sync\", [\"/file\"], done)",
-            { answer: "ok", notices: [], started: started(true), ends: [] }],
-        ["resume of a live instance's request starts the same script, arguments and done", {}, [], "resume(\"acme.req\", " + held("ctx") + ")",
-            { answer: "ok", notices: [], started: started(true), ends: [] }],
-        ["resume of a gone instance's request starts the script without its done", {}, [], "resume(\"acme.req\", " + held("{ id: \"acme.req\", manifest: ctx.manifest, active: false }") + ")",
-            { answer: "ok", notices: [], started: started(false), ends: [] }],
-        ["resume whose start is refused ends its done as unstarted", {}, ["acme.req/sync"], "resume(\"acme.req\", " + held("ctx") + ")",
-            { answer: "ok", notices: [], started: [], ends: [{ code: null, reason: "unstarted" }] }],
+        ["run of a script whose required command is missing raises the notice for it alone", "acme.req",
+            [[["acme-sync", "acme-other"], [], "run(ctx, \"sync\", [\"/file\"], done)"]],
+            { answers: ["ok"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [], ends: [] }],
+        ["run of a script whose commands are present starts it from its instance's snapshot", "acme.req",
+            [[["acme-other"], [], "run(ctx, \"sync\", [\"/file\"], done)"]],
+            { answers: ["ok"], notices: [], started: [sync("r3", true)], ends: [] }],
+        ["runFor of a script whose required command is missing holds a request no instance made", "acme.req",
+            [[["acme-sync"], [], "runFor(\"acme.req\", \"sync\")"]],
+            { answers: ["ok"], notices: [["acme.req", ["acme-sync"], "sync", []]], started: [], ends: [] }],
+        ["resume of the request run held starts the same script, arguments and done", "acme.req",
+            [[["acme-sync"], [], "run(ctx, \"sync\", [\"/file\"], done)"], [[], [], "resume(\"acme.req\", captured)"]],
+            { answers: ["ok", "ok"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [sync("r3", true)], ends: [] }],
+        ["resume of a live instance's request runs its snapshot", "acme.req",
+            [[[], [], "resume(\"acme.req\", " + held("ctx") + ")"]],
+            { answers: ["ok"], notices: [], started: [sync("r3", true)], ends: [] }],
+        ["resume of a gone instance's request runs the registered manifest without its done", "acme.req",
+            [[[], [], "resume(\"acme.req\", " + held("gone") + ")"]],
+            { answers: ["ok"], notices: [], started: [sync("r9", false)], ends: [] }],
+        ["resume whose start is refused ends its done as unstarted, frozen", "acme.req",
+            [[[], ["acme.req/sync"], "resume(\"acme.req\", " + held("ctx") + ")"]],
+            { answers: ["ok"], notices: [], started: [], ends: [unstarted] }],
+        ["resume of a gone instance's request whose start is refused ends nothing", "acme.req",
+            [[[], ["acme.req/sync"], "resume(\"acme.req\", " + held("gone") + ")"]],
+            { answers: ["ok"], notices: [], started: [], ends: [] }],
+        ["a done that throws on unstarted is logged, not passed to the caller", "acme.req",
+            [[[], ["acme.req/sync"], "resume(\"acme.req\", { name: \"sync\", args: [], ctx: ctx, done: () => { throw new Error(\"boom\"); } })"]],
+            { answers: ["ok"], notices: [], started: [], ends: ["logged: capabilities: tui done of acme.req threw: boom"] }],
+        ["Jarvis's task view lacking tmux and copilot asks for tmux alone, and resumes once tmux is found", "vgs.jarvis",
+            [[["tmux", "copilot"], [], "run(ctx, \"task-view\", [\"task-1\"], done)"], [["copilot"], [], "resume(\"vgs.jarvis\", captured)"]],
+            { answers: ["ok", "ok"], notices: [["vgs.jarvis", ["tmux"], "task-view", ["task-1"]]],
+                started: [{ dir: "/run/src/j3", script: [plugins["vgs.jarvis"].live.tui["task-view"].script, "task-1"], done: true }], ends: [] }],
     ];
-    for (const [name, missing, busy, call, want] of rows) check("TuiRunner request: " + name, requested(missing, busy, call), want);
+    for (const [name, id, steps, want] of rows) check("TuiRunner request: " + name, scenario(id, steps), want);
+    // The notice the core raises for Jarvis's held task view lists and
+    // requires tmux alone, as an offer of tmux would, not the optional
+    // copilot it also lacks.
+    const jarvis = plugins["vgs.jarvis"].live;
+    const notice = r => [r.answer, r.commands, r.required];
+    check("TuiRunner request: Jarvis's held task view notice lists and requires tmux alone",
+        [notice(logic.noticeHeld(jarvis, ["tmux", "copilot"], {}, ["tmux"])), notice(logic.noticeRequest(jarvis, ["tmux", "copilot"], {}, "offered", ["tmux"]))],
+        [["ok", ["tmux"], ["tmux"]], ["ok", ["tmux"], ["tmux"]]]);
 }
 requestSuite(RUNNER, load(LOGIC), report);
 {
@@ -723,6 +786,89 @@ requestSuite(RUNNER, load(LOGIC), report);
         red += 1;
     }
     report("control: the request rows fail when run skips the requirement judge", red > 0, true);
+}
+
+// Notices holds a plugin's script request while the notice for its lacking
+// commands shows: a request it replaces or drops, Not now's hold(id, null),
+// ends its `done` as unstarted, and once the notice closes the request
+// resumes only while its script is declared and finds every command it
+// needs. raiseHeld, hold and resume run as Notices.qml holds them, with the
+// judge above, against stand-ins for Registry, the queue, admit and
+// Capabilities.tuis.
+const NOTICES = fs.readFileSync(path.join(CORE, "Notices.qml"), "utf8");
+function noticesSuite(source, logic, check) {
+    const manifest = Object.assign({ __revision: "r3" }, logic.validateManifest(Object.assign(manifestWith({
+        sync: { script: "tui/sync.sh", title: "Sync", requires: ["acme-sync"] },
+    }), { id: "acme.req", requirements: [{ command: "acme-sync", purpose: "Syncs" }, { command: "acme-other", purpose: "Others" }] }), "/q").manifest);
+    const functions = ["raiseHeld(id, commands, held)", "hold(id, held)", "resume()"].map(header => runnerFunction(source, header)).join("");
+    const first = { name: "sync", args: ["/a"], ctx: null, done: undefined };
+    const second = { name: "sync", args: ["/b"], ctx: null, done: undefined };
+    const undeclared = { name: "gone", args: [], ctx: null, done: undefined };
+    // STATE: { resumes, queue ids, missing, admit's answer }; CALL runs
+    // against it.
+    const noticed = (state, call) => {
+        const seen = { admitted: [], unstarted: [], resumed: [], warned: 0 };
+        const sandbox = vm.createContext({
+            Logic: logic, Object: Object, first: first, second: second,
+            resumes: Object.assign({}, state.resumes),
+            queue: state.queue.map(id => ({ id: id, commands: [], required: [] })),
+            missingOf: () => state.missing,
+            admit: (id, trigger, request) => { seen.admitted.push([id, trigger, request.answer, request.commands, request.required]); return state.admit; },
+            Registry: { requirementOwners: { "acme.req": manifest }, commandVersions: {}, manifests: { "acme.req": manifest } },
+            Capabilities: { tuis: {
+                unstarted: held => seen.unstarted.push(held.args),
+                resume: (id, held) => { seen.resumed.push([id, held === first]); return "ok"; },
+            } },
+            console: { warn: () => { seen.warned += 1; } },
+        });
+        vm.runInContext(functions, sandbox);
+        const answer = vm.runInContext(call, sandbox);
+        const held = {};
+        for (const id of Object.keys(sandbox.resumes)) held[id] = sandbox.resumes[id].args;
+        return { answer: answer === undefined ? null : answer, admitted: seen.admitted, held: held, unstarted: seen.unstarted, resumed: seen.resumed, warned: seen.warned };
+    };
+    const outcome = (answer, admitted, held, unstarted, resumed) => ({ answer: answer, admitted: admitted, held: held, unstarted: unstarted, resumed: resumed, warned: 0 });
+    // rows: [name, state, call, what it answers, admits, leaves held,
+    // ends as unstarted and resumes]
+    const rows = [
+        ["a held request's notice lists and requires its own commands, raised as a press", { resumes: {}, queue: [], missing: ["acme-sync", "acme-other"], admit: "ok" },
+            "raiseHeld(\"acme.req\", [\"acme-sync\"], first)",
+            outcome("ok", [["acme.req", "offered", "ok", ["acme-sync"], ["acme-sync"]]], { "acme.req": ["/a"] }, [], [])],
+        ["a refused notice holds nothing", { resumes: {}, queue: [], missing: ["acme-sync"], admit: "refused: notices=full limit=8" },
+            "raiseHeld(\"acme.req\", [\"acme-sync\"], first)",
+            outcome("refused: notices=full limit=8", [["acme.req", "offered", "ok", ["acme-sync"], ["acme-sync"]]], {}, [], [])],
+        ["a later request replaces the held one, which ends unstarted", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: ["acme-sync"], admit: "ok" },
+            "hold(\"acme.req\", second)",
+            outcome(null, [], { "acme.req": ["/b"] }, [["/a"]], [])],
+        ["Not now drops the held request, which ends unstarted", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: ["acme-sync"], admit: "ok" },
+            "hold(\"acme.req\", null)",
+            outcome(null, [], {}, [["/a"]], [])],
+        ["a request whose notice still shows stays held", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: [], admit: "ok" },
+            "resume()",
+            outcome(null, [], { "acme.req": ["/a"] }, [], [])],
+        ["a closed notice with the command still missing ends the request unstarted", { resumes: { "acme.req": first }, queue: [], missing: ["acme-sync"], admit: "ok" },
+            "resume()",
+            outcome(null, [], {}, [["/a"]], [])],
+        ["a closed notice whose script is no longer declared ends the request unstarted", { resumes: { "acme.req": undeclared }, queue: [], missing: [], admit: "ok" },
+            "resume()",
+            outcome(null, [], {}, [[]], [])],
+        ["a closed notice with every command found resumes the held request", { resumes: { "acme.req": first }, queue: [], missing: ["acme-other"], admit: "ok" },
+            "resume()",
+            outcome(null, [], {}, [], [["acme.req", true]])],
+    ];
+    for (const [name, state, call, want] of rows) check("Notices held request: " + name, noticed(state, call), want);
+}
+noticesSuite(NOTICES, load(LOGIC), report);
+{
+    const ends = "        if (old !== null) Capabilities.tuis.unstarted(old);\n";
+    report("control: Notices' hold ends a dropped request once", NOTICES.split(ends).length - 1, 1);
+    let red = 0;
+    try {
+        noticesSuite(NOTICES.replace(ends, () => ""), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the held-request rows fail when hold drops a request without ending it", red > 0, true);
 }
 
 // Each control removes one rule from a copy of the judge and keeps the text
@@ -810,7 +956,8 @@ const CONTROLS = [
     ["open lists only a core TUI with an entry", "if (!hasOwn(core, name) || core[name].entry === null)", "if (!hasOwn(core, name))"],
     ["open needs an entry", " || manifests[owner].tui[name].entry === null)", ")"],
     ["open refuses a disabled plugin", "if (enabledIds.indexOf(owner) === -1)", "if (false)"],
-    ["open raises the notice for a script that lacks a command", "    if (tuiMissingRequirements(manifests[owner], name, hasOwn(missing, owner) ? missing[owner] : []).length > 0)\n        return { ok: true, kind: \"install\", id: owner, name: name };\n", ""],
+    ["open raises the notice for a script that lacks a command", "    if (lacking.length > 0)\n        return { ok: true, kind: \"install\", id: owner, name: name, commands: lacking };\n", ""],
+    ["open's notice names the commands the script lacks", "return { ok: true, kind: \"install\", id: owner, name: name, commands: lacking };", "return { ok: true, kind: \"install\", id: owner, name: name, commands: missing[owner] };"],
     ["entries skip a script without an entry", "if (row.entry === null)\n            return;", "if (false)\n            return;"],
     ["entries list enabled plugins alone", "    enabledIds.forEach(function (id) {", "    Object.keys(manifests).forEach(function (id) {"],
     ["entries sort by key", "return rows.sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });", "return rows;"],

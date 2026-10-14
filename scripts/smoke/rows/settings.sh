@@ -727,7 +727,9 @@ type_keys -k Escape || fail "closing the large-list notice failed"
 expect_poll "the full-list notice closes" null notice_shown
 
 # Run copies of the real TUI owner against the same registered fixture.
-# The control sends the full list through the bounded explicit choice.
+# Its setup declares no `requires`, so the notice for its own commands holds
+# every required one, past the explicit-choice bound. The control sends the
+# full list through the bounded explicit choice.
 python3 - "$repo/shell/Core" <<'PYTHON'
 from pathlib import Path
 import sys
@@ -746,7 +748,7 @@ source = source.replace(anchor, anchor + '''
         smokeAnswer = runFor("acme.status", "setup");
     }
 ''')
-needle = 'return Notices.requested(id, held);'
+needle = 'return Notices.raiseHeld(id, launch.commands, held);'
 assert source.count(needle) == 1
 mutant = source.replace(needle, 'return Notices.chosen(id, Notices.missingOf(id));')
 assert mutant != source

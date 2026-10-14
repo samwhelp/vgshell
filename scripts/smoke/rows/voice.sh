@@ -32,8 +32,8 @@
 # Enabling Voice without voxtype raises the requirement notice for voxtype
 # itself, which the row closes with Not now after each enable.
 # Without voxtype, the openTui IPC function, the launcher's route, raises
-# the Voice requirement notice in place of Configure and opens no script,
-# the notice drawing voxtype and its bridge under the one package of both;
+# the Voice requirement notice for voxtype alone, the one command Configure
+# requires, in place of Configure and opens no script;
 # its control is a disposable manifest copy whose Configure requires
 # nothing, which launches the script with no notice. The Plugins list
 # marks Voice Setup needed, for voxtype and its bridge, with no warning
@@ -1143,12 +1143,12 @@ hover "$voice_widget_back_x" "$voice_widget_back_y" || fail "putting the pointer
 
 # openTui, the route of the launcher and Dev Tools, judges the screen's
 # `requires` as a press on the Settings page does: Configure without voxtype raises the
-# same notice and opens no script.
+# notice for voxtype alone, the one command it requires, and opens no script.
 forget_record
 expect "openTui of Configure without voxtype is answered" ok ipc shell openTui vgs.voice/configure
-expect_poll "openTui of Configure without voxtype raises the Voice notice in place of its script" "$voice_asked" notice_shown
+expect_poll "openTui of Configure without voxtype raises the notice for its own command in place of its script" '["vgs.voice", ["voxtype"], ["voxtype"], false]' notice_shown
 expect "the notice holds the Configure the open asked for" '{"vgs.voice": "configure"}' voice_resumes
-expect_poll "the notice draws voxtype and its bridge under the one package that provides both" '[["voxtype-bin", 2]]' voice_notice_groups
+expect_poll "the notice draws voxtype alone under its package" '[["voxtype-bin", 1]]' voice_notice_groups
 expect "no Configure run is asked for while the notice shows" idle key_idle vgs.voice/configure
 expect "the terminal is handed no Configure script" absent recorded
 voice_notice_escape "the Configure notice"

@@ -77,13 +77,18 @@ Scope {
         const due = waiters.filter(w => w.run === run);
         if (due.length === 0) return;
         waiters = waiters.filter(w => w.run !== run);
-        const shared = frozen(result);
-        for (const waiter of due) {
-            try {
-                waiter.done(shared);
-            } catch (e) {
-                console.error("capabilities: tui done of " + waiter.id + " threw: " + e.message);
-            }
+        for (const waiter of due) handOver(waiter.id, waiter.done, result);
+    }
+
+    // The one way a run's end reaches a `done`, of owner ID, a plugin id or
+    // "core": RESULT frozen, so no callback changes what another receives,
+    // and a callback's throw logged, never passed to the core loop that
+    // delivers it.
+    function handOver(id, done, result) {
+        try {
+            done(frozen(result));
+        } catch (e) {
+            console.error("capabilities: tui done of " + id + " threw: " + e.message);
         }
     }
 

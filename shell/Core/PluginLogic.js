@@ -1486,11 +1486,13 @@ function tuiMissingRequirements(manifest, name, missing) {
 // Every request for a plugin's own script, TuiRunner's run and runFor, keeps
 // tuiRun's refusal and focus rules, with ARGS after the script as tuiRun takes
 // them. A valid request whose script lacks a required command MISSING holds
-// goes to the requirement notice.
+// answers { ok: true, kind: "install", commands }, COMMANDS those it lacks,
+// the requirement notice's list.
 function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
     var request = tuiRun(manifest, enabled, sourceDir, runner, name, args);
     if (!request.ok && request.action === "none") return request;
-    if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: "install" };
+    var lacking = tuiMissingRequirements(manifest, name, missing);
+    if (lacking.length > 0) return { ok: true, kind: "install", commands: lacking };
     return request;
 }
 
@@ -2113,7 +2115,8 @@ var NOTICE_OFFER_MAX = 16;
 // What raises a notice: `installed`, the pluginInstalled IPC function
 // `vgshell plugin add` calls; `enabled`, setPluginEnabled turning a plugin on;
 // `offered`, the `requirements` capability's offer, a user's press on the
-// plugin's own control; `suggested`, the same capability's suggest, an offer
+// plugin's own control, and the notice a plugin's own script request raises
+// in place of itself (noticeHeld); `suggested`, the same capability's suggest, an offer
 // the plugin raises with no press, the one trigger a rest refuses. The
 // capability member a plugin calls is how the core tells the two apart: the
 // core sees no press itself. `requested`, the
@@ -2188,14 +2191,32 @@ function noticeRequest(manifest, missing, versions, trigger, commands) {
         var undeclared = commands.filter(function (c) { return declared.indexOf(c) === -1; });
         if (undeclared.length > 0)
             return { answer: "refused: requirement=" + tuiLabel(undeclared[0]) + " reason=undeclared", commands: [], required: [] };
-        listed = lacking.filter(function (row) { return commands.indexOf(row.name) !== -1; });
-        required = listed;
-        break;
+        return noticeListing(rows, commands);
     default:
         throw new Error("notices: trigger " + JSON.stringify(trigger) + " is not one of " + NOTICE_TRIGGERS.join(", "));
     }
     var nameOf = function (row) { return row.name; };
     return { answer: required.length === 0 ? "satisfied" : "ok", commands: listed.map(nameOf), required: required.map(nameOf) };
+}
+
+// The notice that lists and requires each of COMMANDS that ROWS,
+// requirementRows' answer, read missing or outdated, in declaration order,
+// answered as noticeRequest answers.
+function noticeListing(rows, commands) {
+    var listed = rows.filter(function (row) {
+        return row.state !== "present" && commands.indexOf(row.name) !== -1;
+    }).map(function (row) { return row.name; });
+    return { answer: listed.length === 0 ? "satisfied" : "ok", commands: listed, required: listed.slice() };
+}
+
+// The notice a plugin's own script request raises in place of itself
+// (Notices.raiseHeld) for COMMANDS, the lacking requirements tuiRunFor or
+// tuiOpen answered: listed and required as an offer's, with no offer
+// bound. The core names COMMANDS from MANIFEST, not the plugin, and a
+// script that declares no `requires` needs every requirement its plugin
+// does not mark optional, more than NOTICE_OFFER_MAX for Jarvis.
+function noticeHeld(manifest, missing, versions, commands) {
+    return noticeListing(requirementRows(manifest, missing, versions), commands);
 }
 
 // QUEUE, the notices held, each { id, commands, required }, the first
@@ -3087,8 +3108,9 @@ function tuiCore(core, coreBin, runner, name, args) {
 // `reason=busy` or `reason=launcher-missing` as tuiRunnerRefusal decides
 // for RUNNER. A plugin script that lacks a requirement its owner's entry
 // in MISSING, owner id -> missing requirement names, holds answers
-// { ok: true, kind: "install", id, name } in their place, as tuiRunFor
-// does, so every route that opens a listed script raises the same notice.
+// { ok: true, kind: "install", id, name, commands } in their place, as
+// tuiRunFor does, so every route that opens a listed script raises the same
+// notice.
 function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, missing, key) {
     var slash = typeof key === "string" ? key.indexOf("/") : -1;
     if (slash === -1)
@@ -3104,8 +3126,9 @@ function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, missin
         return tuiRefusal(key, "undeclared");
     if (enabledIds.indexOf(owner) === -1)
         return tuiRefusal(key, "disabled");
-    if (tuiMissingRequirements(manifests[owner], name, hasOwn(missing, owner) ? missing[owner] : []).length > 0)
-        return { ok: true, kind: "install", id: owner, name: name };
+    var lacking = tuiMissingRequirements(manifests[owner], name, hasOwn(missing, owner) ? missing[owner] : []);
+    if (lacking.length > 0)
+        return { ok: true, kind: "install", id: owner, name: name, commands: lacking };
     var pluginRefusal = tuiRunnerRefusal(runner, key, key);
     if (pluginRefusal !== null)
         return pluginRefusal;

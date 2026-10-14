@@ -72,9 +72,9 @@ Scope {
     // snapshot of the revision its instance runs. `done`, when given,
     // receives { code, reason } once the run ends or its launcher fails.
     // Judged by request, as runFor is, so a script that lacks a command it
-    // needs raises its requirement notice and starts, with ARGS and `done`,
-    // once the notice closes with its commands found (resume). Answers as
-    // start does: the caller maps a busy refusal itself.
+    // needs raises the requirement notice for those commands and starts,
+    // with ARGS and `done`, once the notice closes with them found (resume).
+    // Answers as start does: the caller maps a busy refusal itself.
     function run(ctx, name, args, done) {
         if (done !== undefined && typeof done !== "function")
             throw new Error("refused: tui=" + Logic.tuiLabel(name) + " done=not-a-function");
@@ -86,9 +86,9 @@ Scope {
     // (Capabilities.managerStep): its act on a status action (D061) and
     // its open of a listed setup screen, the Settings page's Setup button.
     // Judged by request, as run is, so a disabled plugin's or an undeclared
-    // script is refused and one that lacks a required command raises its
-    // requirement notice, for both steps. Answers `ok` when the request
-    // starts the TUI or focuses its live window, as
+    // script is refused and one that lacks a required command raises the
+    // requirement notice for those commands, for both steps. Answers `ok`
+    // when the request starts the TUI or focuses its live window, as
     // PluginLogic.tuiShownAnswer decides. The plugin reads the run's end
     // from its `state`.
     function runFor(id, name) {
@@ -99,10 +99,11 @@ Scope {
     // PluginLogic.tuiRunFor against the plugin's missing commands. HELD is
     // { name, args, ctx, done }, ctx null and done undefined for a request
     // no instance made. A script that lacks a command it needs hands HELD
-    // to its requirement notice, which gives it back to resume.
+    // to the notice for the commands it lacks, which gives it back to
+    // resume.
     function request(id, manifest, held) {
         const launch = Logic.tuiRunFor(manifest, Registry.isEnabled(id), Registry.sourceDir, runner(), held.name, Notices.missingOf(id), held.args);
-        if (launch.kind === "install") return Notices.requested(id, held);
+        if (launch.kind === "install") return Notices.raiseHeld(id, launch.commands, held);
         return start(launch, held.ctx, held.done);
     }
 
@@ -123,19 +124,20 @@ Scope {
 
     // The end a held request's `done` receives when it never starts, so a
     // `done` run answered `ok` always receives one while its instance lives.
+    // It reaches `done` as every run's end does (TuiRecords.handOver).
     function unstarted(held) {
         if (held.done !== undefined && held.ctx !== null && held.ctx.active)
-            held.done({ code: null, reason: "unstarted" });
+            recordStore.handOver(held.ctx.id, held.done, { code: null, reason: "unstarted" });
     }
 
     // open: any listed TUI by key, with no arguments; the `openTui` IPC
     // function answers `ok` when the request starts the TUI or focuses its
     // live window. A plugin script that lacks a command it needs raises
-    // its requirement notice instead, as request does, and the notice opens
-    // the script once its commands are found (resume).
+    // the requirement notice for those commands instead, as request does,
+    // and the notice opens the script once they are found (resume).
     function open(key) {
         const launch = Logic.tuiOpen(Registry.manifests, enabledIds(), Registry.sourceDir, coreBin, runner(), Logic.CORE_TUIS, Registry.ownerMissing, key);
-        if (launch.kind === "install") return Notices.requested(launch.id, { name: launch.name, args: [], ctx: null, done: undefined });
+        if (launch.kind === "install") return Notices.raiseHeld(launch.id, launch.commands, { name: launch.name, args: [], ctx: null, done: undefined });
         return Logic.tuiShownAnswer(key, start(launch, null, undefined));
     }
 

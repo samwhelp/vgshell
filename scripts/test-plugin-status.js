@@ -86,7 +86,7 @@ function suite(ctx, check) {
             check("Jarvis stand-in PATH misses only " + absent, missing, [absent]);
             check("Settings routes local voice to install while " + absent + " is absent",
                 ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", missing),
-                { ok: true, kind: "install" });
+                { ok: true, kind: "install", commands: [absent] });
             check("Settings withholds local voice and offers no step while " + absent + " is absent",
                 ctx.statusRows(jarvis, voiceValues, missing).find(row => row.key === "localRuntime").action,
                 { label: "Set up local voice", tone: "", offered: false, tui: "" });
@@ -98,9 +98,15 @@ function suite(ctx, check) {
 
     const jarvisRequired = jarvis.requirements.filter(row => !row.optional).map(row => row.name);
     check("Jarvis's required list exceeds the explicit-choice notice bound", jarvisRequired.length > ctx.NOTICE_OFFER_MAX, true);
-    check("Jarvis's full missing list withholds the setup terminal",
+    check("Jarvis's full missing list withholds the setup terminal for its own commands",
         ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", jarvisRequired),
-        { ok: true, kind: "install" });
+        { ok: true, kind: "install", commands: ["gum", "unshare", "python3"] });
+    // A script that declares no `requires` needs every required command, more
+    // than an offer may name: its held notice still lists and requires them.
+    const taskHeld = ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "task", jarvisRequired);
+    const taskNotice = ctx.noticeHeld(jarvis, jarvisRequired, {}, taskHeld.commands);
+    check("a script without requires holds Jarvis's full required list in its notice",
+        [taskHeld.kind, taskNotice.answer, taskNotice.commands, taskNotice.required], ["install", "ok", jarvisRequired, jarvisRequired]);
     const jarvisNotice = ctx.noticeRequest(jarvis, jarvisRequired, {}, "requested");
     check("the existing all-missing request accepts Jarvis's full required list",
         [jarvisNotice.answer, jarvisNotice.commands, jarvisNotice.required], ["ok", jarvisRequired, jarvisRequired]);
@@ -125,7 +131,7 @@ function suite(ctx, check) {
         if (want === "run") {
             check("manager setup: " + label, [got.ok, got.key, got.argv.slice(-1)], [true, "acme.status/setup", ["tui/setup.sh"]]);
         } else if (want === "install") {
-            check("manager setup: " + label, got, { ok: true, kind: "install" });
+            check("manager setup: " + label, got, { ok: true, kind: "install", commands: ["acme-sync"] });
         } else {
             check("manager setup: " + label, got, { ok: false, answer: "refused: tui=" + name + " reason=" + want, action: "none", key: null });
         }
@@ -717,7 +723,8 @@ const CONTROLS = [
     ["a setup installs only missing declared requirements", "return needed.filter(function (name) { return missing.indexOf(name) !== -1; });", "return needed;"],
     ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
     ["an empty requires needs nothing", "var needed = requires !== null ? requires : manifest", "var needed = requires !== null && requires.length > 0 ? requires : manifest"],
-    ["a missing required command routes setup to install", "if (tuiMissingRequirements(manifest, name, missing).length > 0) return { ok: true, kind: \"install\" };", ""],
+    ["a missing required command routes setup to install", "    if (lacking.length > 0) return { ok: true, kind: \"install\", commands: lacking };\n", ""],
+    ["an install names the commands the script lacks", "return { ok: true, kind: \"install\", commands: lacking };", "return { ok: true, kind: \"install\", commands: missing };"],
     ["the row offers its TUI while requirements are missing", "    if (offered !== null && lacking.length > 0) return { label: offered.label, tone: \"\", offered: false, tui: \"\" };\n", ""],
     ["a withheld row drops its label", "if (offered !== null && lacking.length > 0) return { label: offered.label,", "if (offered !== null && lacking.length > 0) return { label: \"\","],
     ["a withheld row names its TUI", "return { label: offered.label, tone: \"\", offered: false, tui: \"\" };", "return { label: offered.label, tone: \"\", offered: false, tui: offered.tui };"],
