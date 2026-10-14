@@ -110,7 +110,13 @@ Item {
                 { tag: "Setup narrow", label: "Setup", width: 240, setup: true },
                 { tag: "Setup wide", label: "Setup", width: 400, setup: true }
             ];
-            return ["dark", "light"].flatMap(mode => cases.map(row => Object.assign({}, row, { tag: mode + " " + row.tag, mode: mode })));
+            const data = [];
+            for (const mode of ["dark", "light"]) {
+                for (const row of cases) {
+                    data.push({ tag: mode + " " + row.tag, mode: mode, label: row.label, width: row.width, setup: row.setup });
+                }
+            }
+            return data;
         }
 
         // Read the actual child bounds. Text alignment alone cannot centre
