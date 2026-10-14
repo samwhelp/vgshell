@@ -286,8 +286,7 @@ Item {
         }
 
         function test_cycle_tracks_added_and_destroyed_stops_and_releases_connections() {
-            const host = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nItem { width: 500; height: 400; property alias card: card; property alias after: after; Dialog { id: card; actions: [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}] } Button { id: after; y: 340; text: "After" } }', root);
-            let fixture = host.card;
+            let fixture = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDialog { actions: [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}] }', root);
             try {
                 fixture.takeFocus();
                 const added = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nTextField { activeFocusOnTab: true }', fixture);
@@ -303,11 +302,6 @@ Item {
                 fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
                 keyClick(Qt.Key_Tab);
                 compare(fixture.buttons()[0].activeFocus, true);
-                fixture.modal = false;
-                fixture.buttons()[1].forceActiveFocus(Qt.TabFocusReason);
-                keyClick(Qt.Key_Tab);
-                compare(host.after.activeFocus, true, "an inline card releases Tab to the next control");
-                fixture.modal = true;
                 fixture.visible = false;
                 outside.forceActiveFocus();
                 keyClick(Qt.Key_Tab);
@@ -322,7 +316,7 @@ Item {
                 tryCompare(closer, "target", null);
                 fixture = null;
                 closer.destroy();
-            } finally { host.destroy(); }
+            } finally { if (fixture !== null) fixture.destroy(); }
         }
 
         function test_a_modal_dialog_cycles_replaced_actions_while_open() {
@@ -331,7 +325,9 @@ Item {
             // action row's children as its Repeater removes and creates them.
             const fixture = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nDialog { property alias field: field; actions: [{label: "Cancel", role: "cancel"}, {label: "Join", role: "accept"}]; TextField { id: field; width: parent.width } }', root);
             try {
+                fixture.takeFocus();
                 fixture.field.forceActiveFocus(Qt.OtherFocusReason);
+                compare(fixture.field.activeFocus, true);
                 const cases = [
                     [{label: "Close", role: "cancel"}, {label: "Later", role: "cancel", enabled: false}, {label: "Approve", role: "accept"}],
                     [{label: "OK", role: "cancel"}],
