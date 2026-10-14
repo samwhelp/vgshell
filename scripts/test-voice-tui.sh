@@ -4,9 +4,9 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 plugin="$repo/shell/plugins/vgs.voice"
-TMP_ROOT="$repo/tmp/voice-tui-test-$$"
-rm -rf -- "${TMP_ROOT:?}"
-mkdir -p -- "$TMP_ROOT"
+TMP_ROOT="$(mktemp -d)" || { echo "test-voice-tui: scratch=mktemp-failed" >&2; exit 1; }
+[[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-voice-tui: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
+TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-voice-tui: scratch=resolve-failed" >&2; exit 1; }
 trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
 
 failures=0
@@ -30,9 +30,21 @@ done
 tools="$TMP_ROOT/tools"
 mkdir -p -- "$tools"
 for tool in bash sleep python3 rm; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
-cat >"$tools/gum" <<'SH'
+cat >"$tools/gum" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "$*"
+if [[ \$1 == choose ]]; then
+  choices="\$(</dev/stdin)"
+  printf '%s\n' "\$choices" >"$TMP_ROOT/choices"
+  [[ ! -f $TMP_ROOT/choose-exit ]] || exit "\$(<"$TMP_ROOT/choose-exit")"
+  wanted="\$(<"$TMP_ROOT/chosen")"
+  while IFS=\$'\t' read -r key label; do
+    [[ \$key == "\$wanted":* ]] || continue
+    printf '%s\n' "\$key"
+    exit 0
+  done <<<"\$choices"
+  exit 1
+fi
+printf '%s\n' "\$*"
 SH
 cat >"$tools/voxtype" <<SH
 #!/usr/bin/env bash
@@ -40,6 +52,13 @@ printf 'voxtype %s\n' "\$*" >>"$TMP_ROOT/calls"
 if [[ \$1 == status ]]; then
   [[ -f $TMP_ROOT/voxtype-alt ]] || exit 1
   printf '{"text": "", "alt": "%s", "class": "%s"}\n' "\$(<"$TMP_ROOT/voxtype-alt")" "\$(<"$TMP_ROOT/voxtype-alt")"
+fi
+if [[ \$1 == info ]]; then
+  [[ ! -f $TMP_ROOT/info-exit-\$2 ]] || exit "\$(<"$TMP_ROOT/info-exit-\$2")"
+  printf '%s\n' "\$(<"$TMP_ROOT/\$2.json")"
+fi
+if [[ \$1 == setup ]]; then
+  [[ ! -f $TMP_ROOT/download-exit ]] || exit "\$(<"$TMP_ROOT/download-exit")"
 fi
 SH
 cat >"$tools/systemctl" <<SH
@@ -61,11 +80,10 @@ run_screen() { # HOME SCRIPT [PATH]
   calls="$(paste -sd '|' "$TMP_ROOT/calls")"
 }
 
-# Each screen runs voxtype's own screen and nothing else: the service has
-# the core start its daemon again once the run ends with code 0. Each
-# screen's control is a copy that restarts a user unit after it.
-declare -A screen_call=([configure]='voxtype configure' [model]='voxtype setup model')
-for screen in configure model; do
+# Configure runs voxtype's screen. The core restarts its own daemon when
+# the screen ends; a copy that restarts a user unit must turn this red.
+declare -A screen_call=([configure]='voxtype configure')
+for screen in configure; do
   run_screen "$TMP_ROOT/home-$screen-run" "$plugin/tui/$screen.sh"
   if [[ $status == 0 && $calls == "${screen_call[$screen]}" ]]; then ok "$screen runs voxtype's screen and no systemctl"; else fail "$screen: status=$status calls=[$calls] err=$(cat "$TMP_ROOT/err")"; fi
 
@@ -104,6 +122,140 @@ PY
   chmod 755 "$control"
   run_screen "$TMP_ROOT/home-$screen-control" "$control" "$no_voxtype"
   if missing_refused "$TMP_ROOT/home-$screen-control"; then fail "control voxtype check: the $screen copy without the check still refused cleanly"; else ok "control voxtype check turns the missing-voxtype $screen case red (status=$status)"; fi
+done
+
+# The picker runs on script(1)'s terminal, with the real TUI and voxtype
+# reading libraries. Its sibling core step and every voxtype are stand-ins.
+model_lib="$TMP_ROOT/core/lib"
+mkdir -p -- "$model_lib" "$TMP_ROOT/onnx"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/voxtype.sh" "$model_lib/"
+cat >"$TMP_ROOT/onnx/voxtype-onnx-avx2" <<SH
+#!/usr/bin/env bash
+printf 'onnx %s\n' "\$*" >>"$TMP_ROOT/calls"
+[[ ! -f $TMP_ROOT/info-exit-onnx ]] || exit "\$(<"$TMP_ROOT/info-exit-onnx")"
+printf '%s\n' "\$(<"$TMP_ROOT/onnx-engines.json")"
+SH
+cat >"$TMP_ROOT/core/vgshell-system" <<SH
+#!/usr/bin/env bash
+printf 'system %s engine=%s\n' "\$*" "\${VOXTYPE_ENGINE:-}" >>"$TMP_ROOT/calls"
+[[ ! -f $TMP_ROOT/system-exit ]] || exit "\$(<"$TMP_ROOT/system-exit")"
+# Like the core probe, an apply with the current Whisper engine is ready
+# and changes nothing. The picker must hand it the selected engine.
+[[ \${VOXTYPE_ENGINE:-whisper} != whisper && ! -f $TMP_ROOT/system-no-change ]] || exit 0
+printf '%s\n' "\$(<"$TMP_ROOT/onnx-engines.json")" >"$TMP_ROOT/engines.json"
+SH
+chmod 755 "$TMP_ROOT/core/vgshell-system" "$TMP_ROOT/onnx/voxtype-onnx-avx2"
+model_screen="$plugin/tui/model.sh"
+model_world() { # whisper|onnx|missing|cpu|gpu|absent
+  rm -f -- "$TMP_ROOT/choose-exit" "$TMP_ROOT/download-exit" "$TMP_ROOT/system-exit" "$TMP_ROOT/system-no-change" "$TMP_ROOT"/info-exit-*
+  python3 - "$TMP_ROOT" "$1" <<'PY'
+import json, pathlib, sys
+root, build = pathlib.Path(sys.argv[1]), sys.argv[2]
+rows = {
+    "whisper": [dict(name="base.en", installed=True, downloadable=True, download_arg="base.en")],
+    "parakeet": [dict(name="parakeet-tdt-0.6b-v3", installed=False, downloadable=True, download_arg="parakeet-tdt-0.6b-v3")],
+    "moonshine": [dict(name="base", installed=False, downloadable=True, download_arg="moonshine-base")],
+    "sensevoice": [dict(name="small", installed=False, downloadable=True, download_arg="sensevoice-small")],
+}
+engines = [dict(name=name, compiled=build == "onnx" or name == "whisper", active=name == "whisper") for name in rows]
+all_engines = [dict(row, compiled=True) for row in engines]
+inventory = dict(install_kind="package", package_lib_dir=str(root / "onnx"), variants=[])
+if build != "missing":
+    inventory["variants"] = [dict(variant="onnx-avx2", binary_name="voxtype-onnx-avx2", installed=build != "absent", runs_on_this_cpu=build != "cpu", gpu_available=build != "gpu")]
+for name, value in [("models",dict(engines={engine:dict(models=items) for engine,items in rows.items()})), ("engines",engines), ("onnx-engines",all_engines), ("variants",inventory)]:
+    (root / (name + ".json")).write_text(json.dumps(value))
+PY
+}
+model_run() { # NAME SCRIPT ENGINE:DOWNLOAD_ARG
+  local home="$TMP_ROOT/home-model-$1" script="$2"
+  mkdir -p -- "$home"
+  : >"$TMP_ROOT/calls"
+  : >"$TMP_ROOT/err"
+  rm -f -- "$TMP_ROOT/choices"
+  printf '%s\n' "$3" >"$TMP_ROOT/chosen"
+  status=0
+  env -i PATH="$tools" HOME="$home" XDG_CONFIG_HOME="$home/.config" SHELL="$BASH" VGS_TUI_UNATTENDED=1 VGS_TUI_LIB="$model_lib/tui.sh" VGS_PLUGIN_DIR="$plugin" "$(command -v script)" -qec "$(printf '%q ' "$BASH" "$script")" /dev/null </dev/null >"$TMP_ROOT/out" 2>&1 || status=$?
+  calls="$(paste -sd '|' "$TMP_ROOT/calls")"
+}
+model_copy() { # NAME NEEDLE REPLACEMENT
+  control="$TMP_ROOT/model-$1.sh"
+  python3 - "$model_screen" "$control" "$2" "$3" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+assert source.count(sys.argv[3]) == 1, sys.argv[3]
+changed = source.replace(sys.argv[3],sys.argv[4])
+assert changed != source
+pathlib.Path(sys.argv[2]).write_text(changed)
+PY
+}
+model_read='voxtype info models --json|voxtype info engines --json|voxtype info variants --json'
+download='voxtype setup --download --model'
+for build in whisper onnx; do
+  for choice in whisper:base.en parakeet:parakeet-tdt-0.6b-v3 moonshine:moonshine-base sensevoice:sensevoice-small; do
+    model_world "$build"
+    model_run "$build-${choice%%:*}" "$model_screen" "$choice"
+    expected="$model_read|onnx info engines --json"
+    if [[ $build == whisper && $choice != whisper:* ]]; then
+      expected+="|system apply voxtype-engine engine=${choice%%:*}|voxtype info engines --json"
+    fi
+    expected+="|$download ${choice#*:} --no-post-install --activate"
+    if [[ $status == 0 && $calls == "$expected" ]] && ! grep -Eiq 'rebuild|--features' "$TMP_ROOT/out"; then
+      ok "model $build selects $choice with required engine before download and activation"
+    else fail "model $build $choice: status=$status calls=[$calls] out=$(cat "$TMP_ROOT/out")"; fi
+    # gum parses the key before TAB. The remaining cells carry model data;
+    # check the sizes and distinct language/download states, not full copy.
+    if python3 - "$TMP_ROOT/choices" <<'PY'
+import pathlib, sys
+rows = dict(line.split("\t",1) for line in pathlib.Path(sys.argv[1]).read_text().splitlines())
+values = {key.split(":",1)[0]:label.split(" · ") for key,label in rows.items()}
+assert all(len(fields)==4 and all(fields) for fields in values.values())
+assert values["whisper"][1] == "142 MB"
+assert values["parakeet"][1] == "2600 MB"
+assert values["moonshine"][1] == "237 MB"
+assert values["sensevoice"][1] == "239 MB"
+assert values["whisper"][2] != values["sensevoice"][2]
+assert values["whisper"][3] != values["parakeet"][3]
+PY
+    then ok "model $build offers model data to gum"; else fail "model $build data"; fi
+  done
+done
+for reason in missing absent cpu gpu; do
+  model_world "$reason"
+  model_run "$reason" "$model_screen" whisper:base.en
+  if [[ $status == 0 && $calls == "$model_read|$download base.en --no-post-install --activate" ]] && ! grep -q '^parakeet:' "$TMP_ROOT/choices"; then
+    ok "model excludes ONNX models when its shipped build is $reason"
+  else fail "model unsupported $reason: status=$status calls=[$calls]"; fi
+done
+for flag in installed runs_on_this_cpu gpu_available; do
+  case "$flag" in installed) reason=absent ;; runs_on_this_cpu) reason=cpu ;; gpu_available) reason=gpu ;; esac
+  model_world "$reason"
+  model_copy "no-$flag" " and row[\"$flag\"]" ''
+  model_run "control-$flag" "$control" whisper:base.en
+  if [[ $status == 0 ]] && ! grep -q '^parakeet:' "$TMP_ROOT/choices"; then fail "control model $flag still excludes ONNX"; else ok "control model $flag turns unsupported-build case red"; fi
+done
+# shellcheck disable=SC2016 # source text, not an expansion in this test
+model_copy no-override '  VOXTYPE_ENGINE="$engine" ' '  '
+model_world whisper
+model_run no-override "$control" parakeet:parakeet-tdt-0.6b-v3
+if [[ $status == 0 && $calls == *"$download"* ]]; then fail "control model missing selected engine still downloads"; else ok "control selected-engine override turns switching case red"; fi
+model_world whisper
+printf '1\n' >"$TMP_ROOT/system-no-change"
+model_run no-change "$model_screen" parakeet:parakeet-tdt-0.6b-v3
+if [[ $status == 1 && $calls != *"$download"* ]]; then ok "model refuses a system step that did not enable its engine"; else fail "model unchanged engine: status=$status calls=[$calls]"; fi
+# shellcheck disable=SC2016
+model_copy no-verify '  [[ $compiled == yes ]] || {' '  true || {'
+model_run no-verify "$control" parakeet:parakeet-tdt-0.6b-v3
+if [[ $status == 1 && $calls != *"$download"* ]]; then fail "control model skipped verification still refuses"; else ok "control enabled-engine verification turns unchanged-engine case red"; fi
+for failure in choose system download models engines variants onnx; do
+  model_world whisper
+  case "$failure" in
+    choose) printf '130\n' >"$TMP_ROOT/choose-exit"; expected_status=130 ;;
+    system) printf '1\n' >"$TMP_ROOT/system-exit"; expected_status=1 ;;
+    download) printf '1\n' >"$TMP_ROOT/download-exit"; expected_status=1 ;;
+    *) printf '1\n' >"$TMP_ROOT/info-exit-$failure"; expected_status=1 ;;
+  esac
+  model_run "failed-$failure" "$model_screen" parakeet:parakeet-tdt-0.6b-v3
+  if [[ $status == "$expected_status" && ( $failure == download || $calls != *"$download"* ) ]]; then ok "model $failure failure stops before further changes"; else fail "model $failure: status=$status calls=[$calls]"; fi
 done
 
 # Stop the other voxtype. Each case writes what `systemctl --user show`
