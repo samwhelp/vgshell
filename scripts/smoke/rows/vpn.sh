@@ -13,7 +13,9 @@
 # Rows: the service publishes the fixture's state to the widget, the
 # flyout and the pane; an unset operator offers Allow and locks the
 # connection switch, whose reason opens on hover in the flyout, where it
-# covers no text, image or Tab stop of the flyout, and on keyboard focus
+# covers no text, image or Tab stop when a free place exists; the locked
+# header's three-line reason takes the least text overlap when none exists,
+# with no Tab stop covered first, and opens on keyboard focus
 # in the pane; Space on the locked switch starts no change;
 # the keyboard reaches Allow and then the switch's unlock mark, which runs
 # the same step and hands the terminal `vgshell system apply
@@ -129,6 +131,45 @@ area = sum(cover(o) for o in s["obstacles"])
 print("free" if area == 0 else "covers %d px" % area)' "${2:-}"
 }
 vpn_tip_cover_word() { local reading; reading="$(vpn_tip_cover "$@")" || return 1; echo "${reading%% *}"; }
+# The locked header's candidate places from the placement contract, ranked
+# against the real open tooltip's scene. A free candidate still requires
+# zero overlap. PLANT "worse" substitutes a safe candidate with more text
+# overlap, which must fail the minimum read.
+vpn_header_place() { # HOST [PLANT]
+  local gap
+  gap="$(ipc smoke themeValue tooltip.gap)" || return 1
+  ipc smoke itemValues "$1" vgs.vpn Tooltip opened,placed,scene | py_reply '
+import json, math, sys
+tips = [t for t in json.load(sys.stdin) if t["opened"] and isinstance(t.get("scene"), dict)]
+if not tips: print("closed"); sys.exit()
+s, p = tips[0]["scene"], tips[0]["placed"]
+a, c = s["anchor"], s["content"]
+w, h = math.ceil(p["width"]), math.ceil(p["height"])
+gap = float(sys.argv[2])
+def hold(at, low, size, span): return max(low, min(math.floor(at + 0.5), low + span - size))
+xs = [hold(at, c["x"], w, c["width"]) for at in [a["x"] + (a["width"] - w) / 2, a["x"], a["x"] + a["width"] - w]]
+ys = [hold(at, c["y"], h, c["height"]) for at in [a["y"] + (a["height"] - h) / 2, a["y"], a["y"] + a["height"] - h]]
+places = [(x, y) for y in [math.ceil(a["y"] + a["height"] + gap), math.floor(a["y"] - gap - h)] for x in xs]
+places += [(x, y) for x in [math.ceil(a["x"] + a["width"] + gap), math.floor(a["x"] - gap - w)] for y in ys]
+def cover(at, o):
+    x, y = at
+    return max(0, min(x + w, o["x"] + o["width"]) - max(x, o["x"])) * max(0, min(y + h, o["y"] + o["height"]) - max(y, o["y"]))
+def controls(at): return any(o["control"] and cover(at, o) > 0 for o in s["obstacles"])
+def area(at): return sum(cover(at, o) for o in s["obstacles"])
+safe = [at for at in places if cover(at, c) == w * h and not controls(at)]
+if not safe: print("no-safe-place"); sys.exit()
+minimum = min(area(at) for at in safe)
+at = (p["x"] + s["origin"]["x"], p["y"] + s["origin"]["y"])
+if sys.argv[1] == "worse":
+    worse = [at for at in safe if area(at) > minimum]
+    if not worse: print("no-worse-control"); sys.exit()
+    at = max(worse, key=area)
+covered = area(at)
+valid = cover(at, c) == w * h and not controls(at) and covered == minimum
+verdict = ("free" if minimum == 0 else "least") if valid else "worse"
+print("%s covered_px=%g minimum_px=%g controls=%d" % (verdict, covered, minimum, controls(at)))' "${2:-}" "$gap"
+}
+vpn_header_place_word() { local reading; reading="$(vpn_header_place "$@")" || return 1; echo "${reading%% *}"; }
 vpn_setup_label() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=[x["label"] for x in (json.loads(t) if t.startswith("[") else []) if x["key"]=="setup"]; print(json.dumps(r))'; }
 vpn_body_state() { vpn_body "$1" vpn | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 vpn_exit_rows() { vpn_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
@@ -374,7 +415,14 @@ expect_poll "the locked switch draws its unlock mark named for Allow" drawn vpn_
 expect "the locked switch's reason names Allow's step" True vpn_reason_names panel "Let my login control Tailscale"
 vpn_reason="$(vpn_body panel lockReason)" || vpn_reason=unread
 expect_poll "the pointer on the locked switch opens its reason" "$vpn_reason" vpn_switch_tip
-expect "the locked switch's reason covers no text, image or Tab stop of the flyout" free vpn_tip_cover panel
+vpn_header_reading="$(vpn_header_place panel)" || vpn_header_reading=unread
+printf 'vpn-header-reason: state=locked-header %s\n' "$vpn_header_reading"
+if [[ $vpn_header_reading == free\ * ]]; then
+  expect "the locked header reason with a free place covers no text, image or Tab stop" free vpn_tip_cover panel
+else
+  expect "the locked header three-line reason with no free place covers no Tab stop and the least text" least vpn_header_place_word panel
+fi
+expect "control: the locked header reason rejects a place with more text overlap" worse vpn_header_place_word panel worse
 expect "control: the reason's place moved onto a text covers it" covers vpn_tip_cover_word panel obstacle
 rest_pointer || fail "vpn: moving the pointer off the switch failed"
 expect_poll "the pointer off the locked switch closes its reason" closed vpn_tip panel
@@ -386,7 +434,7 @@ expect "the VPN section opens in System" ok ipc shell summon window vgs.system '
 expect_poll "VPN's pane is mounted" shown vpn_shown window
 expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstance window vgs.vpn payload
 expect_poll "the pane reads the shared record" running vpn_body_state window
-expect_poll "the pane draws the core's offered step" '{"label":"Let my login control Tailscale","hint":"Only the administrator can change Tailscale. After this step, VGS connects and disconnects for you without a password."}' vpn_body window setupAction
+expect_poll "the pane draws the core's offered step" '{"label":"Let my login control Tailscale","hint":"The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password."}' vpn_body window setupAction
 expect_poll "an open pane makes the poll fast" 3000 vpn_interval
 expect "System closes before the keyboard path" ok ipc shell hide window vgs.system
 expect_poll "the closed pane is gone" hidden vpn_shown window
