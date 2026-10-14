@@ -11,6 +11,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -516,9 +517,7 @@ for (const id of ["tools.terminal", "tools.files"]) {
     const restored = Object.assign({}, JSON.parse(shippedMenu).items, { [id]: { label: id, run: ["true"] } });
     assert.throws(() => verify(load(file), menuText(restored)), { code: "ERR_ASSERTION", actual: true, expected: false, operator: "strictEqual" });
 }
-const scratchRoot = path.join(__dirname, "..", "tmp");
-fs.mkdirSync(scratchRoot, { recursive: true });
-const temp = fs.mkdtempSync(path.join(scratchRoot, "launcher-model-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "launcher-model-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
