@@ -633,12 +633,13 @@ function checkCatalog(dirArg) {
 
 // One package: `state` is `ok`, `refused` with its `reason`, or `shadowed`
 // by an installed package of its name, which is never read. `palette` is
-// the resolved palette group of an accepted package. `files`, `values`, the
+// the resolved palette group of an accepted package and `displayName` the
+// name its document states for views, else null. `files`, `values`, the
 // judge's resolved tokens, `terminal`, its slots or null, and `backgrounds`,
 // its image name map, stay in this process.
 function packageRow(base, name, source) {
     const dir = path.join(base, name);
-    const row = { name, source, path: dir, state: "refused", reason: null, palette: null, files: null, values: null, terminal: null, backgrounds: null };
+    const row = { name, source, path: dir, state: "refused", reason: null, displayName: null, palette: null, files: null, values: null, terminal: null, backgrounds: null };
     let judged;
     try {
         judged = readPackage(dir, source === "shipped");
@@ -652,6 +653,7 @@ function packageRow(base, name, source) {
         return row;
     }
     row.state = "ok";
+    row.displayName = judged.verdict.displayName;
     row.values = judged.verdict.values;
     row.palette = row.values.palette;
     row.terminal = judged.verdict.terminal;
@@ -687,7 +689,7 @@ function packageSet(configDir, key, requested) {
     }
     for (const name of dirs(SHIPPED, true)) {
         if (resolved.has(name)) {
-            rows.push({ name, source: "shipped", path: path.join(SHIPPED, name), state: "shadowed", reason: null, palette: null, files: null, values: null, terminal: null, backgrounds: null });
+            rows.push({ name, source: "shipped", path: path.join(SHIPPED, name), state: "shadowed", reason: null, displayName: null, palette: null, files: null, values: null, terminal: null, backgrounds: null });
             continue;
         }
         const row = packageRow(SHIPPED, name, "shipped");
@@ -813,6 +815,7 @@ function list(format, configDir, stateDir) {
     const current = file.state === "loaded" ? resolved.get(file.name) : undefined;
     const packages = rows.map(row => ({
         name: row.name,
+        displayName: row.displayName,
         source: row.source,
         path: row.path,
         state: row.state,

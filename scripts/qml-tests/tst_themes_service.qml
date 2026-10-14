@@ -93,7 +93,7 @@ Item {
             compare(notices.length, 1, "one notice");
             compare(notices[0].tone, data.tone);
             compare(notices[0].icon, "palette");
-            compare(JSON.stringify(notices[0]), JSON.stringify(BrowserLogic.applyNotice("nord", data.result)));
+            compare(JSON.stringify(notices[0]), JSON.stringify(BrowserLogic.applyNotice("nord", data.result, null)));
         }
 
         // The result current at the hand-over is an earlier apply's: a new
@@ -112,7 +112,7 @@ Item {
             const answer = { state: "partial", theme: "nord", reason: null };
             publish(answer);
             compare(notices.length, 1, "the next result is the answer");
-            compare(JSON.stringify(notices[0]), JSON.stringify(BrowserLogic.applyNotice("nord", answer)));
+            compare(JSON.stringify(notices[0]), JSON.stringify(BrowserLogic.applyNotice("nord", answer, null)));
             compare(service.reported, "");
         }
     }

@@ -461,6 +461,11 @@ const REFUSED = [
     { text: JSON.stringify({ schemaVersion: 2, name: "x" }), reason: "schema-version", token: "" },
     { text: JSON.stringify({ schemaVersion: 1 }), reason: "name", token: "" },
     { text: JSON.stringify({ schemaVersion: 1, name: " " }), reason: "name", token: "" },
+    { text: JSON.stringify({ schemaVersion: 1, name: "x", displayName: "" }), reason: "display-name", token: "", detail: 'got=""' },
+    { text: JSON.stringify({ schemaVersion: 1, name: "x", displayName: " " }), reason: "display-name", token: "" },
+    { text: JSON.stringify({ schemaVersion: 1, name: "x", displayName: 5 }), reason: "display-name", token: "", detail: "got=5" },
+    { text: JSON.stringify({ schemaVersion: 1, name: "x", displayName: null }), reason: "display-name", token: "" },
+    { text: JSON.stringify({ schemaVersion: 1, name: "x", displayName: ["X"] }), reason: "display-name", token: "" },
     { text: JSON.stringify({ schemaVersion: 1, name: "x", tokens: [] }), reason: "tokens", token: "" },
     { tokens: { palette: { acent: "#fff" } }, reason: "unknown-token", token: "palette.acent" },
     { tokens: { palette: { accent: { hover: "#fff" } } }, reason: "not-expression", token: "palette.accent" },
@@ -912,6 +917,7 @@ function verify(judge) {
     });
     assert.equal(shippedVgs.ok, true, shippedVgs.ok ? "" : judge.refusalLine(shippedVgs));
     assert.equal(shippedVgs.name, "vgs");
+    assert.equal(shippedVgs.displayName, "VGS", "the shipped defaults state the product's name");
     assert.equal(shippedVgs.terminal.color0, "#0b0b0bff");
     assert.equal(shippedVgs.terminal.color15, "#ffffffff");
     assert.equal(Object.keys(shippedVgs.terminal).length, 16);
@@ -924,6 +930,9 @@ function verify(judge) {
     });
     assert.equal(packageWithoutTerminal.ok, true, packageWithoutTerminal.ok ? "" : judge.refusalLine(packageWithoutTerminal));
     assert.equal(packageWithoutTerminal.terminal, null);
+    assert.equal(packageWithoutTerminal.displayName, null, "a package states no display name unless its document does");
+    assert.equal(judge.accept(TOKENS, documentWith({})).displayName, null, "an absent display name is accepted");
+    assert.equal(judge.accept(TOKENS, documentWith({ displayName: "Probe X" })).displayName, "Probe X");
     assert.deepEqual(plain(packageWithoutTerminal.backgrounds), {});
     assert.equal(at(packageWithoutTerminal.values, "palette.accent"), "#abcdefff");
 
@@ -1801,6 +1810,9 @@ const CONTROLS = [
     ["unknown top-level key", "if (DOCUMENT_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
     ["schema version", "if (document.schemaVersion !== SCHEMA_VERSION)", "if (false)"],
     ["document name", 'if (typeof document.name !== "string" || document.name.trim() === "")', "if (false)"],
+    ["document display name", 'if (typeof displayName !== "string" || displayName.trim() === "")', "if (false)"],
+    ["absent display name is null", "var displayName = null;", 'var displayName = "";'],
+    ["package carries its display name", "displayName: shell.displayName, ", ""],
     ["tokens shape", "if (!isPlainObject(tree))\n        return refusal(\"tokens\"", "if (false)\n        return refusal(\"tokens\""],
     ["unknown token", "if (known === undefined)", "if (false)"],
     ["value on a group", "else if (!isPlainObject(node[keys[i]]))", "else if (false)"],

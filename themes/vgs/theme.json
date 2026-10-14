@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "vgs",
+  "displayName": "VGS",
   "tokens": {},
   "backgrounds": {
     "black.png": "Black"

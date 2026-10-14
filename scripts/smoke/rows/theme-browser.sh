@@ -531,7 +531,7 @@ expect_poll "the browser read the list, the catalog and the images" true view_va
 expect "the browser includes the shipped vgs card" True has_card vgs
 expect_poll "the retained catalog reaches the installed list with nord" True has_card nord
 expect "the applied theme is selected" '"vgs"' view_value selectedName
-expect_poll "the resting theme view draws the selected theme's name and its search hint beside its cards and tabs" '["Type a theme name to search", "Vgs"]' rest_texts
+expect_poll "the resting theme view draws the selected theme's name and its search hint beside its cards and tabs" '["Type a theme name to search", "VGS"]' rest_texts
 expect "the theme view draws no search field" absent search_field
 expect_poll "every side card names its theme" named slices_named
 expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow, above its card's wash" '[]' slice_look
@@ -1110,7 +1110,7 @@ plugin_control ThemeView.qml "resting text" $'                id: caption\n' $' 
 press_themes || fail "typing SUPER+SHIFT+T for the resting text control failed"
 expect_poll "SUPER+SHIFT+T opens the resting text control browser" 1 layer_count vgs:overlay
 expect_poll "the resting text control read its cards" true view_value loaded
-expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Type a theme name to search", "Vgs"]' rest_texts
+expect_poll "control: a key hint under the rail is a resting text" '["Enter", "Type a theme name to search", "VGS"]' rest_texts
 type_keys -k Escape || fail "sending Escape to the resting text control failed"
 expect_poll "Escape closes the resting text control browser" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "resting text"

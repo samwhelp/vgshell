@@ -161,7 +161,7 @@ FocusScope {
         const card = cards.find(c => c.name === name);
         job = { step: "install", name: name };
         const reply = shell.theme.install(name, result => {
-            const line = BrowserLogic.problem("install", name, result);
+            const line = BrowserLogic.problem("install", name, result, root.packages);
             if (line !== "") root.finish(line);
             else {
                 const next = Object.assign({}, root.installedImagery);
@@ -181,7 +181,7 @@ FocusScope {
         const reply = shell.theme.apply(name, result => {
             // An apply handed over on the publish is the service's to report.
             if (root.job !== started) return;
-            const line = BrowserLogic.problem("apply", name, result);
+            const line = BrowserLogic.problem("apply", name, result, root.packages);
             if (!BrowserLogic.applied(result)) {
                 root.finish(line);
                 return;
@@ -231,7 +231,7 @@ FocusScope {
             root.offer = null;
             root.downloading = null;
             root.focusRail();
-            const line = BrowserLogic.problem("download", name, result);
+            const line = BrowserLogic.problem("download", name, result, root.packages);
             if (line !== "") root.finish(line);
             else root.apply(name, true);
         });

@@ -13,7 +13,7 @@
 var SCHEMA_VERSION = 1;
 
 // Every key a shell document may carry. An unknown key is refused.
-var DOCUMENT_KEYS = ["schemaVersion", "name", "tokens", "backgrounds"];
+var DOCUMENT_KEYS = ["schemaVersion", "name", "displayName", "tokens", "backgrounds"];
 
 // The types a token may declare.
 var TYPES = ["color", "length", "body-lines", "number", "duration", "family", "weight", "flag", "easing", "choice"];
@@ -770,10 +770,11 @@ function acceptBackgrounds(document) {
 }
 
 // Judge and resolve one shell document, given as text. Answers
-// { ok: true, name, values, overrides, backgrounds } or one refusal;
-// nothing of a refused document is part of the answer. `overrides` is what
-// the document states, which withAppearance resolves again under a user's
-// values.
+// { ok: true, name, displayName, values, overrides, backgrounds } or one
+// refusal; nothing of a refused document is part of the answer.
+// `displayName` is the optional name a view shows for the package, null
+// when the document states none. `overrides` is what the document states,
+// which withAppearance resolves again under a user's values.
 function accept(tokens, text) {
     var document;
     try {
@@ -791,6 +792,12 @@ function accept(tokens, text) {
         return refusal("schema-version", "", "want=" + SCHEMA_VERSION + " got=" + JSON.stringify(document.schemaVersion));
     if (typeof document.name !== "string" || document.name.trim() === "")
         return refusal("name", "", "got=" + JSON.stringify(document.name));
+    var displayName = null;
+    if (document.displayName !== undefined) {
+        displayName = document.displayName;
+        if (typeof displayName !== "string" || displayName.trim() === "")
+            return refusal("display-name", "", "got=" + JSON.stringify(displayName));
+    }
     var tree = document.tokens === undefined ? {} : document.tokens;
     if (!isPlainObject(tree))
         return refusal("tokens", "", "got=" + JSON.stringify(tree));
@@ -803,7 +810,7 @@ function accept(tokens, text) {
     var result = resolve(tokens, stated.overrides);
     if (!result.ok)
         return result;
-    return { ok: true, name: document.name, values: result.values, overrides: stated.overrides, backgrounds: backgrounds.backgrounds };
+    return { ok: true, name: document.name, displayName: displayName, values: result.values, overrides: stated.overrides, backgrounds: backgrounds.backgrounds };
 }
 
 // --- plugin-owned appearance
@@ -1025,7 +1032,7 @@ function acceptPackage(tokens, files) {
     var terminal = acceptTerminal(files.terminalJson);
     if (!terminal.ok)
         return terminal;
-    return { ok: true, name: shell.name, values: shell.values, terminal: terminal.slots, backgrounds: shell.backgrounds };
+    return { ok: true, name: shell.name, displayName: shell.displayName, values: shell.values, terminal: terminal.slots, backgrounds: shell.backgrounds };
 }
 
 // --- the theme catalog

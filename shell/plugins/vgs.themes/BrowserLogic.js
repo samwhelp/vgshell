@@ -69,9 +69,13 @@ function parsePayload(text) {
     return { view: raw.view };
 }
 
-// A package name as the browser titles it: dashes and underscores become
-// spaces and each word starts in upper case.
-function label(name) {
+// Package NAME as the browser titles it: the display name its row of the
+// last list's PACKAGES states, else the name with dashes and underscores
+// as spaces and each word starting in upper case. PACKAGES is null before
+// a list arrives; a refused or shadowed row states no display name.
+function label(name, packages) {
+    for (var i = 0; packages !== null && i < packages.length; i++)
+        if (packages[i].name === name && packages[i].displayName !== null) return packages[i].displayName;
     return String(name).replace(/[-_]+/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 }
 
@@ -109,7 +113,7 @@ function cards(packages, entries, images, current) {
         var entry = hasOwn(catalog, p.name) && catalog[p.name].installed ? catalog[p.name] : null;
         out.push({
             name: p.name,
-            label: label(p.name),
+            label: label(p.name, packages),
             source: p.source,
             state: p.state,
             reason: p.reason,
@@ -128,7 +132,7 @@ function cards(packages, entries, images, current) {
         if (hasOwn(listed, e.name)) continue;
         out.push({
             name: e.name,
-            label: label(e.name),
+            label: label(e.name, packages),
             source: "catalog",
             state: "ok",
             reason: null,
@@ -516,14 +520,15 @@ function wallpaperSelection(list, key) {
     return 0;
 }
 
-// The empty wallpaper view's state for SOURCE and APPLIED. A filter is
+// The empty wallpaper view's state for SOURCE and APPLIED, which the last
+// list's PACKAGES titles. A filter is
 // the cause only when the source's unfiltered CARDS contain real images;
 // hiding a download offer cannot make a missing wallpaper a filter miss.
-function wallpaperEmpty(loaded, source, applied, cards, filter) {
+function wallpaperEmpty(loaded, source, applied, cards, filter, packages) {
     if (!loaded) return { kind: "loading", iconName: "", text: "Loading wallpapers", actionText: "" };
     if (filter !== "" && cards.some(function (card) { return card.kind === "image"; }))
         return { kind: "no-matches", iconName: "search-x", text: "No wallpaper matches " + JSON.stringify(filter), actionText: "Clear filter" };
-    return { kind: "no-wallpapers", iconName: "image-off", text: source === "theme" ? label(applied) + " has no wallpapers" : "No wallpaper is installed", actionText: "" };
+    return { kind: "no-wallpapers", iconName: "image-off", text: source === "theme" ? label(applied, packages) + " has no wallpapers" : "No wallpaper is installed", actionText: "" };
 }
 
 // Whether an apply RESULT left its package applied, every target or not.
@@ -560,17 +565,17 @@ function reasonText(reason) {
     return "The theme action failed. Try again or choose another theme.";
 }
 
-function problem(step, name, result) {
+function problem(step, name, result, packages) {
     switch (step) {
     case "install":
-        return result.state === "ok" ? "" : "Could not install " + label(name) + ". " + reasonText(result.reason);
+        return result.state === "ok" ? "" : "Could not install " + label(name, packages) + ". " + reasonText(result.reason);
     case "apply":
-        if (result.state === "partial") return label(name) + " is applied. Some applications did not change. Open the Themes panel for details.";
-        return applied(result) ? "" : "Could not apply " + label(name) + ". " + reasonText(result.reason);
+        if (result.state === "partial") return label(name, packages) + " is applied. Some applications did not change. Open the Themes panel for details.";
+        return applied(result) ? "" : "Could not apply " + label(name, packages) + ". " + reasonText(result.reason);
     case "download":
-        return result.state === "ok" ? "" : "Could not download wallpapers for " + label(name) + ". " + reasonText(result.reason);
+        return result.state === "ok" ? "" : "Could not download wallpapers for " + label(name, packages) + ". " + reasonText(result.reason);
     case "update":
-        return result.state === "ok" ? "" : "Could not update wallpapers for " + label(name) + ". " + reasonText(result.reason);
+        return result.state === "ok" ? "" : "Could not update wallpapers for " + label(name, packages) + ". " + reasonText(result.reason);
     case "set":
         return result.state === "ok" ? "" : "Could not set " + name + ". " + reasonText(result.reason);
     default:
@@ -582,8 +587,8 @@ function problem(step, name, result) {
 // browser closed before it: null for an apply that did what it was asked,
 // else the browser's line, as a warning when the package is applied and an
 // error when it is not.
-function applyNotice(name, result) {
-    var line = problem("apply", name, result);
+function applyNotice(name, result, packages) {
+    var line = problem("apply", name, result, packages);
     if (line === "") return null;
-    return { title: label(name), message: line, tone: applied(result) ? "warning" : "danger", icon: "palette" };
+    return { title: label(name, packages), message: line, tone: applied(result) ? "warning" : "danger", icon: "palette" };
 }

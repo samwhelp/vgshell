@@ -23,7 +23,7 @@ const file = path.join(dir, "BrowserLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message === undefined ? JSON.stringify(want) : message);
 
 const PALETTE = { background: "#101010ff", foreground: "#eeeeeeff", accent: "#3366ffff" };
-const pkg = (name, source, state) => ({ name, source, state, reason: state === "refused" ? "unknown-token" : null, palette: state === "refused" ? null : PALETTE });
+const pkg = (name, source, state) => ({ name, displayName: null, source, state, reason: state === "refused" ? "unknown-token" : null, palette: state === "refused" ? null : PALETTE });
 const pin = size => ({ repo: "https://github.com/vanillagreencom/vgs-themes", release: "themes", archive: "a.tar.gz", size, sha256: "a".repeat(64) });
 const TERMINAL = Object.fromEntries(Array.from({ length: 16 }, (_, index) => ["color" + index, "#000000ff"]));
 const entry = (name, installed, imagery, imageryInstalled) => ({ name, mode: "dark", previewPath: name === "akane" ? "/c/akane/preview.jpg" : null, palette: PALETTE, tokens: { palette: PALETTE }, terminal: TERMINAL, imagery, installed, imageryInstalled, imageryUpdate: false, definitionUpdate: false });
@@ -88,12 +88,12 @@ function verify(logic, files) {
     for (const [label, text, error] of PAYLOAD_REFUSED)
         assert.throws(() => logic.parsePayload(text), e => e.message === error, label);
 
-    assert.equal(logic.label("arc-blueberry"), "Arc Blueberry");
-    assert.equal(logic.label("tokyo_night"), "Tokyo Night");
+    assert.equal(logic.label("arc-blueberry", null), "Arc Blueberry");
+    assert.equal(logic.label("tokyo_night", []), "Tokyo Night");
 
     // Cards: every source, one per name, in name order.
     const packages = [
-        Object.assign(pkg("vgs", "shipped", "ok"), { previewPath: "/themes/vgs/preview.jpg", tokens: { palette: PALETTE }, terminal: TERMINAL }),
+        Object.assign(pkg("vgs", "shipped", "ok"), { displayName: "VGS", previewPath: "/themes/vgs/preview.jpg", tokens: { palette: PALETTE }, terminal: TERMINAL }),
         pkg("dusk", "shipped", "shadowed"),
         pkg("dusk", "installed", "ok"),
         pkg("nord", "installed", "ok"),
@@ -121,6 +121,14 @@ function verify(logic, files) {
         ["plain", "catalog", "ok", false, null, null, false],
         ["vgs", "shipped", "ok", true, null, null, false]
     ]);
+    // A stated display name titles its package wherever the browser names it.
+    same(built.map(c => c.label), ["Akane", "Broken", "Dusk", "Mine", "Nord", "Plain", "VGS"]);
+    assert.equal(logic.label("vgs", packages), "VGS");
+    assert.equal(logic.label("vgs", [pkg("vgs", "shipped", "ok")]), "Vgs", "a package that states no display name keeps its title-cased name");
+    assert.equal(logic.wallpaperEmpty(true, "theme", "vgs", [], "", packages).text, "VGS has no wallpapers");
+    assert.equal(logic.wallpaperEmpty(true, "theme", "nord", [], "", packages).text, "Nord has no wallpapers");
+    assert.equal(logic.problem("apply", "vgs", { state: "failed", reason: "busy" }, packages), "Could not apply VGS. Another theme action is running. Wait for it to finish.");
+    assert.equal(logic.applyNotice("vgs", { state: "failed", reason: "busy" }, packages).title, "VGS");
     same(built.find(c => c.name === "akane").palette, PALETTE, "a catalog card carries the index palette");
     assert.equal(built.find(c => c.name === "akane").previewImage, "/c/akane/preview.jpg", "a catalog card carries its package preview");
     assert.equal(built.find(c => c.name === "vgs").previewImage, "/themes/vgs/preview.jpg", "an installed or shipped package preview wins");
@@ -230,24 +238,24 @@ function verify(logic, files) {
     for (const [state, want] of [["applied", true], ["unchanged", true], ["partial", true], ["failed", false]])
         assert.equal(logic.applied({ state }), want, "applied " + state);
     assert.equal(logic.reasonText("name-mismatch"), "The theme name does not match its folder. Choose another theme.");
-    assert.equal(logic.problem("install", "nord", { state: "ok", reason: null }), "");
-    assert.equal(logic.problem("install", "nord", { state: "failed", reason: "exists" }), "Could not install Nord. The theme action failed. Try again or choose another theme.");
-    assert.equal(logic.problem("apply", "nord", { state: "applied", reason: null }), "");
-    assert.equal(logic.problem("apply", "nord", { state: "unchanged", reason: null }), "");
-    assert.equal(logic.problem("apply", "nord", { state: "partial", reason: null }), "Nord is applied. Some applications did not change. Open the Themes panel for details.");
-    assert.equal(logic.problem("apply", "nord", { state: "failed", reason: "busy" }), "Could not apply Nord. Another theme action is running. Wait for it to finish.");
-    assert.equal(logic.problem("download", "nord", { state: "ok", reason: null }), "");
-    assert.equal(logic.problem("download", "nord", { state: "failed", reason: "sha256" }), "Could not download wallpapers for Nord. The download did not pass its safety check. Try the download again.");
-    assert.equal(logic.problem("update", "nord", { state: "ok", reason: null }), "");
-    assert.equal(logic.problem("update", "nord", { state: "failed", reason: "changed" }), "Could not update wallpapers for Nord. The theme action failed. Try again or choose another theme.");
-    assert.equal(logic.problem("set", "a.jpg", { state: "ok", reason: null }), "");
-    assert.equal(logic.problem("set", "a.jpg", { state: "failed", reason: "outside" }), "Could not set a.jpg. The theme files are not supported. Choose another theme.");
-    assert.throws(() => logic.problem("remove", "nord", { state: "ok" }), /step="remove"/);
+    assert.equal(logic.problem("install", "nord", { state: "ok", reason: null }, []), "");
+    assert.equal(logic.problem("install", "nord", { state: "failed", reason: "exists" }, []), "Could not install Nord. The theme action failed. Try again or choose another theme.");
+    assert.equal(logic.problem("apply", "nord", { state: "applied", reason: null }, []), "");
+    assert.equal(logic.problem("apply", "nord", { state: "unchanged", reason: null }, []), "");
+    assert.equal(logic.problem("apply", "nord", { state: "partial", reason: null }, []), "Nord is applied. Some applications did not change. Open the Themes panel for details.");
+    assert.equal(logic.problem("apply", "nord", { state: "failed", reason: "busy" }, []), "Could not apply Nord. Another theme action is running. Wait for it to finish.");
+    assert.equal(logic.problem("download", "nord", { state: "ok", reason: null }, []), "");
+    assert.equal(logic.problem("download", "nord", { state: "failed", reason: "sha256" }, []), "Could not download wallpapers for Nord. The download did not pass its safety check. Try the download again.");
+    assert.equal(logic.problem("update", "nord", { state: "ok", reason: null }, []), "");
+    assert.equal(logic.problem("update", "nord", { state: "failed", reason: "changed" }, []), "Could not update wallpapers for Nord. The theme action failed. Try again or choose another theme.");
+    assert.equal(logic.problem("set", "a.jpg", { state: "ok", reason: null }, []), "");
+    assert.equal(logic.problem("set", "a.jpg", { state: "failed", reason: "outside" }, []), "Could not set a.jpg. The theme files are not supported. Choose another theme.");
+    assert.throws(() => logic.problem("remove", "nord", { state: "ok" }, []), /step="remove"/);
     // The service's notice for an answer the closed browser handed over.
-    assert.equal(logic.applyNotice("nord", { state: "applied", reason: null }), null);
-    assert.equal(logic.applyNotice("nord", { state: "unchanged", reason: null }), null);
-    same(logic.applyNotice("nord", { state: "partial", reason: null }), { title: "Nord", message: "Nord is applied. Some applications did not change. Open the Themes panel for details.", tone: "warning", icon: "palette" });
-    same(logic.applyNotice("nord", { state: "failed", reason: "busy" }), { title: "Nord", message: "Could not apply Nord. Another theme action is running. Wait for it to finish.", tone: "danger", icon: "palette" });
+    assert.equal(logic.applyNotice("nord", { state: "applied", reason: null }, []), null);
+    assert.equal(logic.applyNotice("nord", { state: "unchanged", reason: null }, []), null);
+    same(logic.applyNotice("nord", { state: "partial", reason: null }, []), { title: "Nord", message: "Nord is applied. Some applications did not change. Open the Themes panel for details.", tone: "warning", icon: "palette" });
+    same(logic.applyNotice("nord", { state: "failed", reason: "busy" }, []), { title: "Nord", message: "Could not apply Nord. Another theme action is running. Wait for it to finish.", tone: "danger", icon: "palette" });
 
     verifyWallpapers(logic);
 
@@ -397,9 +405,9 @@ function verifyWallpapers(logic) {
     assert.equal(logic.wallpaperSelection(list, "/u/u.jpg"), 0, "an image the source lacks selects the first");
     assert.equal(logic.wallpaperSelection([], ""), 0);
 
-    assert.equal(logic.wallpaperEmpty(false, "theme", "nord", [], "").text, "Loading wallpapers");
-    assert.equal(logic.wallpaperEmpty(true, "theme", "tokyo-night", [], "").text, "Tokyo Night has no wallpapers");
-    assert.equal(logic.wallpaperEmpty(true, "all", "nord", [], "").text, "No wallpaper is installed");
+    assert.equal(logic.wallpaperEmpty(false, "theme", "nord", [], "", []).text, "Loading wallpapers");
+    assert.equal(logic.wallpaperEmpty(true, "theme", "tokyo-night", [], "", []).text, "Tokyo Night has no wallpapers");
+    assert.equal(logic.wallpaperEmpty(true, "all", "nord", [], "", []).text, "No wallpaper is installed");
     for (const [label, loaded, source, cards, filter, kind, action] of [
         ["loading under a filter", false, "theme", [], "x", "loading", false],
         ["a theme without wallpapers", true, "theme", [], "x", "no-wallpapers", false],
@@ -408,11 +416,11 @@ function verifyWallpapers(logic) {
         ["a filter hides existing wallpapers", true, "theme", list, "x", "no-matches", true],
         ["a filter hides every source", true, "all", list, "x", "no-matches", true]
     ]) {
-        const state = logic.wallpaperEmpty(loaded, source, "nord", cards, filter);
+        const state = logic.wallpaperEmpty(loaded, source, "nord", cards, filter, []);
         assert.equal(state.kind, kind, label);
         assert.equal(state.actionText !== "", action, label + " recovery action");
         if (kind === "no-wallpapers")
-            assert.equal(state.text, logic.wallpaperEmpty(loaded, source, "nord", cards, "").text, label + " keeps its no-wallpapers line");
+            assert.equal(state.text, logic.wallpaperEmpty(loaded, source, "nord", cards, "", []).text, label + " keeps its no-wallpapers line");
     }
 }
 
@@ -449,6 +457,11 @@ const CONTROLS = [
     ["catalog card leaves the wallpaper unset", "            image: null,", "            image: e.previewPath,"],
     ["catalog install leaves the wallpaper unset", "image: hasOwn(first, p.name) ? first[p.name] : null,", "image: hasOwn(first, p.name) ? first[p.name] : \"/unexpected.jpg\","],
     ["name order", "out.sort(", "[].sort("],
+    ["a stated display name titles the package", "&& packages[i].displayName !== null) return packages[i].displayName;", "&& false) return packages[i].displayName;"],
+    ["a card takes the listed display name", "label: label(p.name, packages),", "label: label(p.name, null),"],
+    ["the empty line takes the listed display name", 'label(applied, packages) + " has no wallpapers"', 'label(applied, null) + " has no wallpapers"'],
+    ["a failure line takes the listed display name", '"Could not apply " + label(name, packages)', '"Could not apply " + label(name, null)'],
+    ["a notice title takes the listed display name", "title: label(name, packages)", "title: label(name, null)"],
     ["label matches", "|| card.label.toLowerCase().indexOf(needle) !== -1", ""],
     ["one list holds every theme", "return list.filter(function (card) { return matches(card, text); });", "return list.filter(function (card) { return card.installed && matches(card, text); });"],
     ["printable only", "return code >= 32 && code !== 127;", "return true;"],

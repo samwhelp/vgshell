@@ -32,6 +32,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 
 - Do judge a package only through `ThemeLogic.acceptPackage`, from file text. `scripts/test-theme-logic.js` pins each refusal.
 - Never infer light or dark from a package's name or colours; the package states `scheme.mode`. Review.
+- Do title a package in a view by the optional `displayName` string in its `theme.json`, else by its title-cased name, through `BrowserLogic.label` alone; `ThemeLogic.accept` refuses an empty or non-string one. `scripts/test-theme-logic.js` and `scripts/test-themes-browser.js` pin both.
 - Do keep every shipped package and target passing the judge offline. `scripts/validate` runs `bin/vgshell-theme-judge packages themes`.
 - Never name an installed package `vgs`; the shipped `vgs` package is the revert. `scripts/test-vgshell.sh` pins the refusal.
 - Never follow a symlink below a package directory. `scripts/test-vgshell-package-links.sh` pins it.

@@ -198,7 +198,7 @@ Item {
         const reply = shell.theme.install(name, result => {
             root.catalogAction = "";
             root.catalogActionKind = "";
-            if (result.state !== "ok") root.catalogProblem = { name: name, message: BrowserLogic.problem("install", name, result) };
+            if (result.state !== "ok") root.catalogProblem = { name: name, message: BrowserLogic.problem("install", name, result, root.packages) };
             root.refreshCatalog();
             root.refresh();
         });
@@ -219,7 +219,7 @@ Item {
             root.catalogAction = "";
             root.catalogActionKind = "";
             if (result.state !== "ok")
-                root.catalogProblem = { name: name, message: BrowserLogic.problem("download", name, result) };
+                root.catalogProblem = { name: name, message: BrowserLogic.problem("download", name, result, root.packages) };
             root.refreshCatalog();
             root.refresh();
         });

@@ -66,10 +66,12 @@ FocusScope {
     // The output the browser shows on, "" before the shell arrives.
     readonly property string screenName: shell === null || shell.screens.current === null ? "" : shell.screens.current.name
     readonly property string applied: Theme.name
+    // The last list's packages, which title the applied theme; null before it arrives.
+    readonly property var packages: shell === null || shell.theme.listing === null ? null : shell.theme.listing.packages
     readonly property var cards: images === null ? [] : BrowserLogic.wallpaperCards(images, entries, applied, source)
     property string filterText: ""
     readonly property var shownCards: BrowserLogic.wallpaperShown(cards, filterText)
-    readonly property var emptyState: BrowserLogic.wallpaperEmpty(loaded, source, applied, cards, filterText)
+    readonly property var emptyState: BrowserLogic.wallpaperEmpty(loaded, source, applied, cards, filterText, packages)
     // The image the chosen scope shows now, "" for none.
     readonly property string shownPath: BrowserLogic.shownPath(scope, wallpaper.path, wallpaper.screenPaths, screenName)
     // The selected card's key once a key or a click moved it.
@@ -263,7 +265,7 @@ FocusScope {
     function setImage(card) {
         job = { step: "set", key: card.key, name: card.background };
         const reply = shell.theme.set(card.path, BrowserLogic.setScreen(scope, screenName), result => {
-            const line = BrowserLogic.problem("set", card.background, result);
+            const line = BrowserLogic.problem("set", card.background, result, root.packages);
             root.job = null;
             if (line === "") root.closeRequested();
             else root.problem = line;
@@ -281,7 +283,7 @@ FocusScope {
         job = { step: kind, key: kind, name: name };
         const reply = shell.theme.wallpapers(name, result => {
             root.downloading = null;
-            const line = BrowserLogic.problem(kind, name, result);
+            const line = BrowserLogic.problem(kind, name, result, root.packages);
             if (line !== "") root.finish(line);
             else root.reapply(name, kind);
         }, kind === "update" ? { update: true } : undefined);
@@ -299,7 +301,7 @@ FocusScope {
         const reply = shell.theme.apply(name, result => {
             // The selection follows the image the apply shows.
             root.moved = false;
-            root.finish(BrowserLogic.problem("apply", name, result));
+            root.finish(BrowserLogic.problem("apply", name, result, root.packages));
         });
         if (reply !== "ok") finish(BrowserLogic.reasonText(reply));
     }

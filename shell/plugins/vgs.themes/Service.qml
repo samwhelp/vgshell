@@ -90,7 +90,7 @@ Item {
     property string reported: ""
     onApplyResultChanged: {
         if (reported === "") return;
-        const notice = BrowserLogic.applyNotice(reported, applyResult);
+        const notice = BrowserLogic.applyNotice(reported, applyResult, listing === null ? null : listing.packages);
         reported = "";
         if (notice === null) return;
         const reply = shell.notify.send(notice);
