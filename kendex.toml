@@ -353,6 +353,27 @@ enabled = true
 source = "kendex"
 enabled = true
 
+[hooks.worktree-session-claim]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "pi",
+]
+
+[hooks.worktree-prompt-claim]
+source = "kendex"
+harnesses = [
+    "claude",
+]
+
+[hooks.dev-stop-check]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+]
+
 [hooks.reviewer-read-only]
 source = "kendex"
 
