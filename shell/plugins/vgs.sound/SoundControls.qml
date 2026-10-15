@@ -40,6 +40,12 @@ Column {
         return answered(shell.ipc.call(kind, name));
     }
 
+    function refreshInputs() {
+        if (shell !== null) shell.ipc.call("refresh-inputs", "");
+    }
+
+    onShellChanged: refreshInputs()
+
     function offerPactl() {
         return answered(shell.requirements.offer(["pactl"]));
     }
@@ -104,16 +110,31 @@ Column {
             width: parent.width
             label: "Device"
             Select {
+                objectName: "soundInputSelect"
                 readonly property int chosen: root.audio.inputs.findIndex(r => r.name === root.audio.sourceName)
                 width: parent.width
                 model: root.audio.inputs
                 textRole: "label"
                 currentIndex: chosen
+                readonly property string defaultText: root.audio.inputLabel
+                    + (root.audio.currentInput.availability === "unavailable" ? " (not available)" : "")
+                placeholderText: defaultText
+                emptyText: defaultText !== "" ? defaultText : "No input device"
+                onOpened: root.refreshInputs()
                 onActivated: index => {
                     currentIndex = Qt.binding(() => chosen);
-                    root.choose("input", root.audio.inputs[index].name);
+                    const choice = root.audio.inputs[index];
+                    if (choice !== undefined) root.choose("input", choice.name);
                 }
             }
+        }
+        Label {
+            width: parent.width
+            role: "hint"
+            wrapMode: Text.Wrap
+            visible: root.audio !== null && ["pending", "unreadable", "missing", "unknown"].indexOf(root.audio.currentInput.availability) !== -1
+            text: root.audio !== null && root.audio.currentInput.availability === "pending"
+                ? "Checking input availability…" : "Input availability is not reported. You can still choose an input."
         }
         FormRow {
             width: parent.width

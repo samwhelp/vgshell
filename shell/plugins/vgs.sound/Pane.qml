@@ -30,7 +30,10 @@ FocusScope {
     implicitHeight: controls.implicitHeight
     focus: true
 
-    Audio { id: audio }
+    Audio {
+        id: audio
+        inputMetadata: root.shell === null ? null : root.shell.status.values.inputRoutes
+    }
 
     SoundControls {
         id: controls

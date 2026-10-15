@@ -13,7 +13,7 @@
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 10 },
   "requirements": [
-    { "command": "pactl", "packages": { "pacman": "libpulse", "apt": "pulseaudio-utils", "dnf": "pulseaudio-utils", "nix": "pulseaudio" }, "optional": false, "purpose": "Moves the apps that play now to the output you choose" }
+    { "command": "pactl", "packages": { "pacman": "libpulse", "apt": "pulseaudio-utils", "dnf": "pulseaudio-utils", "nix": "pulseaudio" }, "optional": false, "purpose": "Reads input availability and moves playing apps to the output you choose" }
   ],
   "settings": {
     "volumeStep": 5
@@ -36,6 +36,7 @@
     ]
   },
   "status": {
-    "streams": { "type": "state", "label": "Playing apps" }
+    "streams": { "type": "state", "label": "Playing apps" },
+    "inputRoutes": { "type": "data", "label": "Input availability" }
   }
 }

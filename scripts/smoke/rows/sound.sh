@@ -32,6 +32,9 @@
 #   user's bind takes the key;
 # - with the filter chain as the default, Down on the slider lowering the
 #   speakers it plays to and leaving the filter's own volume;
+# - shared input route facts, exact active-route filtering, pending and
+#   failed reads, stale choices, both views, an excluded default,
+#   asynchronous publication and subscriber release;
 # - PipeWire stopped giving the unavailable state in the widget, the pane
 #   and the service, and the widget reading the speakers once it starts,
 #   both after a lost connection and in a shell that started while
@@ -81,7 +84,35 @@ snd_widget() { ipc smoke readInstance "$(bar_key)" vgs.sound "$1"; }
 snd_use_mine() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(sum("Use my binding" in texts for texts in json.load(sys.stdin)))'; }
 snd_status() { ipc smoke statusValues vgs.sound | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("streams"), sort_keys=True))'; }
 snd_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["key"], b["description"]] for b in json.load(sys.stdin) if b["description"].startswith("vgs.sound:") and b.get("submap", "") in ("", "default"))))'; }
-snd_pactl() { device_calls pactl; }
+# Stream-move controls exclude metadata-owner calls.
+snd_pactl() { device_calls pactl | py_reply 'import json,sys; print(json.dumps([a for a in json.load(sys.stdin) if a[:2] != ["--format=json", "subscribe"] and a not in [["--format=json", "list", "sources"], ["--format=json", "list", "cards"]]]))'; }
+snd_source_reads() { device_calls pactl | py_reply 'import json,sys; print(sum(a == ["--format=json", "list", "sources"] for a in json.load(sys.stdin)))'; }
+snd_subscriptions() { device_calls pactl | py_reply 'import json,sys; print(sum(a == ["--format=json", "subscribe"] for a in json.load(sys.stdin)))'; }
+snd_routes() { ipc smoke statusValues vgs.sound | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["inputRoutes"][sys.argv[1]]))' "$1"; }
+snd_input_property() { ipc smoke readMatchingDescendant "$1" vgs.sound Select objectName soundInputSelect "$2"; }
+snd_input_offers() { snd_input_property "$1" model | py_reply 'import json,sys; print(json.dumps(sorted([[r["name"],r["label"]] for r in json.load(sys.stdin)])))'; }
+snd_event() { python3 -c 'import json,os,sys; fd=os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK); os.write(fd, (json.dumps({"event":"change", "on":sys.argv[2], "index":45}) + "\n").encode()); os.close(fd)' "$devices_dir/pactl.events" "$1"; }
+snd_subscriber() { [[ -s $devices_dir/pactl.subscriber ]] && cat "$devices_dir/pactl.subscriber" || echo absent; }
+snd_pid_alive() { [[ -d /proc/$1 ]] && echo alive || echo gone; }
+snd_route_reply() { # availability, optional read-barrier marker
+  local sources
+  sources="$(python3 -c 'import json,sys; print(json.dumps([
+    {"name":"vgs-smoke-microphone", "description":"Audio Coprocessor Digital Microphone", "properties":{"device.name":"smoke-card", "device.api":"alsa", "device.bus":"pci", "device.description":"Audio Coprocessor"}, "active_port":"mic", "ports":[{"name":"mic", "description":"Digital Microphone", "availability":sys.argv[1]}]},
+    {"name":"vgs-smoke-voice", "description":"Smoke Voice", "properties":{}, "active_port":None, "ports":[]}
+  ]))' "$1")" || return 1
+  device_reply pactl 0 "$sources" --format=json list sources
+  if [[ -n ${2-} ]]; then snd_wait_reply sources "$2"; fi
+}
+snd_wait_reply() { # list kind, marker
+  python3 - "$devices_dir/replies/pactl.json" "$1" "$2" <<'PYWAIT'
+import json, os, sys
+path, kind, marker = sys.argv[1:]
+rows = json.load(open(path))
+next(row for row in rows if row["argv"] == ["--format=json", "list", kind])["wait"] = marker
+json.dump(rows, open(path + ".next", "w"))
+os.replace(path + ".next", path)
+PYWAIT
+}
 # Every call the device stand-ins and the row's recorders took, so a
 # process the widget starts under any of those names shows.
 snd_calls_all() { local name out=""; for name in "${device_stand_in_names[@]}"; do out+="$name=$(device_calls "$name");"; done; printf '%s spawns=%s\n' "$out" "$(cat -- "$snd_spawns" 2>/dev/null)"; }
@@ -233,6 +264,10 @@ done
 device_reply_clear pactl
 rm -f -- "${devices_dir:?}/calls/pactl.calls"
 device_reply pactl 0 "$snd_inputs" --format=json list sink-inputs
+mkfifo -- "$devices_dir/pactl.events"
+snd_route_reply 'availability unknown'
+snd_cards='[{"name":"smoke-card","index":45,"ports":{"mic":{"description":"Digital Microphone","availability":"availability unknown"},"headset":{"description":"Headset Microphone","availability":"not available"}}}]'
+device_reply pactl 0 "$snd_cards" --format=json list cards
 for snd_sink in vgs-smoke-speakers vgs-smoke-headphones vgs-smoke-equalizer; do device_reply pactl 0 "" move-sink-input 42 "$snd_sink"; done
 expect_poll "the filter chain plays to the speakers" true snd_audio '["links"].__contains__(["vgs-smoke-equalizer.output", "vgs-smoke-speakers"])'
 expect "the speakers start as WirePlumber's default" '"vgs-smoke-speakers"' snd_audio '["defaults"]["sink"]'
@@ -242,6 +277,65 @@ expect "enabling Sound is allowed" ok ipc shell setPluginEnabled vgs.sound true
 snd_page_open
 snd_page_check
 snd_page_close
+
+# Shared facts reach the pane, flyout and selection action.
+expect_poll "the subscriber starts" true bash -c '[[ -s $1 ]] && echo true || echo false' _ "$devices_dir/pactl.subscriber"
+snd_pid="$(snd_subscriber)"
+expect_poll "unknown route facts finish" '"ready"' snd_routes state
+expect "System opens for input choices" ok ipc shell summon window vgs.system '{"pane":"vgs.sound"}'
+expect_poll "unknown digital route stays selectable in Settings" '[["vgs-smoke-microphone", "Digital Microphone"], ["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
+expect "Sound flyout opens for the same choices" ok ipc shell summon panel vgs.sound '{}'
+expect_poll "unknown digital route stays selectable in the flyout" '[["vgs-smoke-microphone", "Digital Microphone"], ["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers panel
+expect "additional Audio instances keep the same subscriber" "$snd_pid" snd_subscriber
+expect "additional Audio instances start no extra subscription" 1 snd_subscriptions
+expect "Sound flyout closes after its input check" ok ipc shell hide panel vgs.sound
+
+snd_route_reply 'not available'
+snd_event card
+expect_poll "a card event removes the unavailable default from Settings offers" '[["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
+expect "a stale unavailable choice is rejected" 'refused: input=unavailable' ipc vgs.sound invoke input vgs-smoke-microphone
+expect "the default remains the microphone outside the offers" '"vgs-smoke-microphone"' snd_audio '["defaults"]["source"]'
+expect "the default has no offered index" -1 snd_input_property window currentIndex
+expect "the default keeps its meaningful unavailable label" '"Digital Microphone (not available)"' snd_input_property window placeholderText
+expect "Sound flyout opens with the unavailable default" ok ipc shell summon panel vgs.sound '{}'
+expect_poll "the flyout excludes that same unavailable route" '[["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers panel
+expect "the flyout keeps the default label" '"Digital Microphone (not available)"' snd_input_property panel placeholderText
+expect "Sound flyout closes after unavailable check" ok ipc shell hide panel vgs.sound
+
+# Hold old cards, then new sources: an old publication would become
+# visible while the newer pair is still blocked.
+snd_wait_reply cards sound-old-cards
+snd_event source
+expect_poll "the old pair reaches its cards barrier" 1 snd_marker "$devices_dir/sound-old-cards.waiting"
+snd_route_reply available sound-new-sources
+snd_event source
+: >"$devices_dir/sound-old-cards"
+expect_poll "the latest pair reaches its sources barrier" 1 snd_marker "$devices_dir/sound-new-sources.waiting"
+expect "the stale unavailable pair cannot publish over a newer event" '"pending"' snd_routes state
+expect_poll "pending metadata keeps both local inputs selectable" '[["vgs-smoke-microphone", "Digital Microphone"], ["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
+: >"$devices_dir/sound-new-sources"
+expect_poll "the current event pair completes" '"ready"' snd_routes state
+expect "the current route is available" '[{"name": "vgs-smoke-microphone", "label": "Digital Microphone", "availability": "available"}, {"name": "vgs-smoke-voice", "label": "Smoke Voice", "availability": "missing"}]' snd_routes sources
+
+snd_route_reply 'not available'
+snd_event card
+expect_poll "the source becomes unavailable again" '[["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
+device_reply pactl 1 '' --format=json list sources
+snd_event server
+expect_poll "a failed collection reports unreadable" '"unreadable"' snd_routes state
+expect_poll "unreadable metadata preserves local inputs" '[["vgs-smoke-microphone", "Smoke Microphone"], ["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
+device_reply pactl 0 '[]' --format=json list sources
+device_reply pactl 0 '[]' --format=json list cards
+expect "a shared refresh requests current metadata" ok ipc vgs.sound invoke refresh-inputs ''
+expect_poll "missing source facts finish as a readable inventory" '"ready"' snd_routes state
+expect_poll "missing metadata preserves source identity" '[["vgs-smoke-microphone", "Smoke Microphone"], ["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
+expect "a removed source name is rejected" 'unknown: removed-source' ipc vgs.sound invoke input removed-source
+expect "System hides after route controls" ok ipc shell hide window vgs.system
+expect "Sound disables for collector lifetime check" ok ipc shell setPluginEnabled vgs.sound false
+expect_poll "disable ends the owned subscriber" gone snd_pid_alive "$snd_pid"
+expect_poll "disable releases its subscriber marker" absent snd_subscriber
+expect "Sound starts again after lifetime check" ok ipc shell setPluginEnabled vgs.sound true
+expect_poll "enable starts a new owned subscriber" true bash -c '[[ -s $1 ]] && echo true || echo false' _ "$devices_dir/pactl.subscriber"
 expect_poll "the Sound widget is placed in the bar" True snd_placed
 snd_all_binds='[["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMICMUTE", "vgs.sound:mic-mute"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]'
 expect_poll "the Hyprland layer binds the four audio keys to the Sound shortcuts" "$snd_all_binds" snd_binds
@@ -335,6 +429,13 @@ snd_tab_slider "the output's slider" vgs-smoke-headphones
 type_keys -k Tab || fail "Tab to the input's Select failed"
 expect_poll "Tab reaches the input's Select" '["Select",""]' snd_focus
 expect "the input's Select shows the microphone" true snd_texts_hold Select 'Smoke Microphone'
+expect_poll "the view's input metadata read finishes before opening" '"ready"' snd_routes state
+snd_reads_before="$(snd_source_reads)"
+type_keys -k space || fail "Space on the input Select failed"
+expect_poll "Space opens the input choices" true snd_input_property window listOpen
+expect_poll "opening the input choices starts a fresh shared read" "$((snd_reads_before + 1))" snd_source_reads
+type_keys -k Escape || fail "Escape in input choices failed"
+expect_poll "Escape closes input choices" false snd_input_property window listOpen
 snd_tab_button "Mute microphone" vgs-smoke-microphone
 snd_tab_slider "the microphone's slider" vgs-smoke-microphone
 snd_tab_button "Mute Smoke Player" smoke-player
@@ -449,9 +550,11 @@ snd_plugin_copy \
   Audio.qml '    readonly property var apps: root.nodes.filter(' '    property var apps: []
     function appRows() { return root.nodes.filter(' \
   Audio.qml '        .map(n => ({ name: String(n.name), label: root.property(n, "application.name"), node: n }))' '        .map(n => ({ name: String(n.name), label: root.property(n, "application.name"), node: n })); }' \
-  Audio.qml '        root.inputs = all.filter(n => !n.isStream && !n.isSink).map(root.row);' '        root.inputs = all.filter(n => !n.isStream && !n.isSink).map(root.row);
+  Audio.qml '        root.inputNodes = all.filter(n => !n.isStream && !n.isSink).map(root.row);' '        root.inputNodes = all.filter(n => !n.isStream && !n.isSink).map(root.row);
         root.apps = root.appRows();'
+snd_reload_pid="$(snd_subscriber)"
 rescan "rescan picks the Sound copy"
+expect_poll "source reload ends its previous subscriber" gone snd_pid_alive "$snd_reload_pid"
 expect_poll "the copy's widget is placed" True snd_placed
 expect_log "the copy is the one built" 1 'plugins: hidden by a higher-precedence plugin with the same id: vgs.sound'
 snd_page_open
@@ -537,6 +640,9 @@ expect_poll "the restored shell reads the speakers" true snd_tooltip_names 'Smok
 
 kill -- "-$devices_player_pid" 2>/dev/null || true
 for snd_name in "${snd_recorded[@]}"; do rm -f -- "${shim:?}/$snd_name"; done
+expect "Sound disables before fixture cleanup" ok ipc shell setPluginEnabled vgs.sound false
+expect_poll "the final subscriber releases its marker" absent snd_subscriber
+rm -f -- "${devices_dir:?}/pactl.events" "${devices_dir:?}"/sound-{old-cards,new-sources}{,.waiting}
 device_reply_clear pactl
 user_config_restore "$snd_saved"
 expect "the configuration reloads as the row found it" ok ipc shell reloadConfig

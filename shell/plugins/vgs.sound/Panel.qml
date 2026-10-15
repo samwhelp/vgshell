@@ -39,7 +39,10 @@ Item {
         anchors.fill: parent
     }
 
-    Audio { id: audio }
+    Audio {
+        id: audio
+        inputMetadata: root.shell === null ? null : root.shell.status.values.inputRoutes
+    }
 
     Pane {
         id: layout

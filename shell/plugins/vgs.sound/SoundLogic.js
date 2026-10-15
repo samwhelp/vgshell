@@ -191,3 +191,87 @@ function widgetTooltip(available, device, volume, muted) {
     if (device === "") return "No output device";
     return device + ": " + levelText(volume, muted);
 }
+
+// pactl's C-locale JSON producer gives source ports as an array, card
+// ports keyed by name, and active_port as a name or null. device.name,
+// not device.id (a PipeWire id), joins a source to its Pulse card.
+// https://raw.githubusercontent.com/pulseaudio/pulseaudio/b096704c0/src/utils/pactl.c
+function routeAvailability(port) {
+    if (!port || !hasOwn(port, "availability")) return "missing";
+    switch (port.availability) {
+    case "available": return "available";
+    case "not available": return "unavailable";
+    case "availability unknown": return "unknown";
+    default: return "unreadable";
+    }
+}
+
+function textProperty(object, key) {
+    return hasOwn(object, key) && typeof object[key] === "string" ? object[key] : "";
+}
+
+function parseInputRoutes(sourceText, cardText) {
+    var sources, cards;
+    try { sources = JSON.parse(sourceText); cards = JSON.parse(cardText); }
+    catch (e) { return { state: "unreadable", reason: "json", sources: [] }; }
+    if (!Array.isArray(sources) || !Array.isArray(cards))
+        return { state: "unreadable", reason: "list", sources: [] };
+    // This is one current inventory, never a cache of previously seen ids.
+    var facts = [];
+    var seen = {};
+    for (var i = 0; i < sources.length; i++) {
+        var source = sources[i];
+        var name = textProperty(source, "name");
+        if (name === "" || hasOwn(seen, name))
+            return { state: "unreadable", reason: "source", sources: [] };
+        seen[name] = true;
+        var props = source.properties;
+        var deviceName = textProperty(props, "device.name");
+        var card = cards.find(c => textProperty(c, "name") === deviceName && deviceName !== "");
+        var active = textProperty(source, "active_port");
+        var port = Array.isArray(source.ports) ? source.ports.find(p => textProperty(p, "name") === active && active !== "") : null;
+        var cardPort = card && hasOwn(card.ports, active) && active !== "" ? card.ports[active] : null;
+        var availability = routeAvailability(port);
+        // Only the exact active port on the exact card can fill a missing
+        // source-port field. Another route on that card says nothing here.
+        if (availability === "missing") availability = routeAvailability(cardPort);
+        var route = textProperty(port, "description") || textProperty(cardPort, "description");
+        var label = textProperty(source, "description") || name;
+        // An ALSA PCI route can remove its redundant card prefix. This
+        // names the route, never a built-in device. USB, Bluetooth and
+        // virtual source descriptions retain the supplied device identity.
+        if (route !== "" && textProperty(props, "device.api") === "alsa"
+                && textProperty(props, "device.bus") === "pci"
+                && label === textProperty(props, "device.description") + " " + route)
+            label = route;
+        facts.push({ name: name, label: label, availability: availability });
+    }
+    var result = { state: "ready", reason: "", sources: facts };
+    return result;
+}
+
+// The one decision both views and the selection action use. A pending or
+// failed read keeps names but invalidates every previous availability.
+function inputDecision(name, label, metadata) {
+    var state = metadata && typeof metadata.state === "string" ? metadata.state : "pending";
+    var facts = metadata && Array.isArray(metadata.sources) ? metadata.sources : [];
+    var fact = facts.find(s => s.name === name);
+    var availability = state === "ready" ? (fact ? fact.availability : "missing") : state;
+    return { name: name, label: fact ? fact.label : label, availability: availability,
+        selectable: availability !== "unavailable" };
+}
+
+// A generation changes at every relevant event and disconnect. Both reads
+// must finish in that same generation; source/card pairs from an old read
+// must never replace a later event or disconnected state.
+function currentInputRead(ending, connected, readGeneration, generation) {
+    return !ending && connected && readGeneration === generation;
+}
+
+function inputRouteEvent(line) {
+    var event;
+    try { event = JSON.parse(line); } catch (e) { return "unreadable"; }
+    if (!event || typeof event.on !== "string" || ["new", "change", "remove"].indexOf(event.event) === -1)
+        return "unreadable";
+    return ["source", "card", "server"].indexOf(event.on) !== -1 ? "refresh" : "ignore";
+}

@@ -41,9 +41,15 @@ from files a row plants under STATE.
   window.
 - lpstat and ipptool answer from the sandbox's CUPS world, STATE/cups.json,
   as cups.py beside this file sets out.
+- pactl --format=json subscribe follows STATE/pactl.events, a FIFO the
+  Sound row plants. STATE/pactl.subscriber contains its PID while alive.
+  It forwards each newline-delimited JSON event, never calls host pactl.
 - Any other call answers from STATE/replies/NAME.json, a list of
   {"argv", "stdout", "stderr", "status"} rows, the row whose argv equals
   the call's. device_reply keeps one row per argv and replaces older rows.
+  A reply may name a "wait" marker relative to STATE. It snapshots its
+  reply, records STATE/<marker>.waiting, and waits for STATE/<marker>
+  before publishing that reply, to control an asynchronous read race.
   A call no row answers prints the line
   `stand-in: name=NAME reply=none argv=<json>` on stderr and exits 1, so
   a caller never reads an answer no row planted.
@@ -51,6 +57,7 @@ from files a row plants under STATE.
 
 import json
 import os
+import signal
 import sys
 import time
 
@@ -210,10 +217,45 @@ def replies(name, state, argv):
             rows = json.load(source)
     for row in rows:
         if row["argv"] == argv:
+            if "wait" in row:
+                marker = os.path.join(state, row["wait"])
+                with open(marker + ".waiting", "w") as out:
+                    out.write(str(os.getpid()))
+                deadline = time.monotonic() + 30
+                while not os.path.exists(marker):
+                    if time.monotonic() > deadline:
+                        refuse(name, "reply=wait-timeout")
+                    time.sleep(0.05)
             sys.stdout.write(row.get("stdout", ""))
             sys.stderr.write(row.get("stderr", ""))
             sys.exit(row.get("status", 0))
     refuse(name, "reply=none argv=" + json.dumps(argv))
+
+
+def pactl_subscribe(state):
+    events = os.path.join(state, "pactl.events")
+    marker = os.path.join(state, "pactl.subscriber")
+    if not os.path.exists(events):
+        refuse("pactl", "events=absent")
+    # O_RDWR lets the reader wait before the row opens the writer. The
+    # owner stops this child with SIGTERM; remove only its own PID marker.
+    fd = os.open(events, os.O_RDWR)
+    def stop(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        with open(marker, "w") as out:
+            out.write(str(os.getpid()))
+        with os.fdopen(fd) as source:
+            for line in source:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+    finally:
+        try:
+            if open(marker).read() == str(os.getpid()):
+                os.unlink(marker)
+        except FileNotFoundError:
+            pass
 
 
 def main():
@@ -222,6 +264,9 @@ def main():
         sys.exit(2)
     name, state, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
     append(os.path.join(state, "calls", name + ".calls"), argv)
+    if name == "pactl" and argv == ["--format=json", "subscribe"]:
+        pactl_subscribe(state)
+        return
     if name == "rfkill":
         rfkill(state, argv)
         return

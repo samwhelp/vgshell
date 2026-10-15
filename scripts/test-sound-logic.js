@@ -34,6 +34,67 @@ function node(name, kind, extra) {
 }
 
 function verify(logic) {
+    // Source JSON and card JSON follow the installed pactl producer.
+    const source = (name, port, availability, extra = {}) => Object.assign({
+        name, description: "Audio Coprocessor " + port,
+        properties: { "device.name": "card-own", "device.id": "999", "device.api": "alsa", "device.bus": "pci", "device.description": "Audio Coprocessor" },
+        active_port: port, ports: [{ name: port, description: port, availability }]
+    }, extra);
+    const cards = [
+        { name: "card-other", index: 999, ports: { "Digital Microphone": { description: "Wrong card", availability: "not available" } } },
+        { name: "card-own", index: 45, ports: {
+            "Digital Microphone": { description: "Digital Microphone", availability: "availability unknown" },
+            "Headset Microphone": { description: "Headset Microphone", availability: "not available" }
+        } }
+    ];
+    const sources = [source("digital", "Digital Microphone", "availability unknown"),
+        source("headset", "Headset Microphone", "not available"),
+        source("bluetooth.source", "Microphone", "available", { description: "Orbit Headset", properties: { "device.api": "bluez5" } }),
+        source("usb.source", "Microphone", "available", { description: "Desk USB Microphone", properties: { "device.api": "alsa", "device.bus": "usb", "device.description": "Desk USB" } }),
+        source("virtual.source", "Microphone", "available", { description: "Studio Monitor", properties: {} })];
+    const metadata = logic.parseInputRoutes(JSON.stringify(sources), JSON.stringify(cards));
+    same(metadata, { state: "ready", reason: "", sources: [
+        { name: "digital", label: "Digital Microphone", availability: "unknown" },
+        { name: "headset", label: "Headset Microphone", availability: "unavailable" },
+        { name: "bluetooth.source", label: "Orbit Headset", availability: "available" },
+        { name: "usb.source", label: "Desk USB Microphone", availability: "available" },
+        { name: "virtual.source", label: "Studio Monitor", availability: "available" }
+    ] }, "input routes keep exact active association and device identities");
+    for (const [description, change, availability] of [
+        ["source field missing uses own exact card port", { ports: [] }, "unknown"],
+        ["unknown active port does not borrow another port", { active_port: "absent" }, "missing"],
+        ["no active port never borrows the headset route", { active_port: null }, "missing"],
+        ["device.id is no Pulse card index", { properties: { "device.id": "999" }, ports: [] }, "missing"],
+        ["numeric availability is unreadable", { ports: [{ name: "Digital Microphone", availability: 0 }] }, "unreadable"],
+        ["suspended is not unavailable", { state: "SUSPENDED" }, "unknown"]
+    ]) {
+        const got = logic.parseInputRoutes(JSON.stringify([Object.assign({}, sources[0], change)]), JSON.stringify(cards));
+        assert.equal(got.sources[0].availability, availability, description);
+        assert.equal(logic.inputDecision("digital", "local", got).selectable, true, description + " stays selectable");
+    }
+    for (const [description, state, selectable] of [
+        ["current unavailability rejects a stale click", "ready", false],
+        ["pending invalidates previous unavailability", "pending", true],
+        ["failed read invalidates previous unavailability", "unreadable", true]
+    ]) {
+        const got = logic.inputDecision("headset", "local", Object.assign({}, metadata, { state }));
+        assert.equal(got.selectable, selectable, description);
+        assert.equal(got.label, "Headset Microphone", "default keeps its meaningful display outside offers");
+    }
+    assert.equal(logic.inputDecision("unlisted", "Local source", metadata).availability, "missing");
+    assert.equal(logic.inputDecision("unlisted", "Local source", null).availability, "pending");
+    for (const [src, card] of [["not JSON", "[]"], ["{}", "[]"], ["[]", "null"], ["[null]", "[]"], [JSON.stringify([sources[0], sources[0]]), "[]"]])
+        assert.equal(logic.parseInputRoutes(src, card).state, "unreadable", "failed inventory is not empty success");
+    for (const [ending, connected, read, current, expected] of [
+        [false, true, 4, 4, true], [true, true, 4, 4, false],
+        [false, false, 4, 4, false], [false, true, 4, 5, false]
+    ]) assert.equal(logic.currentInputRead(ending, connected, read, current), expected, "late pair cannot publish after event, disconnect or teardown");
+    for (const on of ["source", "card", "server"])
+        for (const event of ["new", "change", "remove"])
+            assert.equal(logic.inputRouteEvent(JSON.stringify({ on, event, index: 4 })), "refresh");
+    assert.equal(logic.inputRouteEvent('{"on":"sink","event":"change"}'), "ignore");
+    assert.equal(logic.inputRouteEvent("broken"), "unreadable");
+
     const icons = [
         ["unavailable", false, 0.5, false, "volume-off"],
         ["muted", true, 0.5, true, "volume-x"],
@@ -176,6 +237,19 @@ function verify(logic) {
 verify(load(file));
 
 const CONTROLS = [
+    ["only explicit unavailability excludes", 'selectable: availability !== "unavailable"', 'selectable: availability === "available"'],
+    ["stale selection uses current metadata", 'selectable: availability !== "unavailable"', 'selectable: true'],
+    ["unknown availability stays unknown", 'case "availability unknown": return "unknown";', 'case "availability unknown": return "unavailable";'],
+    ["numeric availability stays unreadable", 'default: return "unreadable";', 'default: return "unavailable";'],
+    ["source matches exact active route", 'textProperty(p, "name") === active && active !== ""', 'true'],
+    ["card matches by name", 'textProperty(c, "name") === deviceName && deviceName !== ""', 'true'],
+    ["card fills missing exact port", 'card.ports[active] : null', 'Object.values(card.ports)[1] : null'],
+    ["external identity survives generic route", 'textProperty(props, "device.bus") === "pci"', 'true'],
+    ["events invalidate old completions", 'readGeneration === generation', 'true'],
+    ["disconnect rejects old completions", '!ending && connected &&', '!ending &&'],
+    ["teardown rejects old completions", '!ending && connected &&', 'connected &&'],
+    ["card changes refresh metadata", '["source", "card", "server"].indexOf(event.on)', '["source", "server"].indexOf(event.on)'],
+
     ["unavailable draws volume-off", "if (!available) return \"volume-off\";", "if (false) return \"volume-off\";"],
     ["muted draws volume-x", "if (muted) return \"volume-x\";", "if (false) return \"volume-x\";"],
     ["the low band ends at half", "if (level < 50) return \"volume-1\";", "if (level <= 50) return \"volume-1\";"],

@@ -26,7 +26,11 @@ Item {
     visible: false
 
     property var outputs: []
-    property var inputs: []
+    property var inputMetadata: null
+    property var inputNodes: []
+    readonly property var inputs: root.inputNodes.map(r => Object.assign(
+        Logic.inputDecision(r.name, r.label, root.inputMetadata), { node: r.node }))
+        .filter(r => r.selectable)
     // Every audio node and link group of the last snapshot: the nodes as
     // PwNode objects, the links as { source, target } node names.
     property var nodes: []
@@ -61,7 +65,8 @@ Item {
     // The default output's and input's names as a list draws them, "" for
     // none.
     readonly property string outputLabel: sink === null ? "" : root.label(sink)
-    readonly property string inputLabel: source === null ? "" : root.label(source)
+    readonly property var currentInput: Logic.inputDecision(sourceName, source === null ? "" : root.label(source), inputMetadata)
+    readonly property string inputLabel: currentInput.label
 
     // NODE's audio, or null for no node, a node that is no audio node, or
     // one PipeWire removed, whose object reads as null until the next
@@ -103,7 +108,7 @@ Item {
         root.links = Pipewire.linkGroups.values.filter(g => g !== null && g.source !== null && g.target !== null)
             .map(g => ({ source: String(g.source.name), target: String(g.target.name) }));
         root.outputs = all.filter(n => !n.isStream && n.isSink).map(root.row);
-        root.inputs = all.filter(n => !n.isStream && !n.isSink).map(root.row);
+        root.inputNodes = all.filter(n => !n.isStream && !n.isSink).map(root.row);
     }
 
     // Set NODE's volume to VALUE, a share of one: never below silent, and

@@ -50,6 +50,14 @@ Item {
     // The streams still to move there.
     property var moveQueue: []
 
+    // One event owner for every Audio instance. Status contains primitives;
+    // each view and chooseInput resolve their own current PipeWire objects.
+    property bool ending: false
+    property int inputGeneration: 0
+    property bool inputQueued: false
+    property var inputRoutes: ({ state: "pending", reason: "", sources: [] })
+    property bool subscriptionRetried: false
+
     onShellChanged: {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
@@ -66,9 +74,15 @@ Item {
         shell.ipc.handle("mic-mute", () => root.toggleInputMute());
         shell.ipc.handle("output", name => root.chooseOutput(name));
         shell.ipc.handle("input", name => root.chooseInput(name));
+        shell.ipc.handle("refresh-inputs", () => { root.refreshInputs(); return "ok"; });
+        root.refreshInputs();
         shell.layers.show(display);
     }
-    onPactlChanged: if (registeredWith !== null) publish()
+    onPactlChanged: {
+        if (registeredWith === null) return;
+        publish();
+        if (pactl) refreshInputs(); else stopInputs("pactl");
+    }
 
     function publish() {
         const reply = shell.status.set("streams", Logic.streamsState(root.pactl));
@@ -116,9 +130,14 @@ Item {
 
     function chooseInput(name) {
         if (!audio.available) return "refused: sound=unavailable";
-        const row = audio.inputs.find(r => r.name === name);
-        if (row === undefined) return "unknown: " + name;
-        const node = row.node;
+        // Registry lookup rejects a row removed during Audio's delayed
+        // snapshot. The same judge used by both views rejects unavailable
+        // routes even when an old row still sends its source name.
+        const node = Pipewire.nodes.values.find(n => n !== null && n.audio !== null
+            && !n.isStream && !n.isSink && String(n.name) === name);
+        if (node === undefined) return "unknown: " + name;
+        const choice = Logic.inputDecision(name, audio.label(node), root.inputRoutes);
+        if (!choice.selectable) return "refused: input=unavailable";
         Pipewire.preferredDefaultAudioSource = node;
         return "ok";
     }
@@ -138,7 +157,158 @@ Item {
         mover.running = true;
     }
 
-    Audio { id: audio }
+    Audio {
+        id: audio
+        inputMetadata: root.inputRoutes
+        onAvailableChanged: {
+            if (root.registeredWith === null || root.ending) return;
+            if (available) root.refreshInputs(); else root.stopInputs("pipewire");
+        }
+    }
+
+    function publishInputs(state, reason, sources) {
+        if (root.ending) return;
+        root.inputRoutes = { state: state, reason: reason, sources: sources };
+        if (root.shell === null) return;
+        const reply = root.shell.status.set("inputRoutes", root.inputRoutes);
+        if (reply !== "ok") {
+            // PluginStatus owns the publication byte ceiling. A refused
+            // inventory must invalidate the previous published routes.
+            root.inputRoutes = { state: "unreadable", reason: "publication", sources: [] };
+            root.shell.status.set("inputRoutes", root.inputRoutes);
+            console.warn("sound: inputRoutes " + reply);
+        }
+    }
+
+    function stopInputs(reason) {
+        ++root.inputGeneration;
+        root.inputQueued = false;
+        readNext.stop();
+        subscribeRetry.stop();
+        root.publishInputs("unreadable", reason, []);
+        routeReader.running = false;
+        routeEvents.running = false;
+    }
+
+    function refreshInputs() {
+        if (root.ending || root.registeredWith === null) return;
+        if (!audio.available || !root.pactl) {
+            root.stopInputs(!audio.available ? "pipewire" : "pactl");
+            return;
+        }
+        ++root.inputGeneration;
+        root.inputQueued = true;
+        // Availability becomes pending immediately. Labels can survive a
+        // refresh, but the judge cannot reuse their old availability.
+        root.publishInputs("pending", "", root.inputRoutes.sources);
+        if (!routeEvents.running) {
+            subscribeRetry.stop();
+            root.subscriptionRetried = false;
+            routeEvents.running = true;
+        }
+        readNext.start();
+    }
+
+    function readInputs() {
+        if (root.ending || !audio.available || !root.pactl || routeReader.running || !root.inputQueued) return;
+        root.inputQueued = false;
+        routeReader.generation = root.inputGeneration;
+        routeReader.phase = "sources";
+        routeReader.command = ["pactl", "--format=json", "list", "sources"];
+        routeReader.running = true;
+    }
+
+    // Process closes its parsers before exited, then runningChanged. A
+    // failed start has no exited signal. Destruction kills owned children.
+    // Verified in installed Quickshell 4f508be src/io/process.cpp and
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/.
+    Process {
+        id: routeReader
+        property var completion: null
+        property int generation: -1
+        property string phase: ""
+        property string sources: ""
+        environment: ({ LC_ALL: "C" })
+        stdout: StdioCollector { id: routeText }
+        stderr: StdioCollector {}
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            if (!Logic.currentInputRead(root.ending, audio.available && root.pactl, generation, root.inputGeneration)) {
+                if (root.inputQueued && !root.ending) readNext.start();
+                return;
+            }
+            if (done === null || done.code !== 0 || done.status !== 0) {
+                root.publishInputs("unreadable", phase, []);
+                return;
+            }
+            if (phase === "sources") {
+                sources = routeText.text;
+                phase = "cards";
+                command = ["pactl", "--format=json", "list", "cards"];
+                running = true;
+                return;
+            }
+            const parsed = Logic.parseInputRoutes(sources, routeText.text);
+            root.publishInputs(parsed.state, parsed.reason, parsed.sources);
+            readNext.start();
+        }
+    }
+
+    // stdout is attached before startup. started proves a process exists,
+    // not that Pulse acknowledged subscription; opening a choice always
+    // requests its own fresh read. JSON events are emitted by libpulse's
+    // pactl producer, with event and on keys (pactl.c b096704c0).
+    Process {
+        id: routeEvents
+        command: ["pactl", "--format=json", "subscribe"]
+        environment: ({ LC_ALL: "C" })
+        stdout: SplitParser {
+            onRead: line => {
+                if (root.ending) return;
+                const event = Logic.inputRouteEvent(line);
+                if (event !== "ignore") root.refreshInputs();
+            }
+        }
+        stderr: StdioCollector {}
+        onRunningChanged: {
+            if (running || root.ending || !audio.available || !root.pactl) return;
+            ++root.inputGeneration;
+            root.inputQueued = false;
+            root.publishInputs("unreadable", "subscription", []);
+            // A single process-recovery retry, never metadata polling.
+            // A view opening or readiness recovery can try again later.
+            if (!root.subscriptionRetried) {
+                root.subscriptionRetried = true;
+                subscribeRetry.start();
+            }
+        }
+    }
+
+    Timer { id: readNext; interval: 0; onTriggered: root.readInputs() }
+    Timer {
+        id: subscribeRetry
+        interval: 1000
+        onTriggered: {
+            if (root.ending || !audio.available || !root.pactl) return;
+            routeEvents.running = true;
+            ++root.inputGeneration;
+            root.inputQueued = true;
+            readNext.start();
+        }
+    }
+
+    Component.onDestruction: {
+        root.ending = true;
+        root.inputQueued = false;
+        readNext.stop();
+        subscribeRetry.stop();
+        routeEvents.running = false;
+        routeReader.running = false;
+    }
+
 
     // The playing streams pactl lists after an output choice. A choice
     // made while a list runs lists again once it ends, for the newest sink;
