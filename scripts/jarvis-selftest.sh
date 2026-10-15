@@ -491,12 +491,18 @@ print("loading" if isinstance(voice, dict) and voice.get("tone") == "info" and n
 
 # selftest_gate_context: two lines from a jarvisProcess reply on stdin. The
 # first is `gate=<kind>` for stop keys. The second is a diagnostic line with
-# setup, daemon and gate as compact JSON. Missing detail reads gate=none.
-selftest_gate_context() {
+# setup, voice, daemon, gate and the daemon's typed setup causes as compact
+# JSON. SETUP_ANSWER is Service.setupAnswer, read before teardown.
+selftest_gate_context() { # SETUP_ANSWER_JSON
   py_reply '
 import json, sys
 def compact(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+try:
+    answer = json.loads(sys.argv[1])
+except (ValueError, IndexError):
+    answer = None
+causes = answer.get("causes") if isinstance(answer, dict) and answer.get("kind") == "answered" else None
 try:
     service = json.load(sys.stdin)
     values = service.get("status") or {}
@@ -505,11 +511,11 @@ try:
     gate = state.get("gate") or {"kind": "none"}
     gate_word = gate.get("kind", "none") if isinstance(gate, dict) else "none"
     print("gate=" + str(gate_word))
-    print("selftest: setup=" + compact(values.get("setup")) + " daemon=" + compact(values.get("daemon")) + " gate=" + compact(gate))
+    print("selftest: setup=" + compact(values.get("setup")) + " setupVoice=" + compact(values.get("setupVoice")) + " daemon=" + compact(values.get("daemon")) + " gate=" + compact(gate) + " causes=" + compact(causes))
 except Exception:
     print("gate=none")
-    print("selftest: setup=null daemon=null gate={\"kind\":\"none\"}")
-'
+    print("selftest: setup=null setupVoice=null daemon=null gate={\"kind\":\"none\"} causes=null")
+' "${1:-null}"
 }
 
 # selftest_turn: the turn's progress, from the Session phases after the
@@ -1229,16 +1235,17 @@ stopped() {
   exit 1
 }
 # stopped_gate KEY...: stop with the current Jarvis gate kind added to KEY,
-# and print setup, daemon and gate details before the final selftest line.
+# and print setup, voice, daemon, gate and causes before teardown.
 stopped_gate() {
-  local context gate detail
-  context="$(ipc smoke jarvisProcess | selftest_gate_context)" || context='gate=none
-selftest: setup=null daemon=null gate={"kind":"none"}'
+  local context gate detail answer
+  answer="$(ipc smoke readInstance service vgs.jarvis setupAnswer)" || answer=null
+  context="$(ipc smoke jarvisProcess | selftest_gate_context "$answer")" || context='gate=none
+selftest: setup=null setupVoice=null daemon=null gate={"kind":"none"} causes=null'
   [[ $context == gate=* ]] || context='gate=none
-selftest: setup=null daemon=null gate={"kind":"none"}'
+selftest: setup=null setupVoice=null daemon=null gate={"kind":"none"} causes=null'
   gate="${context%%$'\n'*}"
   detail="${context#*$'\n'}"
-  [[ $detail != "$context" ]] || detail='selftest: setup=null daemon=null gate={"kind":"none"}'
+  [[ $detail != "$context" ]] || detail='selftest: setup=null setupVoice=null daemon=null gate={"kind":"none"} causes=null'
   printf '%s\n' "$detail"
   stopped "$@" "$gate"
 }

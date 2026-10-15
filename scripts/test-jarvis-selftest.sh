@@ -51,7 +51,7 @@ ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # holds LABEL CMD...: CMD succeeds.
 holds() { local label="$1"; shift; if "$@"; then ok "$label"; else fail "$label"; show; fi; }
-show() { for file in out err harness.log fence.log; do [[ ! -s $tmp/$file ]] || sed "s/^/        $file: /" -- "$tmp/$file"; done; }
+show() { for file in out err harness.log fence.log gate-failure.out gate-failure.err; do [[ ! -s $tmp/$file ]] || sed "s/^/        $file: /" -- "$tmp/$file"; done; }
 # mutate SOURCE OLD NEW DEST: DEST is SOURCE with its one OLD replaced by
 # NEW. Returns 1, with the reason, where OLD does not occur once or DEST
 # would read as SOURCE.
@@ -271,7 +271,7 @@ functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_dictation_sample selftest_dictation_record selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record selftest_voxtype_models_kept selftest_sidecar stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_dictation_sample selftest_dictation_record selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record selftest_voxtype_models_kept selftest_sidecar stopped stopped_gate selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$repo/scripts/smoke/devices.sh"; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -806,7 +806,7 @@ control_devices() { # LABEL OLD NEW CASE
   if ! mutate "$repo/scripts/smoke/devices.sh" "$old" "$new" "$mutant"; then fail "control: $label: its defect did not apply"; return; fi
   { sed -n '/^py_reply() {/,/^}/p; /^now_ms() {/p' "$repo/scripts/smoke/harness.sh"
     for name in selftest_tree_sum selftest_home_copy selftest_overseer selftest_mailbox selftest_daemon selftest_last selftest_service_phase selftest_voice_state selftest_gate_context selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
-      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record selftest_voxtype_models_kept selftest_sidecar stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
+      selftest_woke selftest_end selftest_audio selftest_audio_record selftest_wav_tail selftest_speech_tail selftest_open selftest_case_check selftest_compare selftest_case_child_args selftest_tts_voice selftest_suite_summary selftest_suite_stopped selftest_record selftest_voxtype_models_kept selftest_sidecar stopped stopped_gate selftest_finish; do sed -n "/^$name() {/,/^}/p" "$runner"; done
     sed -n '/^devices_speaker_sounds() {/,/^}/p' "$mutant"; } >"$functions"
   if "$case"; then fail "control: $label stayed green"; else ok "control: $label"; fi
   cut_functions "$runner"
@@ -1164,13 +1164,64 @@ daemon_reads() { local want="${1%%|*}" rest="${1#*|}"; [[ "$(call selftest_daemo
 for row in "${daemon_rows[@]}"; do holds "the service reader answers ${row%%|*}" daemon_reads "$row"; done
 gate_context_reads() {
   local reply='{"status":{"setup":{"tone":"warning","lines":["choose a brain"]},"daemon":{"tone":"danger","text":"offline"},"detail":{"state":{"gate":{"kind":"unconfigured","reason":"brain"}}}}}'
-  [[ "$(printf '%s\n' "$reply" | call selftest_gate_context)" == 'gate=unconfigured'$'\n''selftest: setup={"lines":["choose a brain"],"tone":"warning"} daemon={"text":"offline","tone":"danger"} gate={"kind":"unconfigured","reason":"brain"}' ]]
+  [[ "$(printf '%s\n' "$reply" | call selftest_gate_context)" == 'gate=unconfigured'$'\n''selftest: setup={"lines":["choose a brain"],"tone":"warning"} setupVoice=null daemon={"text":"offline","tone":"danger"} gate={"kind":"unconfigured","reason":"brain"} causes=null' ]]
 }
 gate_context_absent_detail() {
-  [[ "$(printf '%s\n' '{"status":{"setup":null,"daemon":null}}' | call selftest_gate_context)" == 'gate=none'$'\n''selftest: setup=null daemon=null gate={"kind":"none"}' ]]
+  [[ "$(printf '%s\n' '{"status":{"setup":null,"daemon":null}}' | call selftest_gate_context)" == 'gate=none'$'\n''selftest: setup=null setupVoice=null daemon=null gate={"kind":"none"} causes=null' ]]
 }
 holds "the gate context reader names gate, setup and daemon from jarvisProcess" gate_context_reads
 holds "the gate context reader reports gate none with absent detail" gate_context_absent_detail
+gate_failure_data() { # TONE CAUSES_JSON
+  local tone="$1" causes="$2" status=0
+  python3 - "$tmp/gate-reply.json" "$tmp/gate-answer.json" "$tone" "$causes" <<'PY'
+import json,sys
+reply, answer, tone, causes = sys.argv[1:]
+json.dump({"status":{"setupVoice":{"tone":tone,"text":"diagnostic input","action":False},
+                     "detail":{"state":{"gate":{"kind":"down","reason":"unconfigured"}}}}}, open(reply,"w"))
+if causes == "unavailable":
+    open(answer,"w").write("absent")
+else:
+    json.dump({"kind":"answered","causes":json.loads(causes)}, open(answer,"w"))
+PY
+  selftest_node="$node_bin" bash -c '
+    set -euo pipefail
+    source "$1"
+    fixture_reply_file=$2 fixture_answer_file=$3
+    trap '\''rm -f -- "$fixture_reply_file" "$fixture_answer_file"'\'' EXIT
+    ipc() {
+      case "$*" in
+        "smoke jarvisProcess") cat -- "$fixture_reply_file" ;;
+        "smoke readInstance service vgs.jarvis setupAnswer") cat -- "$fixture_answer_file" ;;
+        *) return 1 ;;
+      esac
+    }
+    selftest_voxtype_models_kept() { return 0; }
+    stopped_gate not-ready widget=off
+  ' _ "$functions" "$tmp/gate-reply.json" "$tmp/gate-answer.json" >"$tmp/gate-failure.out" 2>"$tmp/gate-failure.err" || status=$?
+  [[ $status -eq 1 && ! -e $tmp/gate-reply.json && ! -e $tmp/gate-answer.json && ! -s $tmp/gate-failure.err ]] || return 1
+  python3 - "$tmp/gate-failure.out" "$tone" "$causes" <<'PY'
+import json,sys
+lines=open(sys.argv[1]).read().splitlines()
+assert lines[-1] == "selftest=not-ready widget=off gate=down"
+line=next(value for value in lines if value.startswith("selftest: "))[10:]
+decoder=json.JSONDecoder()
+values={}
+while line:
+    key,rest=line.split("=",1)
+    value,end=decoder.raw_decode(rest)
+    values[key]=value
+    line=rest[end:].lstrip()
+assert values["setupVoice"]["tone"] == sys.argv[2]
+assert values["setupVoice"]["action"] is False
+assert values["causes"] == (None if sys.argv[3] == "unavailable" else json.loads(sys.argv[3]))
+assert values["gate"] == {"kind":"down","reason":"unconfigured"}
+PY
+}
+for gate_row in 'warning|["speech=local-not-set-up"]' 'danger|["speech=dictation-failed","brain=unselected"]' 'info|unavailable'; do
+  holds "stopped_gate retains typed voice and daemon causes before teardown for ${gate_row%%|*}" gate_failure_data "${gate_row%%|*}" "${gate_row#*|}"
+done
+control cut_functions "a stopped diagnostic that drops the actual voice row" 'compact(values.get("setupVoice"))' 'compact(None)' gate_failure_data warning '["speech=local-not-set-up"]'
+control cut_functions "a stopped diagnostic that drops the actual daemon causes" 'compact(causes)' 'compact(None)' gate_failure_data warning '["speech=local-not-set-up"]'
 # trace PHASES_BEFORE PHASES_AFTER: phase events around the input mark.
 trace() { python3 -c 'import json,sys; before, after = (a.split() for a in sys.argv[1:]); print(json.dumps([{"kind": "phase", "at": i, "value": p} for i, p in enumerate(before)] + [{"kind": "mark", "at": 50, "value": "input"}] + [{"kind": "phase", "at": 60 + i, "value": p} for i, p in enumerate(after)]))' "$1" "$2"; }
 turn_rows=(
