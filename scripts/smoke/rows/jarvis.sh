@@ -1872,7 +1872,7 @@ jarvis_disable
 expect_poll "the release cancels the held recording" "- -" jarvis_dictation_recording
 cp -- "$sandbox/jarvis-dictation-service" "$jarvis_service"
 jarvis_rescan
-expect_poll "with Jarvis and Voice off, no voxtype process runs" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect_poll "with Jarvis and Voice off, no voxtype process runs" "daemon=0 follower=0 other=0" dictation_processes all
 cp -- "$sandbox/jarvis-engine-original" "$jarvis_engine"
 rm -- "${repo:?}/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 rm -rf -- "${jarvis_local:?}"

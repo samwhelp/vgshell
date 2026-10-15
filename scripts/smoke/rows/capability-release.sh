@@ -42,10 +42,10 @@ expect "disabling the bare fixture is allowed" ok ipc shell setPluginEnabled acm
 if dictation_stand_ins on; then
   expect "enabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation true
   expect_poll "the daemon runs while the fixture holds dictation" "ready running acme.dictation" dictation_lent
-  expect_poll "the daemon and its follower are children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+  expect_poll "the daemon and its follower are children of the shell" "daemon=1 follower=1 other=0" dictation_processes owned
   expect "disabling the last dictation holder is allowed" ok ipc shell setPluginEnabled acme.dictation false
   expect_poll "disable released the dictation hold" null lent holders.dictation
-  expect_poll "disabling the last holder ends the daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  expect_poll "disabling the last holder ends the daemon" "daemon=0 follower=0 other=0" dictation_processes all
   expect_poll "the lending record reads no daemon and no child" "absent none -" dictation_lent
 else
   fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"

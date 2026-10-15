@@ -590,7 +590,7 @@ expect_poll "Voice sees voxtype present" true ipc smoke readInstance service vgs
 expect_poll "Voice registers its three shortcuts and the release companion" 4 voice_shortcuts
 expect_poll "the holder reads the missing speech model" setup voice_setup_offered
 expect_poll "a missing model keeps the core daemon absent" "absent idle -" voice_state
-expect_poll "a missing model starts neither daemon nor follower" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect_poll "a missing model starts neither daemon nor follower" "daemon=0 follower=0 other=0" dictation_processes all
 expected_errors+=('WARN qml: voice: start refused: dictation=daemon-absent')
 expect "a start with a missing model is refused" "refused: dictation=daemon-absent" voice_toggle
 expect_poll "the absent daemon refusal opens the existing correction window" 1 window_count Plugins
@@ -600,7 +600,7 @@ settings_page_close vgs.voice
 touch -- "$voice_installed"
 expect "the holder rereads setup after installing the model" ok ipc smoke invokeInstance service vgs.voice restartDaemon ""
 expect_poll "the core lends Voice dictation and starts its daemon" "ready running vgs.voice" dictation_lent
-expect_poll "one daemon and one follower run, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+expect_poll "one daemon and one follower run, children of the shell" "daemon=1 follower=1 other=0" dictation_processes owned
 expect_poll "Voice reads the core's daemon ready" "ready idle -" voice_state
 expect_poll "Set up is withheld while dictation is ready" none voice_setup_offered
 voice_to recording "Voice's first recording"
@@ -804,7 +804,7 @@ expect_poll "the dictation fixture is known" True plugin_known acme.dictation
 expect "enabling the dictation fixture beside Voice is allowed" ok ipc shell setPluginEnabled acme.dictation true
 expect_poll "the fixture is built" True record_exists acme.dictation
 expect_poll "both holders are lent the one daemon" "ready running vgs.voice,acme.dictation" dictation_lent
-expect "a second holder starts no second daemon" "daemon=1 follower=1 other=0 children=2" dictation_processes
+expect "a second holder starts no second daemon" "daemon=1 follower=1 other=0" dictation_processes owned
 voice_forget
 expect "the fixture starts a text recording" ok voice_other start text
 expect_poll "Voice reads the fixture's recording" "ready recording acme.dictation" voice_state
@@ -1034,7 +1034,7 @@ expect_poll "recording before the disable runs the stand-in bridge" "stand-in=1 
 expect "disabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
 expect_poll "disabling Voice removes its shortcuts" 0 voice_shortcuts
 expect_poll "disabling Voice clears its status" absent voice_status_value
-expect_poll "disabling Voice, the last holder, ends the core's daemon and its follower" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect_poll "disabling Voice, the last holder, ends the core's daemon and its follower" "daemon=0 follower=0 other=0" dictation_processes all
 expect "the lending record reads no daemon and no holder" "absent none -" dictation_lent
 expect_poll "disabling Voice leaves no bridge child" "stand-in=0 host=0" voice_bridges
 voice_stop_keyboard
@@ -1320,7 +1320,7 @@ expect_poll "the failed microphone click opens the existing correction window" 1
 expect_poll "the failed microphone click shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
 expect_poll "the failed microphone click draws the existing setup action" "$voice_setup_needed" voice_setup_section
 expect_poll "the pending microphone retry publishes the actual continuing failure" "failed idle -" voice_state
-expect_poll "continuing failure leaves no child or follower" 'daemon=0 follower=0 other=0 children=0' dictation_processes
+expect_poll "continuing failure leaves no child or follower" 'daemon=0 follower=0 other=0' dictation_processes all
 # Control: remove the pending result from the same correction branch.
 # The child still fails, but the same user start no longer opens its page.
 settings_page_close vgs.voice
@@ -1429,10 +1429,11 @@ voice_noted_within() { # MS
 # are forgotten after that daemon's end, so a start after it is the core's.
 voice_stop_other() { # LABEL
   expect "$1: disabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice false
-  expect_poll "$1: disabling Voice ends the core's daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  expect_poll "$1: disabling Voice ends the core's daemon" "daemon=0 follower=0 other=0" dictation_processes all
   voice_own_daemon
   expect_poll "$1: the row's own stand-in daemon answers" idle voice_own_state
-  expect "$1: the row's own daemon is the one stand-in process, no child of the shell" "daemon=1 follower=0 other=0 children=0" dictation_processes
+  expect "$1: the row's own daemon is the one stand-in process, no child of the shell" "daemon=1 follower=0 other=0" dictation_processes all
+  expect "$1: the row's own daemon contributes no shell-owned role" "daemon=0 follower=0 other=0" dictation_processes owned
   voice_forget
   expect "$1: enabling Voice beside that daemon is allowed" ok ipc shell setPluginEnabled vgs.voice true
   expect_poll "$1: Voice builds beside that daemon" True record_exists vgs.voice
@@ -1453,7 +1454,7 @@ voice_stop_other() { # LABEL
   expect "$1: Stop the other voxtype is answered" ok settings_act vgs.voice otherService
   expect_poll "$1: Stop the other voxtype hands the terminal its screen" "$(words vgs.voice/stop-other tui/stop-other.sh)" recorded_tail
   voice_own_end
-  expect_poll "$1: the row's own daemon is gone while the run is held" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  expect_poll "$1: the row's own daemon is gone while the run is held" "daemon=0 follower=0 other=0" dictation_processes all
   voice_forget
   release_runs
   expect_run_end "$1: the Stop the other voxtype run ends" vgs.voice/stop-other
@@ -1471,7 +1472,7 @@ voice_stop_other "Stop the other voxtype"
 expect_poll "the run's end with code 0 has the core start its own daemon" started voice_noted
 voice_restart_ms="$(( $(now_ms) - voice_stop_other_at ))"
 expect_poll "Voice reads the core's own daemon ready" "ready idle -" voice_state
-expect_poll "the core's daemon and follower run, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+expect_poll "the core's daemon and follower run, children of the shell" "daemon=1 follower=1 other=0" dictation_processes owned
 expect "the core started its daemon once" started voice_noted
 expect_poll "nothing is offered once the core's daemon runs" none voice_setup_offered
 expect "the shell is the one that ran before the step, with no restart" "$voice_shell_started" voice_shell_start
@@ -1503,18 +1504,18 @@ voice_settle_ms=$(( voice_restart_ms * 3 > 2000 ? voice_restart_ms * 3 : 2000 ))
 expect "control: a run end that restarts nothing has the core start no daemon in ${voice_settle_ms} ms" none voice_noted_within "$voice_settle_ms"
 expect "control: Voice still reads the daemon elsewhere" "elsewhere idle -" voice_state
 expect "control: Voice still reports the other service to stop" stop voice_setup_offered
-expect "control: no stand-in daemon runs" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect "control: no stand-in daemon runs" "daemon=0 follower=0 other=0" dictation_processes all
 expect "disabling Voice after the stop-other control is allowed" ok ipc shell setPluginEnabled vgs.voice false
 cp -- "$sandbox/voice-restart-before" "$voice_restart_file"
 rescan "the shipped Voice logic is scanned again after the stop-other control"
 expect "enabling Voice after the stop-other control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice builds after the stop-other control" True record_exists vgs.voice
 expect_poll "Voice reads the core's daemon ready after the stop-other control" "ready idle -" voice_state
-expect_poll "one daemon and one follower run after the stop-other control" "daemon=1 follower=1 other=0 children=2" dictation_processes
+expect_poll "one daemon and one follower run after the stop-other control" "daemon=1 follower=1 other=0" dictation_processes owned
 expect_poll "nothing is offered after the stop-other control" none voice_setup_offered
 expect "the shell is still the one that ran before the step" "$voice_shell_started" voice_shell_start
 expect "disabling Voice after the setup rows is allowed" ok ipc shell setPluginEnabled vgs.voice false
-expect_poll "disabling Voice after the setup rows ends the core's daemon" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect_poll "disabling Voice after the setup rows ends the core's daemon" "daemon=0 follower=0 other=0" dictation_processes all
 # The stand-in's lock beside an ended holder: a child that ended under a
 # parent that never reaps it is written to voxtype.lock. It reads state Z
 # and still takes signal 0. Control first, while the lock names it: a copy
@@ -1596,7 +1597,7 @@ voice_forget
 expect "a second daemon beside the live one is refused" "exit=1 notes=refused" voice_daemon_try "$voice_stub" "$voice_notes"
 expect "the live daemon still answers after the refusal" idle voice_own_state
 voice_own_end
-expect_poll "the row's own daemon is gone after the lock case" "daemon=0 follower=0 other=0 children=0" dictation_processes
+expect_poll "the row's own daemon is gone after the lock case" "daemon=0 follower=0 other=0" dictation_processes all
 kill -TERM "$voice_zombie_parent" 2>/dev/null || true
 wait "$voice_zombie_parent" 2>/dev/null || true
 rm -rf -- "${voice_zombie_file:?}" "${voice_signal0:?}"

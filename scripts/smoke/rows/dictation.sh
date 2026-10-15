@@ -30,7 +30,8 @@
 #   daemon's `type` recording is typed;
 # - with a stand-in daemon the row started, the holder reads `elsewhere`,
 #   its start is refused, no second daemon was tried, and a restart after
-#   that daemon ended reads ready;
+#   that daemon ended reads ready; the global count includes the foreign
+#   daemon while the shell-owned counts stay zero;
 # - a failed child retries only on user start; unreadable liveness or
 #   continuing tool failure launches none, and repair reaches one ready
 #   child without retaining a refused recording;
@@ -52,6 +53,8 @@
 # leaves the daemon with no holder. A second copy, whose last release sends
 # no cancel, leaves the file override. The row ends with a fresh shell of
 # the tree, both fixtures disabled and the stand-ins put away.
+# The daemon that outlives the killed shell remains globally visible;
+# surviving processes contribute no shell-owned roles.
 # Every poll is expect_poll's, one read each 0.2 s; no latency budget is
 # claimed.
 # inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/tui.sh config/voxtype/* scripts/smoke/rows/capabilities.sh
@@ -92,8 +95,8 @@ dictation_forget() { rm -f -- "${dictation_notes:?}" "${dictation_typed:?}"; }
 dictation_followed() { if [[ -s $dictation_follow ]]; then tr '\n' ' ' <"$dictation_follow" | sed 's/ $//'; echo; else echo none; fi; }
 # Whether the stand-in's file override, which outlives its daemon, is there.
 dictation_override() { if [[ -e $rt_dir/voxtype/output_mode_override ]]; then echo kept; else echo absent; fi; }
-dictation_none="daemon=0 follower=0 other=0 children=0"
-dictation_one="daemon=1 follower=1 other=0 children=2"
+dictation_none="daemon=0 follower=0 other=0"
+dictation_one="daemon=1 follower=1 other=0"
 # The shell dies with SIGKILL while its runner is stopped, so the runner
 # starts no shell before the row has read what the dead one left; the
 # runner is then killed and reaped, and its lock is free.
@@ -150,7 +153,7 @@ else
   return 0
 fi
 
-expect "with no holder, no voxtype process is a child of the shell" "$dictation_none" dictation_processes
+expect "with no holder, no voxtype process runs" "$dictation_none" dictation_processes all
 expect "with no holder, the lending record reads no daemon" "absent none -" dictation_lent
 # The setup readings gate the actual core child, including for a holder
 # other than Voice. Read both the child's absence and the shared reason.
@@ -165,17 +168,17 @@ for dictation_missing in engine model; do
   fi
   expect "a holder with a missing $dictation_missing enables" ok ipc shell setPluginEnabled acme.dictation true
   expect_poll "the holder reads its missing $dictation_missing" "$dictation_expected_setup" dictation_setup_read
-  expect "a missing $dictation_missing starts no voxtype process" "$dictation_none" dictation_processes
+  expect "a missing $dictation_missing starts no voxtype process" "$dictation_none" dictation_processes all
   expect "a missing $dictation_missing never reached the daemon" none dictation_noted
   expect "a start with a continuing missing $dictation_missing returns its setup refusal" 'refused: dictation=daemon-absent' dictate acme.dictation start text
-  expect "a continuing missing $dictation_missing still starts no child" "$dictation_none" dictation_processes
+  expect "a continuing missing $dictation_missing still starts no child" "$dictation_none" dictation_processes all
   expect "the holder with a missing $dictation_missing disables" ok ipc shell setPluginEnabled acme.dictation false
   rm -f -- "${sandbox:?}/voxtype-engine-missing"
   touch -- "$sandbox/voxtype-model-installed"
 done
 expect "enabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation true
 expect_poll "the holder reads the daemon ready" "ready idle -" dictation_state acme.dictation
-expect_poll "one daemon and one follower run, children of the shell" "$dictation_one" dictation_processes
+expect_poll "one daemon and one follower run, children of the shell" "$dictation_one" dictation_processes owned
 expect "the dictation directory is the owner's alone and empty" "700 0" dictation_files
 
 # The terminal runs the shipped setup only inside a private copy. Its
@@ -324,7 +327,7 @@ dictation_forget
 expected_errors+=('dictation: daemon stderr="Error: voxtype fixture cannot load its engine"' 'dictation: daemon=failed reason=ended code=1' 'dictation: probe code=1 stderr="Error: voxtype fixture inventory unavailable"' 'dictation: daemon=failed reason=probe code=1')
 expect "a restart beside a broken tool uses the existing owner" ok dictate acme.dictation restart
 expect_poll "the broken tool leaves the same holder failed" "failed idle -" dictation_state acme.dictation
-expect_poll "the broken child and its follower both end" "$dictation_none" dictation_processes
+expect_poll "the broken child and its follower both end" "$dictation_none" dictation_processes all
 expect "the failed child was tried once" "stopped failed" dictation_noted
 : >"$dictation_liveness_unreadable"
 expect "a user start rechecks unavailable public liveness" 'refused: dictation=daemon-starting' dictate acme.dictation start text
@@ -333,18 +336,18 @@ expect "unreadable public liveness never launches a child" "stopped failed" dict
 rm -f -- "${dictation_liveness_unreadable:?}"
 expect "a user start retries while the tool is still broken" 'refused: dictation=daemon-starting' dictate acme.dictation start text
 expect_poll "the continuing child failure stays typed" "failed idle -" dictation_state acme.dictation
-expect_poll "the continuing failure leaves no process" "$dictation_none" dictation_processes
+expect_poll "the continuing failure leaves no process" "$dictation_none" dictation_processes all
 expect "the continuing failure adds one child attempt" "stopped failed failed" dictation_noted
 rm -f -- "${dictation_daemon_fail:?}"
 : >"$dictation_loading"
 expect "the next user start retries the repaired tool" 'refused: dictation=daemon-starting' dictate acme.dictation start text
-expect_poll "the repaired tool starts one daemon and follower while loading" "$dictation_one" dictation_processes
+expect_poll "the repaired tool starts one daemon and follower while loading" "$dictation_one" dictation_processes owned
 expect "another text start while loading is pending" 'refused: dictation=daemon-starting' dictate acme.dictation start text
 expect "another type start while loading is pending" 'refused: dictation=daemon-starting' dictate acme.dictation start type
 expect "pending starts launch no duplicate child" "stopped failed failed started" dictation_noted
 rm -f -- "${dictation_loading:?}"
 expect_poll "the repaired tool reaches ready with no deferred recording" "ready idle -" dictation_state acme.dictation
-expect "repair keeps one owned daemon and follower" "$dictation_one" dictation_processes
+expect "repair keeps one owned daemon and follower" "$dictation_one" dictation_processes owned
 
 expect "a text recording starts" ok dictate acme.dictation start text
 expect_poll "the state names the recording's holder" "ready recording acme.dictation" dictation_state acme.dictation
@@ -355,7 +358,7 @@ expect "the text request typed nothing" none dictation_wtype
 
 expect "enabling the second dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation-other true
 expect_poll "the second holder reads the same daemon" "ready idle -" dictation_state acme.dictation-other
-expect "a second holder starts no second daemon" "$dictation_one" dictation_processes
+expect "a second holder starts no second daemon" "$dictation_one" dictation_processes owned
 expect "the first holder records" ok dictate acme.dictation start text
 expect "the busy refusal names the holder" "refused: dictation=busy holder=acme.dictation" dictate acme.dictation-other start text
 expect "the other holder's stop is refused" "refused: dictation=not-holder holder=acme.dictation" dictate acme.dictation-other stop
@@ -387,11 +390,11 @@ expect_poll "the daemon notes the start" start dictation_noted
 expect "disabling the recording's holder is allowed" ok ipc shell setPluginEnabled acme.dictation false
 expect_poll "releasing a holder cancels its recording" "start cancel" dictation_noted
 expect_poll "the other holder reads no recording" "ready idle -" dictation_state acme.dictation-other
-expect "the daemon stays for the other holder" "$dictation_one" dictation_processes
+expect "the daemon stays for the other holder" "$dictation_one" dictation_processes owned
 expect_poll "the cancelled recording leaves no file" "700 0" dictation_files
 expect "the cancelled recording typed nothing" none dictation_wtype
 expect "disabling the last holder is allowed" ok ipc shell setPluginEnabled acme.dictation-other false
-expect_poll "the last release ends the daemon and its follower" "$dictation_none" dictation_processes
+expect_poll "the last release ends the daemon and its follower" "$dictation_none" dictation_processes all
 
 # The cap: the daemon reads it when it starts, so it starts under a 3 s
 # cap, and the core's deadline is a second before it.
@@ -407,7 +410,7 @@ expect_poll "the holder reads no recording after the cancel" "ready idle -" dict
 expect "the cancelled recording reached no wtype call" none dictation_wtype
 expect_poll "the cancelled recording left no file" "700 0" dictation_files
 expect "disabling the fixture after the cap rows is allowed" ok ipc shell setPluginEnabled acme.dictation false
-expect_poll "the daemon ends after the cap rows" "$dictation_none" dictation_processes
+expect_poll "the daemon ends after the cap rows" "$dictation_none" dictation_processes all
 rm -f -- "${dictation_cap:?}"
 
 # A daemon that takes the start and cannot capture prints no state: the
@@ -434,7 +437,7 @@ expect "the start after the recordings that never ran is taken" ok dictate acme.
 expect_poll "the daemon records the next start" start dictation_noted
 expect "disabling the last holder during a text recording is allowed" ok ipc shell setPluginEnabled acme.dictation false
 expect_poll "the last release cancels the text recording before the daemon ends" "start cancel stopped" dictation_noted
-expect_poll "the daemon is gone after that release" "$dictation_none" dictation_processes
+expect_poll "the daemon is gone after that release" "$dictation_none" dictation_processes all
 expect "no file override outlives the daemon" absent dictation_override
 expect_poll "the released recording leaves no file" "700 0" dictation_files
 dictation_forget
@@ -447,7 +450,7 @@ expect_poll "the next daemon's type recording is typed" "-d 10 -- second turn" d
 expect "the type recording wrote no file" "700 0" dictation_files
 expect_poll "the daemon is idle before the fixture is disabled" "ready idle -" dictation_state acme.dictation
 expect "disabling the fixture after the type recording is allowed" ok ipc shell setPluginEnabled acme.dictation false
-expect_poll "the daemon ends after the type recording" "$dictation_none" dictation_processes
+expect_poll "the daemon ends after the type recording" "$dictation_none" dictation_processes all
 
 # A daemon the shell did not start.
 dictation_forget
@@ -461,7 +464,8 @@ expect "enabling the fixture beside that daemon is allowed" ok ipc shell setPlug
 expect_poll "the holder reads the daemon elsewhere" "elsewhere idle -" dictation_state acme.dictation
 expect "a start beside a daemon elsewhere is refused" "refused: dictation=daemon-elsewhere" dictate acme.dictation start text
 expect "the shell started no second daemon" "started" dictation_noted
-expect "the row's daemon is the only stand-in process" "daemon=1 follower=0 other=0 children=0" dictation_processes
+expect "the row's daemon is the only stand-in process" "daemon=1 follower=0 other=0" dictation_processes all
+expect "the foreign daemon contributes no shell-owned role" "$dictation_none" dictation_processes owned
 # A directory makes the readiness read unavailable and detects any
 # attempted state cleanup. The foreign daemon remains held in model load.
 mkdir -- "$rt_dir/voxtype/state"
@@ -474,18 +478,18 @@ dictation_own_end
 # Successful Voice Stop calls this same capability endpoint. Voice's
 # existing row owns its action and terminal route; this row owns recovery.
 expect "a restart after that daemon ended is allowed" ok dictate acme.dictation restart
-expect_poll "post-Stop recovery starts one owned child while loading" "$dictation_one" dictation_processes
+expect_poll "post-Stop recovery starts one owned child while loading" "$dictation_one" dictation_processes owned
 expect "a pending post-Stop start retains no recording" 'refused: dictation=daemon-starting' dictate acme.dictation start type
 rm -f -- "${dictation_loading:?}"
 expect_poll "the restart reads the shell's own daemon ready" "ready idle -" dictation_state acme.dictation
-expect_poll "the shell's own daemon and follower run" "$dictation_one" dictation_processes
+expect_poll "the shell's own daemon and follower run" "$dictation_one" dictation_processes owned
 
 # The shell killed during a text recording.
 dictation_forget
 expect "a text recording starts before the kill" ok dictate acme.dictation start text
 expect_poll "the daemon notes the recording before the kill" start dictation_noted
 dictation_kill_shell
-expect_poll "with the shell killed, no voxtype process remains" "$dictation_none" dictation_processes
+expect_poll "with the shell killed, no voxtype process remains" "$dictation_none" dictation_processes all
 expect "the killed shell's recording reached no wtype call" none dictation_wtype
 expect "the killed shell's daemon noted no cap" start dictation_noted
 dictation_reap_runner
@@ -495,7 +499,7 @@ expect "the killed text recording left its file override" kept dictation_overrid
 : >"$dictation_loading"
 rm -f -- "${dictation_follow:?}"
 start_shell "$repo" "$sandbox/dictation-after-kill.log"
-expect_poll "the next daemon and its follower run while the model loads" "$dictation_one" dictation_processes
+expect_poll "the next daemon and its follower run while the model loads" "$dictation_one" dictation_processes owned
 expect_poll "the next daemon's follower prints its first state" stopped dictation_followed
 expect "a start while the next daemon loads is refused" "refused: dictation=daemon-starting" dictate acme.dictation start type
 expect "the holder reads the next daemon starting while it loads" "starting idle -" dictation_state acme.dictation
@@ -511,7 +515,7 @@ expect_poll "the type stop after the kill hands over typed" '{"kind": "typed"}' 
 expect "the type recording after the kill wrote no file" "700 0" dictation_files
 expect_poll "the daemon is idle after the type recording after the kill" "ready idle -" dictation_state acme.dictation
 stop_shell || :
-expect_poll "the stand-ins from the after-kill shell are gone" "$dictation_none" dictation_processes
+expect_poll "the stand-ins from the after-kill shell are gone" "$dictation_none" dictation_processes all
 
 # The controls, on one copy of the tree with one edit per rule.
 copy_tree dictation-controls
@@ -559,19 +563,21 @@ if [[ $dictation_edits == true ]]; then
   dictation_kill_shell
   expect_poll "control: a daemon with no parent-death signal outlives the killed shell and reaches its cap" "start cap" dictation_noted
   expect_poll "control: the outlived recording is typed" "-d 10 -- second turn" dictation_wtype
-  dictation_daemons() { dictation_processes | cut -d' ' -f1; }
+  dictation_daemons() { dictation_processes all | cut -d' ' -f1; }
   expect "control: the daemon remains, no child of any shell" daemon=1 dictation_daemons
+  expect "control: the orphaned processes contribute no shell-owned role" "$dictation_none" dictation_processes owned
   dictation_reap_runner
   dictation_end_left
-  expect_poll "control: the outlived stand-in processes are ended" "$dictation_none" dictation_processes
+  expect_poll "control: the outlived stand-in processes are ended" "$dictation_none" dictation_processes all
   start_shell "$sandbox/tree-dictation-controls" "$sandbox/dictation-controls-release.log"
   expect_poll "control: the copy's daemon reads ready again" "ready idle -" dictation_state acme.dictation
   expect "control: disabling the last holder on the copy is allowed" ok ipc shell setPluginEnabled acme.dictation false
   expect_poll "control: the copy released the hold" null lent holders.dictation
-  expect "control: a last release that ends no child leaves the daemon with no holder" "$dictation_one" dictation_processes
+  expect "control: a last release that ends no child leaves the daemon with no holder" "$dictation_one" dictation_processes all
+  expect "control: the unreleased daemon and follower remain shell-owned" "$dictation_one" dictation_processes owned
   stop_shell || :
   dictation_end_left
-  expect_poll "control: the stopped copy's children are gone" "$dictation_none" dictation_processes
+  expect_poll "control: the stopped copy's children are gone" "$dictation_none" dictation_processes all
 fi
 # The second copy: its last release ends the daemon with no cancel first.
 copy_tree dictation-uncancelled
@@ -586,7 +592,7 @@ if edit_tree dictation-uncancelled shell/Core/DictationModel.js \
   expect "control: a text recording starts on the second copy" ok dictate acme.dictation start text
   expect_poll "control: the daemon notes that recording" "started start" dictation_noted
   expect "control: disabling the last holder on the second copy is allowed" ok ipc shell setPluginEnabled acme.dictation false
-  expect_poll "control: the second copy's daemon ends" "$dictation_none" dictation_processes
+  expect_poll "control: the second copy's daemon ends" "$dictation_none" dictation_processes all
   expect "control: the second copy's daemon ended with no cancel" "started start stopped" dictation_noted
   expect "control: a last release that sends no cancel leaves the file override" kept dictation_override
   stop_shell || :
@@ -597,6 +603,6 @@ rm -f -- "${dictation_cap:?}"
 start_shell "$repo" "$sandbox/dictation-restored.log"
 expect "the fixture is disabled on the tree's shell" ok ipc shell setPluginEnabled acme.dictation false
 expect_poll "the tree's shell holds no dictation after the controls" null lent holders.dictation
-expect_poll "the tree's shell runs no stand-in process" "$dictation_none" dictation_processes
+expect_poll "the tree's shell runs no stand-in process" "$dictation_none" dictation_processes all
 dictation_stand_ins off
 rm -f -- "${dictation_words:?}" "${dictation_notes:?}" "${dictation_typed:?}" "${dictation_loading:?}" "${dictation_follow:?}" "${dictation_daemon_fail:?}" "${dictation_liveness_unreadable:?}"

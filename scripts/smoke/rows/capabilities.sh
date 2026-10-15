@@ -184,15 +184,15 @@ dictation_stand_ins() { # on|off
   touch -- "$sandbox/voxtype-model-installed"
   [[ $(shell_resolves voxtype) == "$shim/voxtype" ]]
 }
-# The stand-in's processes, by the verb each runs: its daemons, its status
-# followers and any other, and how many of them all are children of the
-# shell, shell_qs_pid. The sandbox's stand-in path names no other process.
-# With `pids` it prints their pids in place of the counts.
-dictation_processes() { # [pids]
-  python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "${1:-counts}" <<'PY'
+# The stand-in's processes by role: `all` includes foreign processes and
+# orphans; `owned` counts only direct children of shell_qs_pid. A matching
+# fixture subprocess must not count as a second shell-owned role.
+# With `pids` it prints all matching pids for cleanup.
+dictation_processes() { # all|owned|pids
+  python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "$1" <<'PY'
 import os, sys
 stand_in, shell, want = sys.argv[1:]
-counts = {"daemon": 0, "follower": 0, "other": 0, "children": 0}
+counts = {scope: {"daemon": 0, "follower": 0, "other": 0} for scope in ("all", "owned")}
 pids = []
 for pid in os.listdir("/proc"):
     # This reader's own arguments name the stand-in too.
@@ -209,10 +209,11 @@ for pid in os.listdir("/proc"):
         continue
     verb = args[args.index(stand_in) + 1:]
     kind = "daemon" if verb[:1] == ["daemon"] else "follower" if verb[:2] == ["status", "--follow"] else "other"
-    counts[kind] += 1
-    counts["children"] += parent == shell
+    counts["all"][kind] += 1
+    if parent == shell:
+        counts["owned"][kind] += 1
     pids.append(pid)
-print(" ".join(pids) if want == "pids" else " ".join(f"{k}={v}" for k, v in counts.items()))
+print(" ".join(pids) if want == "pids" else " ".join(f"{k}={v}" for k, v in counts[want].items()))
 PY
 }
 dictation_lent() { lent dictation | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["daemon"], d["child"], ",".join(d["holders"]) or "-")'; }
@@ -227,9 +228,9 @@ if dictation_stand_ins on; then
   dictation_holds() { ipc shell lent | py_reply 'import json,sys; h=json.load(sys.stdin)["holders"].get("dictation",[]); print("acme.dictation" in h and "acme.bare" not in h)'; }
   expect_poll "the dictation capability is lent to its fixture and not the bare plugin" True dictation_holds
   expect_poll "the core starts the daemon for the holder" "ready running acme.dictation" dictation_lent
-  expect_poll "the daemon and its follower are the stand-in, children of the shell" "daemon=1 follower=1 other=0 children=2" dictation_processes
+  expect_poll "the daemon and its follower are the stand-in, children of the shell" "daemon=1 follower=1 other=0" dictation_processes owned
   expect "disabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation false
-  expect_poll "the daemon ends with its holder" "daemon=0 follower=0 other=0 children=0" dictation_processes
+  expect_poll "the daemon ends with its holder" "daemon=0 follower=0 other=0" dictation_processes all
 else
   fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
 fi
