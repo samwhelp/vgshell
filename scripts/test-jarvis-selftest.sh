@@ -470,16 +470,56 @@ settings_named() {
 }
 voice_linked() { starts && [[ $sandbox/home/.local/share/vgshell/jarvis/local -ef $voice_root ]] && cmp -s -- "$tmp/voice/.local/state/vgshell/jarvis/local-ready.json" "$sandbox/home/.local/state/vgshell/jarvis/local-ready.json"; }
 voxtype_configured() {
+  local before
+  before="$(call selftest_tree_sum "$voxtype_models")" || return 1
   starts || return 1
-  python3 - "$sandbox/home/.config/voxtype/config.toml" "$voxtype_models/parakeet-tdt-0.6b-v3" <<'PY'
+  [[ "$(call selftest_tree_sum "$voxtype_models")" == "$before" ]] || return 1
+  python3 - "$sandbox/home/.config/voxtype/config.toml" "$voxtype_models" "$repo/config/voxtype/config.toml" "$sandbox/home/.local/share/voxtype/models" <<'PY'
 import os, sys, tomllib
-config, model = sys.argv[1:]
+config, prepared, source, inventory = sys.argv[1:]
 data = tomllib.load(open(config, "rb"))
+original = tomllib.load(open(source, "rb"))
+engine = original["engine"]
+model = original[engine]["model"]
 text = open(config).read()
 theme = data["audio"]["feedback"]["theme"]
-if data["parakeet"]["model"] != model or "__VGS_DICTATION_BLOOP_THEME__" in text or not os.path.isdir(theme):
+if data[engine]["model"] != model or os.path.isabs(data[engine]["model"]) or "__VGS_DICTATION_BLOOP_THEME__" in text or not os.path.isdir(theme):
+    raise SystemExit(1)
+if os.listdir(inventory) != [model] or not os.path.samefile(os.path.join(inventory, model), os.path.join(prepared, model)):
+    raise SystemExit(1)
+if not os.path.islink(os.path.join(inventory, model)):
     raise SystemExit(1)
 PY
+}
+voxtype_foreign_inventory() { # ENTRY_KIND
+  local kind="$1" held=0
+  cp -- "$tree/scripts/smoke/harness.sh" "$tmp/harness-model-owned.sh"
+  python3 - "$tree/scripts/smoke/harness.sh" "$tmp/foreign-model" "$kind" <<'PY'
+import pathlib,shlex,sys
+file, foreign, kind = sys.argv[1:]
+pathlib.Path(foreign).mkdir(exist_ok=True)
+pathlib.Path(foreign,"kept").write_text("kept")
+source=pathlib.Path(file).read_text()
+needle='stop_shell() { echo stop_shell'
+assert source.count(needle) == 1
+plant='mkdir -p "$home/.local/share/voxtype/models"\n'
+if kind == "parent-link":
+    plant='mkdir -p "$home/.local/share/voxtype"\nln -s -- '+shlex.quote(foreign)+' "$home/.local/share/voxtype/models"\n'
+elif kind == "model-link":
+    plant+='ln -s -- '+shlex.quote(foreign)+' "$home/.local/share/voxtype/models/parakeet-tdt-0.6b-v3"\n'
+else:
+    plant+='mkdir "$home/.local/share/voxtype/models/parakeet-tdt-0.6b-v3"\nprintf kept >"$home/.local/share/voxtype/models/parakeet-tdt-0.6b-v3/kept"\n'
+pathlib.Path(file).write_text(source.replace(needle,plant+needle))
+PY
+  run --type hello --brain "$sign_in"
+  [[ $status -eq 1 ]] && grep -qxF selftest=voxtype-config-unread "$tmp/out" || held=1
+  [[ "$(<"$tmp/foreign-model/kept")" == kept ]] || held=1
+  if [[ $kind == directory ]]; then
+    [[ "$(<"$sandbox/home/.local/share/voxtype/models/parakeet-tdt-0.6b-v3/kept")" == kept ]] || held=1
+  fi
+  [[ $(find "$tmp/foreign-model" -mindepth 1 -maxdepth 1 | wc -l) -eq 1 ]] || held=1
+  cp -- "$tmp/harness-model-owned.sh" "$tree/scripts/smoke/harness.sh"
+  return "$held"
 }
 voxtype_cpu_shim() { starts && [[ "$(grep '^exec ' "$sandbox/shim/voxtype")" == "exec $voxtype_builds/voxtype-onnx-avx512 \"\$@\"" ]]; }
 feed_defaulted() { starts && [[ "$(<"$tmp/default-source")" == vgs-smoke-voice ]] && grep -qxF -- '-n default 0 default.configured.audio.source { "name": "vgs-smoke-voice" } Spa:String:JSON' "$tmp/pw-metadata.calls"; }
@@ -519,7 +559,8 @@ PY
 holds "a suite passes the model argument to its sandbox child" suite_model_named
 control plant "a suite that drops its child model argument" '    [[ -z $model ]] || child_args+=(--model "$model")' '    :' suite_model_named
 holds "the prepared setup is linked as the sandbox's local voice, with its marker" voice_linked
-holds "the sandbox HOME holds voxtype config with the prepared model path and feedback sounds" voxtype_configured
+holds "the sandbox keeps the named model, exposes only its prepared directory and leaves its source unchanged" voxtype_configured
+for model_entry in parent-link model-link directory; do holds "an existing $model_entry in the sandbox model inventory stays untouched" voxtype_foreign_inventory "$model_entry"; done
 holds "the sandbox shell resolves voxtype to the CPU wrapper" voxtype_cpu_shim
 holds "the voice feed is the sandbox PipeWire default source before Jarvis starts" feed_defaulted
 holds "a default source that is not the feed stops the run before Jarvis starts" default_refused
@@ -528,7 +569,8 @@ control plant "a runner that keeps the harness's instrumented plugin" \
 control plant "a runner that hands the shell another word of the caller's" 'bar "${account_word[@]}"' 'bar "${account_word[@]}" "HOME=$HOME"' account_alone
 control plant "a runner that names the daemon no trace path" ' "VGS_JARVIS_TRACE=$sandbox/selftest-brain.jsonl" || stopped shell-not-started' ' || stopped shell-not-started' account_alone
 control plant "a runner that leaves the microphone to the default" '"microphone": microphone,' '' settings_named
-control plant "a runner that leaves the voxtype config's model relative" 'model_path = os.path.join(models, model_name)' 'model_path = model_name' voxtype_configured
+control plant "a runner that changes the inventory model name to an absolute path" 'rendered = body.replace(token, json.dumps(bloop))' 'rendered = body.replace(token, json.dumps(bloop)).replace(model_name, model_path)' voxtype_configured
+control plant "a runner that exposes no prepared model in the sandbox inventory" 'os.symlink(model_path, os.path.join(inventory, model_name))' 'pass' voxtype_configured
 control plant "a runner that does not make the feed the default source" '  devices_voice_feed_default || stopped no-voice-feed default-failed' '  :' feed_defaulted
 control plant "a runner that does not verify the feed became the default source" '  selftest_wait 10 "$devices_voice_feed_source" devices_voice_feed_default_source || stopped no-voice-feed "default=$reading"' '  :' default_refused
 

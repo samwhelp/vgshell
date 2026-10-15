@@ -101,9 +101,10 @@
 # .../local/venv/bin/python, and the run reads that setup's ready marker,
 # <HOME>/.local/state/vgshell/jarvis/local-ready.json. With --voice local,
 # VOXTYPE_MODELS names the caller's voxtype model directory. The run writes
-# the sandbox HOME's voxtype config from config/voxtype/config.toml, points
-# its configured engine model at VOXTYPE_MODELS, and reads that model in
-# place. voxtype 1.1.0 has no config key that selects the CPU ONNX build, so
+# the sandbox HOME's voxtype config from config/voxtype/config.toml, keeps
+# its named model and links only that prepared model into the sandbox's
+# normal inventory. It reads the model in place. voxtype 1.1.0 has no config
+# key that selects the CPU ONNX build, so
 # the run puts a voxtype wrapper in the sandbox command shim, ahead of the
 # shell's PATH, and that wrapper execs the canonical CPU build directly.
 #
@@ -293,12 +294,12 @@ selftest_voxtype_cpu() {
 
 # selftest_voxtype_config SOURCE MODELS BLOOP DEST: reads SOURCE's engine
 # and model once, checks that MODELS holds the model, and, when DEST is not
-# empty, writes DEST with that absolute model path and the feedback token
-# replaced by BLOOP as a TOML string.
-selftest_voxtype_config() { # SOURCE MODELS BLOOP DEST
+# empty, writes DEST with the named model and the feedback token replaced
+# by BLOOP. SANDBOX_HOME receives only that model in its normal inventory.
+selftest_voxtype_config() { # SOURCE MODELS BLOOP DEST [SANDBOX_HOME]
   python3 - "$@" <<'PY'
-import json, os, re, sys, tomllib
-source, models, bloop, dest = sys.argv[1:]
+import json, os, stat, sys, tomllib
+source, models, bloop, dest, *sandbox_home = sys.argv[1:]
 text = open(source, "rb").read()
 body = text.decode()
 config = tomllib.loads(body)
@@ -307,6 +308,8 @@ if not isinstance(engine, str) or not engine:
     raise SystemExit(4)
 model_name = (config.get(engine) or {}).get("model")
 if not isinstance(model_name, str) or not model_name:
+    raise SystemExit(4)
+if model_name in (".", "..") or os.path.basename(model_name) != model_name:
     raise SystemExit(4)
 model_path = os.path.join(models, model_name)
 if not os.path.isdir(model_path):
@@ -317,22 +320,18 @@ if dest == "":
 token = '"__VGS_DICTATION_BLOOP_THEME__"'
 if body.count(token) != 1:
     raise SystemExit(4)
-lines = body.splitlines(keepends=True)
-section = None
-changed = False
-for index, line in enumerate(lines):
-    match = re.match(r"\s*\[([^\]]+)\]\s*(?:#.*)?$", line)
-    if match:
-        section = match.group(1).strip()
-        continue
-    if section == engine and re.match(r"\s*model\s*=", line):
-        newline = "\n" if line.endswith("\n") else ""
-        lines[index] = 'model = "' + model_path.replace("\\", "\\\\").replace('"', '\\"') + '"' + newline
-        changed = True
-        break
-if not changed:
-    raise SystemExit(4)
-rendered = "".join(lines).replace(token, json.dumps(bloop))
+rendered = body.replace(token, json.dumps(bloop))
+inventory = sandbox_home[0]
+# The harness owns this home. Existing foreign entries, including links
+# at any inventory parent, refuse instead of redirecting a write.
+for part in (".local", "share", "voxtype", "models"):
+    inventory = os.path.join(inventory, part)
+    try:
+        os.mkdir(inventory)
+    except FileExistsError:
+        if not stat.S_ISDIR(os.lstat(inventory).st_mode):
+            raise SystemExit(4)
+os.symlink(model_path, os.path.join(inventory, model_name))
 os.makedirs(os.path.dirname(dest), exist_ok=True)
 with open(dest + ".next", "w") as out:
     out.write(rendered)
@@ -347,7 +346,7 @@ PY
 selftest_voxtype_prepare() { # SOURCE_REPO MODELS CPU
   local source_repo="$1" models="$2" cpu="$3"
   selftest_voxtype_config "$source_repo/config/voxtype/config.toml" "$models" \
-    "$source_repo/config/voxtype/sounds/bloop" "$home/.config/voxtype/config.toml" >/dev/null || stopped voxtype-config-unread
+    "$source_repo/config/voxtype/sounds/bloop" "$home/.config/voxtype/config.toml" "$home" >/dev/null || stopped voxtype-config-unread
   # The wrapper keeps the daemon pid as the real voxtype process and reaches
   # the CPU ONNX binary by its canonical path, which ORT expects.
   printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$cpu" >"$shim/voxtype.next"
