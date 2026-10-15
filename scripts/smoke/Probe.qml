@@ -17,6 +17,50 @@ import "Commons/ThemeLogic.js" as ThemeLogic
 Scope {
     id: root
     property var rememberedBarWidgets: []
+    property Item barEmptyBar: null
+    property QtObject barEmptyHandler: null
+    property var barEmptyRecord: null
+    property int barEmptyTapCount: 0
+    function endBarEmptyObservation() {
+        barEmptyHandler = null;
+        barEmptyBar = null;
+        barEmptyRecord = null;
+        barEmptyTapCount = 0;
+    }
+    Component.onDestruction: endBarEmptyObservation()
+    // Observe the existing handler's release point without another grab.
+    // https://doc.qt.io/qt-6/qml-qtquick-taphandler.html#tapped-signal
+    Connections {
+        target: root.barEmptyHandler
+        function onTapped(eventPoint, button) {
+            if (button !== Qt.RightButton) return;
+            const at = eventPoint.position;
+            root.barEmptyTapCount += 1;
+            root.barEmptyRecord = root.barEmptyFacts(at.x, at.y);
+        }
+    }
+    function barEmptyFacts(x, y) {
+        const bar = barEmptyBar;
+        const screen = bar.mapToGlobal(x, y);
+        // Native contains honors containmentMask; bounding boxes alone do not.
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#contains-method
+        const facts = item => {
+            const at = item.mapFromItem(bar, x, y);
+            return { point: [at.x, at.y], contains: item.contains(at),
+                visible: item.visible, width: item.width, height: item.height };
+        };
+        return { point: [x, y], screen: [screen.x, screen.y],
+            insideBar: bar.contains(Qt.point(x, y)),
+            windowVisible: bar.Window.window !== null && bar.Window.window.visible,
+            overWidget: bar.overWidget(x, y),
+            sections: ConfigLogic.SECTIONS.map(name => {
+                const section = bar[name + "Section"];
+                return { section: name, parent: Object.assign(facts(section.parent), { clip: section.parent.clip }),
+                    children: Array.from(section.children).map(item => facts(item)) };
+            }),
+            controls: root.descendants(bar).filter(item => /^bar-zone-.+-(start|end)$/.test(item.objectName))
+                .map(item => Object.assign(facts(item), { name: item.objectName })) };
+    }
     // The Bluetooth row observes actual Nearby row publications.
     // This reader lives only in the disposable sandbox shell.
     property var bluetoothObserved: null
@@ -2038,6 +2082,28 @@ Scope {
             if (ConfigLogic.SECTIONS.indexOf(section) === -1) return "unknown";
             const mount = Plugins.mounts[hostKey];
             return root.geometry(mount === undefined ? null : mount.row.instance[section + "Section"]);
+        }
+        function barEmptyObserve(hostKey: string): string {
+            root.endBarEmptyObservation();
+            const mount = Plugins.mounts[hostKey];
+            if (mount === undefined) return "absent";
+            const bar = mount.row.instance;
+            // Item.data includes the nonvisual handler; descendants does not.
+            // https://doc.qt.io/qt-6/qml-qtquick-item.html#data-prop
+            const handlers = Array.from(bar.data).filter(item => item instanceof TapHandler
+                && item.parent === bar && item.acceptedButtons === Qt.RightButton);
+            if (handlers.length !== 1 || !handlers[0].enabled) return "handler-unavailable";
+            root.barEmptyBar = bar;
+            root.barEmptyHandler = handlers[0];
+            return "observing";
+        }
+        function barEmptyObservation(): string {
+            if (root.barEmptyHandler === null || root.barEmptyBar === null) return "inactive";
+            return root.json({ taps: root.barEmptyTapCount, delivered: root.barEmptyRecord });
+        }
+        function barEmptyObserveEnd(): string {
+            root.endBarEmptyObservation();
+            return "ended";
         }
         // All mounted entries and the production drop reader, without a
         // visibility projection that could hide an empty layout slot.

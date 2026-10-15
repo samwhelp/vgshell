@@ -969,14 +969,56 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     hover "$((x + 1))" "$zone_bar_y" && right_click "$x" "$zone_bar_y" || { fail "$1: the right click on the clock failed"; return 1; }
   }
   zone_menus() { echo "[$(ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameMenuOpen), $(ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen)]"; }
-  # The empty bar before the clock, over widgets the right zone clips
-  # away, still opens the bar's add menu.
+  zone_empty_delivered() {
+    ipc smoke barEmptyObservation | py_reply 'import json,sys
+try: d=json.load(sys.stdin)
+except ValueError: print("unreadable"); sys.exit()
+print("delivered" if isinstance(d,dict) and d.get("delivered") is not None else "pending")'
+  }
+  # The menu assertion needs a native child hit that only its clipping
+  # parent excludes. Judge the facts captured in the actual release turn.
+  zone_empty_premise() { # SCREEN_X SCREEN_Y WANT_MENU
+    py_reply 'import json,sys
+try:
+    record=json.load(sys.stdin); d=record["delivered"]; errors=[]
+    if record["taps"]!=1: errors.append("tap-count")
+    if [round(v) for v in d["screen"]]!=[int(sys.argv[1]),int(sys.argv[2])]: errors.append("delivered-point")
+    if not d["insideBar"] or not d["windowVisible"]: errors.append("bar")
+    drawn=lambda child: child["visible"] and child["width"]>0 and child["height"]>0 and child["contains"]
+    sections=d["sections"]; right=next(s for s in sections if s["section"]=="right")
+    if not right["parent"]["visible"] or not right["parent"]["clip"] or right["parent"]["contains"]: errors.append("clip-parent")
+    if not any(drawn(child) for child in right["children"]): errors.append("clipped-child")
+    if any(s["parent"]["contains"] and any(drawn(child) for child in s["children"]) for s in sections): errors.append("drawn-widget")
+    if any(drawn(control) for control in d["controls"]): errors.append("scroll-control")
+    if d["overWidget"]!=(sys.argv[3]=="False"): errors.append("source-hit")
+    print(json.dumps(errors))
+except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
+  }
+  # Choose inside a participating child, outside the side view and both
+  # neighbouring sections. A midpoint across the section can hit a gap.
   zone_empty_menu() { # LABEL WANT
-    local x depth=1
+    local x observed reading depth=1
     [[ $2 == True ]] || depth=0
-    x="$(zone_pick "int((d['right']['spans'][0][0] + d['centre'][0]) / 2) if d['right']['spans'][0][0] < d['centre'][0] - 8 and d['right']['spans'][0][0] > d['left']['view'][0] + d['left']['view'][1] else 'crowded'")" || { fail "$1: the zones are unreadable"; return; }
+    x="$(zone_pick "next((int((low + high) / 2) for a, w in d['right']['spans'] for low, high in [(max(a, d['left']['view'][0] + d['left']['view'][1]), min(a + w, d['centre'][0], d['right']['view'][0]))] if d['right']['clips'] and low < int((low + high) / 2) < high), 'no-clipped-child')")" || { fail "$1: the zones are unreadable"; return; }
     [[ $x =~ ^[0-9]+$ ]] || { fail "$1: no empty bar over clipped widgets: $x"; return; }
-    hover "$((x + 1))" "$zone_bar_y" && right_click "$x" "$zone_bar_y" || { fail "$1: the right click on the empty bar failed"; return; }
+    observed="$(ipc smoke barEmptyObserve "$(bar_key)")" || observed=unreadable
+    if [[ $observed != observing ]]; then
+      fail "$1: the Bar tap observer could not arm: $observed"
+      expect "$1: the failed observer ends" ended ipc smoke barEmptyObserveEnd
+      expect "$1: the failed observer is inactive" inactive ipc smoke barEmptyObservation
+      return
+    fi
+    if hover "$((x + 1))" "$zone_bar_y" && right_click "$x" "$zone_bar_y"; then
+      expect_poll "$1: the existing Bar handler receives the right click" delivered zone_empty_delivered
+      reading="$(ipc smoke barEmptyObservation)" || reading=unreadable
+    else
+      fail "$1: the right click on the empty bar failed"
+      reading=unreadable
+    fi
+    expect "$1: the Bar tap observer ends" ended ipc smoke barEmptyObserveEnd
+    expect "$1: the Bar tap observer is inactive" inactive ipc smoke barEmptyObservation
+    printf 'bar-empty-observation: want=%s screen=%s,%s facts=%s\n' "$2" "$x" "$zone_bar_y" "$reading"
+    geometry expect "$1: the delivered point meets the clipped-child premise" '[]' zone_empty_premise "$x" "$zone_bar_y" "$2" <<<"$reading"
     geometry expect "$1" "$2" zone_ever_true "$depth" ipc smoke readInstance "$(bar_key)" vgs.bar spacerMenuOpen
     type_keys -k Escape || fail "$1: Escape closes the menu"
   }
