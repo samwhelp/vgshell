@@ -64,7 +64,7 @@ function dictationSetup(value, state) {
     if (value.action !== "dictation" || state === null || state.setup === null) return value;
     var setup = state.setup, lines = [];
     if (!setup.compiled) lines.push("The active build cannot use the " + setup.engine + " speech engine.");
-    if (!setup.installed) lines.push("The " + setup.model + " speech model is not installed.");
+    if (!setup.installed) lines.push("The " + setup.model + " dictation speech model is not installed.");
     return lines.length === 0 ? value : Object.assign({}, value, { hint: lines.join(" ") });
 }
 
@@ -98,6 +98,7 @@ function flooredValue(command, missing, outdated) {
 // the causes the daemon publishes, ChainedEngine's one readiness judge, by
 // the step each cause names; the optional ones from their own readers.
 var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", brain: "setupModel" };
+var STEP_NAMES = { setupHome: "Home folder", setupVoice: "Voice", setupModel: "AI model" };
 // What the Voice step and the ElevenLabs voices row say after a failed read
 // of the key's voices (ChainedEngine voicesHeld).
 var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key: check under ElevenLabs API keys that it may read voices, then press Talk";
@@ -282,6 +283,15 @@ function accountAccess(accounts) {
     return { kind: accounts.some(function (account) { return account.signIn === true; }) ? "signed-out" : "absent" };
 }
 
+// The selected account already covers sign-in, including a key or local
+// server that needs no app sign-in. The account reader owns these offers.
+function signInStep(brain, brains) {
+    if (brains === null) return Object.assign({}, CHECKING, { hint: "Jarvis is checking your accounts" });
+    if (brains.some(function (choice) { return choice.value === brain; }))
+        return Object.assign({}, DONE, { hint: "The selected Account is available" });
+    return { tone: "info", text: "Optional", action: true };
+}
+
 // The model row keeps Sign in for a signed-out cause. Otherwise it offers
 // a step only after both readers find no key or signed-in app: Sign in
 // while an app is found signed out, else Add key. Missing reader output
@@ -319,9 +329,12 @@ function readiness(answer) {
                 : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: joinedHint(answer.causes.map(function (cause) { return CAUTION[cause]; })) }
                     : { tone: "warning", text: "Not ready" },
             setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };
+        var open = [];
         blocking.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));
             if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");
+            var name = STEP_NAMES[REQUIRED[step]];
+            if (open.indexOf(name) === -1) open.push(name);
             if (REQUIRED[step] === "setupHome") {
                 out.setupHome = { tone: "warning", text: "To do",
                     hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };
@@ -349,6 +362,7 @@ function readiness(answer) {
                 : { tone: "warning", text: text, hint: hint, action: action };
             if (cause === "brain=pi-update") out[REQUIRED[step]] = noAction(out[REQUIRED[step]]);
         });
+        if (out.setup.tone === "warning") out.setup.hint = "Complete " + open.join(" and ");
         return out;
     }
     throw new Error("jarvis-setup: answer=" + JSON.stringify(answer.kind) + " unexpected");
@@ -542,10 +556,11 @@ function previewCost(provider) {
 // The Agent fleet row (the manifest's setupFleet) for HOME, the home folder
 // the setting names or null, and TOOL, the kendex mail tool Home.mailTool
 // finds there or null: hidden while no home is chosen, which the home row
-// covers, and once the tool is found; else offering its setup, which the
+// covers, and done once the tool is found; else offering its setup, which the
 // core withholds behind the requirement notice while kendex is missing.
 function fleetStep(home, tool) {
-    if (home === null || tool !== null) return { hidden: true };
+    if (home === null) return { hidden: true };
+    if (tool !== null) return DONE;
     return { tone: "info", text: "Optional", action: true };
 }
 

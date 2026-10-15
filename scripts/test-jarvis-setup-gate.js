@@ -277,11 +277,11 @@ const DICTATION = [
     ["state unread", "local", null, [], "", "done", false]
 ];
 // The Agent fleet row: [label, the home folder, the mail tool found in it,
-// whether the row shows].
+// whether the row shows and offers setup].
 const FLEET = [
-    ["no home chosen", null, null, false],
-    ["a home without the mail tool", "/h/Jarvis", null, true],
-    ["a home with the mail tool", "/h/Jarvis", "/h/Jarvis/.agents/skills/orch/scripts/lane-mail", false]
+    ["no home chosen", null, null, false, false],
+    ["a home without the mail tool", "/h/Jarvis", null, true, true],
+    ["a home with the mail tool", "/h/Jarvis", "/h/Jarvis/.agents/skills/orch/scripts/lane-mail", true, false]
 ];
 // The Cloned voice setup row (VGS-1385): [label, setup-local's clone status
 // answer, the voice the daemon runs, the published row's tone and action,
@@ -893,6 +893,33 @@ function accountsPublication(source) {
     const [publish, voice] = ["publish", "publishVoice"].map(name => source.match(new RegExp("^    function " + name + "\\([a-z]*\\) \\{\\n[\\s\\S]*?^    \\}", "m")));
     assert.ok(publish && voice, "the account reader's publication");
     return "(function() { with(root) { root.publishVoice = (" + voice[0] + "); return (" + publish[0] + ").call(root); } })()";
+}
+
+function verifySignIn(gate, accountsSource) {
+    for (const [label, brain, brains, code, tone, offered] of [
+        ["no account selected", "", [], 0, "info", true],
+        ["selected app", "app", [{ value: "app", label: "App" }], 0, "ok", false],
+        ["selected key", "key", [{ value: "key", label: "Key" }], 0, "ok", false],
+        ["selected local server", "local", [{ value: "local", label: "Local" }], 0, "ok", false],
+        ["another account available", "missing", [{ value: "app", label: "App" }], 0, "info", true],
+        ["account read failed", "app", [{ value: "app", label: "App" }], 1, "info", false]
+    ]) {
+        const values = {};
+        const root = { shell: { settings: { ...plain(manifest.settings), brain }, status: { values, set: (key, value) => {
+            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
+            values[key] = value;
+            return "ok";
+        } } }, pending: false, removedFrom: undefined, completion: { kind: "exited", code },
+            diagnostic: { kind: "collected", text: "" }, output: JSON.stringify({ accounts: [], brains, voiceAccounts: [], providers: {}, search: { found: brains.length, partial: "" } }),
+            refreshed: () => {} };
+        vm.runInNewContext(accountsPublication(accountsSource), { root, Gate: gate, Words: words,
+            Providers: { probeFailure: () => "jarvis-accounts: process=failed" }, console: { warn: () => {} } });
+        assert.deepEqual([values.setupSignIn.tone, values.setupSignIn.action], [tone, offered], label + ": sign-in follows the selected account");
+        const row = judge.statusRows(manifest, values).find(item => item.key === "setupSignIn");
+        assert.equal(row.action.offered, offered, label + ": sign-in action");
+        assert.equal(settingsRows(settings.setupSections([], judge.statusRows(manifest, values))).some(item => item.key === "setupSignIn"), false,
+            label + ": sign-in stays off Setup");
+    }
 }
 // The model and effort the daemon gets with no list read.
 function verifyUnlisted(gate, providers, serviceSource) {
@@ -1553,6 +1580,7 @@ function verify(gate) {
     verifyChipTitles(gate);
     verifyTiers(gate);
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
+    verifySignIn(gate, fs.readFileSync(accountsFile, "utf8"));
     verifyVoice(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyModelChoice(require(providersFile));
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
@@ -1591,16 +1619,16 @@ function verify(gate) {
     assert.deepEqual(plain(update), { ok: false, answer: "refused: action=setupModel reason=not-offered" }, "a Pi below its floor offers no step on the AI model row");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: false, answer: "refused: action=browserDriver reason=undeclared" }, "the driver row declares no step");
-    // The Agent fleet row: hidden with no home or once the home's mail tool
-    // is found, else offering its setup terminal, whose press asks for kendex
+    // The Agent fleet row: hidden with no home, done with the home's mail
+    // tool, else offering its setup terminal, whose press asks for kendex
     // or another command that terminal needs first.
-    for (const [label, home, tool, shown] of FLEET) {
+    for (const [label, home, tool, shown, offered] of FLEET) {
         const value = plain(gate.fleetStep(home, tool));
         assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, label + ": the manifest judge accepts the row");
         const row = judge.statusRows(judged, { setupFleet: value }).find(entry => entry.key === "setupFleet");
         assert.equal(row !== undefined, shown, label + ": the row shows");
         if (!shown) continue;
-        assert.deepEqual([row.action.offered, row.action.tui, row.action.label], [true, "setup-fleet", judged.status.setupFleet.action.label],
+        assert.deepEqual([value.tone, row.action.offered, row.action.tui, row.action.label], [offered ? "info" : "ok", offered, offered ? "setup-fleet" : "", judged.status.setupFleet.action.label],
             label + ": the row offers its setup");
         assert.deepEqual(plain(judge.tuiRunFor(judged, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-fleet", ["kendex"])),
             { ok: true, kind: "install", commands: ["kendex"] }, label + ": its press without kendex asks for it");
@@ -1758,9 +1786,11 @@ const CONTROLS = [
     ["a ready clone hint has more than one sentence", 'var CLONE_READY_HINT = "Jarvis speaks in this voice while Cloned voice is on";',
         'var CLONE_READY_HINT = "The recording is ready. Jarvis speaks in this voice while Cloned voice is on.";'],
     ["a failed clone read offers a boolean", 'var action = value.action === true ? "setup" : value.action;', "var action = value.action;", "a failed read offers setup"],
-    ["the fleet row shows with no home", "if (home === null || tool !== null)", "if (tool !== null)", "no home chosen: the row shows"],
-    ["the fleet row shows once the tool is found", "if (home === null || tool !== null)", "if (home === null)", "a home with the mail tool: the row shows"],
-    ["the fleet row offers no setup", 'return { tone: "info", text: "Optional", action: true };', 'return { tone: "info", text: "Optional", action: false };'],
+    ["the fleet row shows with no home", "if (home === null)", "if (false)", "no home chosen: the row shows"],
+    ["the fleet row hides once the tool is found", "if (tool !== null) return DONE;", "if (tool !== null) return { hidden: true };", "a home with the mail tool: the row shows"],
+    ["the fleet row offers no setup", 'if (tool !== null) return DONE;\n    return { tone: "info", text: "Optional", action: true };', 'if (tool !== null) return DONE;\n    return { tone: "info", text: "Optional", action: false };'],
+    ["a selected account still offers sign-in", 'if (brains.some(function (choice) { return choice.value === brain; }))', 'if (false)', "sign-in follows the selected account"],
+    ["an unread account offers sign-in", 'if (brains === null) return Object.assign({}, CHECKING, { hint: "Jarvis is checking your accounts" });', 'if (brains === null) return { tone: "info", text: "Optional", action: true };', "sign-in follows the selected account"],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'else if (typeof value.action !== "string") withheld.action = false;', 'else withheld.action = value.action;'],
     ["a withheld named action reads false", 'if (value.action === "dictation") withheld.action = "dictation";\n    else if (typeof value.action !== "string") withheld.action = false;', 'withheld.action = false;', "accepted status setupVoice"],
@@ -2154,7 +2184,7 @@ try {
             const result = run("status", setting);
             assert.equal(result.status, 0, result.stderr);
             const value = JSON.parse(result.stdout);
-            return value.hidden === true ? "hidden" : value.action === true ? "offered" : "other";
+            return value.hidden === true ? "hidden" : value.action === true ? "offered" : value.tone === "ok" && value.action === false ? "done" : "other";
         };
         const answer = (verb, setting) => {
             const result = run(verb, setting);
@@ -2173,7 +2203,7 @@ try {
         fs.writeFileSync(tool, "#!/bin/sh\n", { mode: 0o755 });
         assert.equal(status("~/Jarvis"), "offered", "a home that is no repository of its own still needs its setup");
         fs.mkdirSync(path.join(folder, ".git"));
-        assert.equal(status("~/Jarvis"), "hidden", "a home with the mail tool needs no setup");
+        assert.equal(status("~/Jarvis"), "done", "a home with the mail tool needs no setup");
         assert.deepEqual(answer("tool", "~/Jarvis"), [0, tool + "\n"]);
         assert.deepEqual(answer("bogus", "~/Jarvis"), [2, "jarvis: fleet-setup=arguments\n"]);
         // The release: the files VGS's record names go, with the record; the
@@ -2257,7 +2287,7 @@ console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.lengt
 // draws its button, whose press the core turns into that terminal, kendex
 // missing or not: the press asks for it first.
 function verifySetupButtons(gate, manifest) {
-    for (const [label, home, tool, shown] of FLEET)
+    for (const [label, home, tool, shown, offered] of FLEET)
         for (const missing of [[], ["kendex"]]) {
             const tuis = judge.listedTuis(manifest);
             assert.equal(tuis.some(tui => tui.name === "setup-fleet"), false, label + ": the launcher lists no fleet setup");
@@ -2266,9 +2296,10 @@ function verifySetupButtons(gate, manifest) {
             const steps = settingsRows(settings.setupSections(tuis, status));
             assert.equal(steps.some(item => item.key === "setupFleet"), false, label + ": optional fleet setup stays off Setup");
             const row = settingActionRows(manifest, tuis, status).find(item => item.key === "setupFleet");
-            assert.equal(row !== undefined && row.button !== null, shown,
+            assert.equal(row !== undefined, shown, label + ": the fleet row stays visible");
+            assert.equal(row !== undefined && row.button !== null, offered,
                 label + ": only the shown Settings fleet row draws its action, missing " + missing);
-            if (shown)
+            if (offered)
                 assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
                     label + ": the row's press opens the fleet setup");
         }
@@ -2567,7 +2598,7 @@ function verifyPathForm(gate) {
         ["home=link", "vgs.jarvis", "Settings"],
         ["home=path", "vgs.jarvis", "Settings"]]) {
         const values = gate.readiness({ kind: "answered", causes: [cause] });
-        const hint = Object.values(values).find(value => value.hint !== undefined).hint;
+        const hint = Object.entries(values).find(([key, value]) => key !== "setup" && value.hint !== undefined)[1].hint;
         const reference = pageReference.parse(hint);
         assert.deepEqual([reference.page, reference.tab], [page, tab], cause + ": the converted hint links its tab");
         assert.ok(hint.length <= judge.STATUS_HINT_MAX && oneSentence(hint), cause + ": a converted hint fits as one sentence");

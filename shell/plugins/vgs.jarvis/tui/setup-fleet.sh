@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The core opens this script from the plugin's published snapshot, from the
-# Agent fleet row's Install kendex, once gum, node, git and kendex are found.
+# Agent fleet row's Install mail tool, once gum, node, git and kendex are found.
 # In the Jarvis home folder the settings name, it makes the folder a git
 # repository of its own where it is none, then installs kendex's orch skill,
 # whose mail tool Jarvis hands a fleet request with, and leaves the files it
@@ -12,12 +12,12 @@ source "$VGS_TUI_LIB"
 log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
 [[ $# == 0 ]] ||
   vgs_tui_refuse "$log" 2 "jarvis: fleet-setup=arguments" \
-    "Open Install kendex from the Jarvis page in Settings." || exit
+    "Open Install mail tool from the Jarvis page in Settings." || exit
 lib="$VGS_TUI_LIB"
 tree="${lib%/bin/lib/tui.sh}"
 [[ $tree != "$lib" && -n ${VGS_PLUGIN_ID:-} && -n ${VGS_PLUGIN_DIR:-} ]] ||
   vgs_tui_refuse "$log" 2 "jarvis: fleet-setup=tui=missing" \
-    "Open Install kendex from the Jarvis page in Settings." || exit
+    "Open Install mail tool from the Jarvis page in Settings." || exit
 vgs_tui_lock jarvis-fleet-setup
 vgs_tui_header "Set up the agent fleet" "Installs the kendex mail tool in the Jarvis home folder." \
   "Jarvis then hands a request for your agent fleet to your Jarvis session."

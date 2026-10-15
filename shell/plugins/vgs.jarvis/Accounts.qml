@@ -192,7 +192,7 @@ Item {
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
                 || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok"
-                || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
+                || shell.status.set("setupSignIn", Gate.signInStep(shell.settings.brain, value.brains)) !== "ok") throw new Error("status");
             publishVoice(value.voiceAccounts);
         } catch (error) {
             modelAccess = { kind: "checking" };
@@ -203,7 +203,7 @@ Item {
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
                 shell.status.set("copilotMemory", Gate.copilotMemory([])), shell.status.set("voiceKey", Gate.voiceKey(null, shell.settings)),
-                shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true })];
+                shell.status.set("setupSignIn", Gate.signInStep(shell.settings.brain, null))];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }
         refreshed();
