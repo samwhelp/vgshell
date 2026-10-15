@@ -8,7 +8,9 @@ import "Steps.js" as Steps
 // Enums of at most three options use SegmentedControl because each choice
 // fits in one row. Larger enums and status-fed strings use Select. Both
 // draw an enum option's label and write its value. String
-// and number presets use Select. When custom values are allowed, Custom…
+// and number presets use Select. A string's separator makes its presets
+// independently checked menu entries that keep their joined string value.
+// When custom values are allowed, Custom…
 // follows the presets or the published choices, and a configured value no
 // row holds shows under it; for a status-fed string "" is the unset value,
 // never a custom one. A custom datetime string validates before it writes.
@@ -48,12 +50,15 @@ Column {
     readonly property int segmentedLimit: 3 // More choices read better in a vertical Select list.
     readonly property bool bounded: spec.type === "number" && spec.min !== undefined && spec.max !== undefined
     readonly property bool hasPresets: spec.presets !== undefined && Array.isArray(spec.presets)
+    readonly property bool multiple: spec.separator !== undefined
+    readonly property var selectedTokens: multiple && heldText !== "" ? heldText.split(spec.separator) : []
+    readonly property bool knownSelection: multiple && selectedTokens.every(token => offerIndex(token) >= 0)
     readonly property bool statusFed: spec.optionsFrom !== undefined
     // The row of an enum's options that holds the value, or -1.
     readonly property int optionIndex: spec.type === "enum" ? spec.options.findIndex(option => option.value === value) : -1
     readonly property bool allowCustom: (hasPresets || statusFed) && spec.allowCustom === true
     readonly property int selectedOfferIndex: offerIndex(value)
-    readonly property bool customVisible: allowCustom && (customChosen || (selectedOfferIndex < 0 && !(statusFed && value === "")))
+    readonly property bool customVisible: allowCustom && (customChosen || (multiple ? !knownSelection : selectedOfferIndex < 0 && !(statusFed && value === "")))
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: Steps.settingHint(spec, status)
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
@@ -103,7 +108,7 @@ Column {
     onSpecChanged: rebuildPresetModel()
     onChoicesChanged: rebuildPresetModel()
     onValueChanged: {
-        if (offerIndex(value) >= 0) customChosen = false;
+        if (multiple ? knownSelection : offerIndex(value) >= 0) customChosen = false;
         if (loader.item === null || loader.item.listOpen !== true) rebuildPresetModel();
     }
 
@@ -138,6 +143,13 @@ Column {
         return -1;
     }
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
+
+    // Only the clicked token changes. Unknown tokens and their order survive.
+    function togglePreset(token) {
+        if (!editable) return;
+        const next = selectedTokens.indexOf(token) >= 0 ? selectedTokens.filter(held => held !== token) : selectedTokens.concat([token]);
+        root.apply(next.join(spec.separator));
+    }
 
     function openDescriptionLink() { openLink(spec.link); }
     function openDescriptionPage(page, tab) { openPage(page, tab); }
@@ -190,6 +202,7 @@ Column {
             sourceComponent: root.spec.type === "action" ? null : root.spec.type === "boolean" ? toggle
                 : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
+                : root.multiple ? multipleChoice
                 : root.hasPresets ? presetChoice
                 : root.bounded ? slider
                 : text
@@ -349,6 +362,44 @@ Column {
                 onActivated: index => {
                     currentIndex = Qt.binding(() => root.optionIndex);
                     root.apply(root.spec.options[index].value);
+                }
+            }
+        }
+    }
+
+    Component {
+        id: multipleChoice
+        Button {
+            id: selection
+            width: parent.width
+            variant: "secondary"
+            iconName: "chevron-down"
+            readonly property bool listOpen: menu.opened
+            text: !root.knownSelection ? "Custom…" : root.selectedTokens.length === 0 ? "Choose…"
+                : root.selectedTokens.length > 2 ? root.selectedTokens.length + " selected"
+                : root.selectedTokens.map(token => {
+                    const preset = root.spec.presets[root.offerIndex(token)];
+                    return preset.label === undefined ? token : preset.label;
+                }).join(", ")
+            disabledReason: root.editable ? "" : "Turn on this plugin to change its settings."
+            onClicked: menu.toggle(KeyNavLogic.opener(selection))
+
+            Menu {
+                id: menu
+                Repeater {
+                    model: root.spec.presets
+                    MenuItem {
+                        required property var modelData
+                        text: modelData.label === undefined ? modelData.value : modelData.label
+                        checked: root.selectedTokens.indexOf(modelData.value) >= 0
+                        keepsOpen: true
+                        onTriggered: root.togglePreset(modelData.value)
+                    }
+                }
+                MenuItem {
+                    text: "Custom…"
+                    visible: root.allowCustom
+                    onTriggered: root.customChosen = true
                 }
             }
         }

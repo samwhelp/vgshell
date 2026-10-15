@@ -548,6 +548,26 @@ function suite(ctx, configLogic, check) {
         const r = ctx.validateManifest(raw, "/p");
         check("validateManifest: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want === null ? null : want);
     }
+    // Capture declares atomic presets but keeps joined and custom strings.
+    const joined = { type: "string", label: "Languages", separator: "+", allowCustom: true, presets: [{ value: "eng" }, { value: "deu" }, { value: "fra" }] };
+    for (const [name, patch, value, accepted] of [
+        ["joined value", {}, "deu+fra", true],
+        ["custom value", {}, "fra+lat+deu", true],
+        ["empty selection", {}, "", true],
+        ["separator type", { separator: 2 }, "eng", false],
+        ["empty separator", { separator: "" }, "eng", false],
+        ["separator control character", { separator: "\n" }, "eng", false],
+        ["setting type", { type: "number", presets: [{ value: 2 }] }, 2, false],
+        ["dynamic choices", { presets: undefined, optionsFrom: "languages" }, "eng", false],
+        ["custom values required", { allowCustom: false }, "eng", false],
+        ["formatted string", { format: "datetime" }, "eng", false],
+        ["empty atom", { presets: [{ value: "", label: "Empty" }] }, "eng", false],
+        ["joined atom", { presets: [{ value: "eng+deu" }] }, "eng", false],
+        ["duplicate atom", { presets: [{ value: "eng" }, { value: "eng" }] }, "eng", false]
+    ]) {
+        const raw = Object.assign({}, svc, { capabilities: ["status"], status: { languages: { type: "choices", label: "Languages" } }, settings: { languages: value }, schema: { languages: Object.assign({}, joined, patch) } });
+        check("joined presets: " + name, ctx.validateManifest(raw, "/p").ok, accepted);
+    }
     // A shipped manifest the judge accepts is refused once a full stop is
     // planted on one of its one-sentence hints, a list item's description.
     const trayFile = path.join(__dirname, "..", "shell", "plugins", "vgs.tray", "manifest.json");
@@ -2025,6 +2045,7 @@ suite(load(LOGIC), load(CONFIG), report);
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["joined presets refuse a combined atom", "preset.value.indexOf(entry.separator) !== -1", "false"],
     ["action field refuses stored values", 'if (hasOwn(settings, key)) return at + " is an action field and stores no value";', 'if (false) return at + " is an action field and stores no value";'],
     ["action field refuses writes", 'if (entry.type === "action") return "want=action-no-value";', 'if (entry.type === "action") return "";'],
     ["manifest invokes page judge", 'if (badPlacement !== "") return { ok: false, error: badPlacement };', 'if (false) return { ok: false, error: badPlacement };'],

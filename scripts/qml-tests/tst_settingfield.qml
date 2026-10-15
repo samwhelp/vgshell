@@ -193,6 +193,18 @@ Item {
 
     Component { id: shippedField; SettingField { pluginId: "vgs.capture" } }
 
+    SettingField {
+        id: languages
+        x: 480
+        y: 350
+        width: 420
+        key: "languages"
+        spec: ({ type: "string", label: "Languages", separator: "+", allowCustom: true, presets: [{ value: "eng", label: "English" }, { value: "deu", label: "German" }, { value: "fra", label: "French" }] })
+        value: "eng"
+        property bool acceptWrites: true
+        onApply: wanted => { root.applied.push(wanted); if (acceptWrites) value = wanted; }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -209,6 +221,10 @@ Item {
             pageFed.value = "";
             pageFed.customChosen = false;
             page.contentY = 0;
+            languages.acceptWrites = true;
+            languages.editable = true;
+            languages.value = "eng";
+            languages.customChosen = false;
             Time.now = new Date(2026, 8, 30, 20, 34, 0);
         }
 
@@ -290,6 +306,66 @@ Item {
 
         function selectOf(item) {
             return descendants(item).find(child => String(child).indexOf("Select") === 0);
+        }
+
+        function languageMenu() {
+            const button = descendants(languages).find(child => String(child).indexOf("Button") === 0 && child.listOpen !== undefined);
+            verify(button !== undefined, "joined presets draw the button editor");
+            return descendants(button).find(child => typeof child.items === "function" && typeof child.toggle === "function");
+        }
+
+        function checkedLanguages(menu) {
+            return menu.items().filter(item => item.checked).map(item => item.modelData.value);
+        }
+
+        function test_joined_values_load_without_writes_data() {
+            return [
+                { tag: "saved pair", value: "deu+fra", checked: ["deu", "fra"], custom: false },
+                { tag: "old pair", value: "eng+deu", checked: ["eng", "deu"], custom: false },
+                { tag: "custom order", value: "fra+lat+deu", checked: ["deu", "fra"], custom: true },
+                { tag: "empty", value: "", checked: [], custom: false }
+            ];
+        }
+
+        function test_joined_values_load_without_writes(data) {
+            languages.value = data.value;
+            compare(checkedLanguages(languageMenu()), data.checked);
+            compare(languages.customVisible, data.custom);
+            compare(root.applied, []);
+            compare(languages.value, data.value);
+        }
+
+        function test_language_ticks_write_joined_values_and_keep_the_menu_open() {
+            const menu = languageMenu();
+            menu.open("key");
+            try {
+                menu.items()[0].clicked();
+                menu.items()[1].clicked();
+                menu.items()[2].clicked();
+                compare(root.applied, ["", "deu", "deu+fra"]);
+                compare(languages.value, "deu+fra");
+                compare(checkedLanguages(menu), ["deu", "fra"]);
+                compare(languages.customVisible, false);
+                compare(menu.opened, true);
+                menu.move(1);
+                compare(root.applied, ["", "deu", "deu+fra"]);
+            } finally { menu.close(); }
+        }
+
+        function test_language_ticks_preserve_custom_order_and_refused_writes() {
+            const menu = languageMenu();
+            languages.value = "fra+lat+deu";
+            menu.items()[1].clicked();
+            menu.items()[0].clicked();
+            compare(languages.value, "fra+lat+eng");
+            compare(root.applied, ["fra+lat", "fra+lat+eng"]);
+            languages.acceptWrites = false;
+            menu.items()[2].clicked();
+            compare(languages.value, "fra+lat+eng");
+            compare(checkedLanguages(menu), ["eng", "fra"]);
+            languages.editable = false;
+            menu.items()[0].clicked();
+            compare(root.applied, ["fra+lat", "fra+lat+eng", "lat+eng"]);
         }
 
         function test_a_short_enum_draws_labels_and_writes_values() {

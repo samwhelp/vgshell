@@ -45,9 +45,10 @@ var NOTIFY_RUNS_MAX = 8;
 var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 
 // The types a settings schema entry may declare, and the keys an entry may
-// carry. `presets`, `allowCustom`, `format` and `unit` choose the Settings
+// carry. `presets`, `separator`, `allowCustom`, `format` and `unit` choose the Settings
 // editor, `allowCustom` a Custom… row after a presets or `optionsFrom`
-// select's choices; `min`, `max` and `step` bound a number's control;
+// select's choices; `separator` joins independently checked string presets,
+// with custom values preserved; `min`, `max` and `step` bound a number's control;
 // `group` names the section heading the entry is drawn under;
 // `placeholder` is what an `optionsFrom` select reads while its value is
 // "", which then means nothing is chosen; `hideEmpty` leaves an
@@ -57,7 +58,7 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "tooltip", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var OPTION_KEYS = ["value", "label"];
@@ -467,6 +468,15 @@ function schemaError(schema, settings, status) {
             return at + ".format needs presets";
         if (entry.type === "string" && entry.presets === undefined && entry.optionsFrom === undefined)
             return at + " with type string must declare presets or optionsFrom";
+        if (entry.separator !== undefined) {
+            if (entry.type !== "string" || entry.presets === undefined || entry.optionsFrom !== undefined)
+                return at + ".separator needs static string presets";
+            if (typeof entry.separator !== "string" || entry.separator.length === 0 || SettingValues.CONTROL_OR_SEPARATOR.test(entry.separator))
+                return at + ".separator must be a non-empty printable string";
+            // Joined selections and existing custom strings use the same value judge.
+            if (entry.allowCustom !== true || entry.format !== undefined)
+                return at + ".separator needs allowCustom true and no format";
+        }
         if (entry.presets !== undefined) {
             if (entry.type !== "string" && entry.type !== "number")
                 return at + ".presets needs type string or number";
@@ -496,6 +506,8 @@ function schemaError(schema, settings, status) {
                 var badPreset = settingError(Object.assign({}, entry, { allowCustom: true }), preset.value);
                 if (badPreset !== "")
                     return presetAt + ".value does not fit its schema: " + badPreset;
+                if (entry.separator !== undefined && (preset.value.length === 0 || preset.value.indexOf(entry.separator) !== -1))
+                    return presetAt + ".value must be non-empty and contain no separator";
             }
         }
         if (entry.allowCustom !== undefined) {
