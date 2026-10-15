@@ -984,7 +984,7 @@ function mailCutover(home) {
             chain === null ? "absent" : kindOf(chain[chain.length - 1], path.basename(name)));
         if (!["absent", "file", "directory"].includes(kindOf(fd, OWN_REPOSITORY))) return "refused";
         if (entry(MAIL_TOOL) !== "absent") return "refused";
-        const old = [".agents", "skills", "orch", "scripts", "lane-mail"].join("/");
+        const old = MAIL_TOOL.replace("/mailbox/", "/orch/");
         return entry(old) === "file" ? "eligible" : "ineligible";
     } finally { fs.closeSync(fd); }
 }

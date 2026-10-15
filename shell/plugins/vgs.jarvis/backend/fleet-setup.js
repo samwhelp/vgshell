@@ -83,7 +83,7 @@ function packageInstall(folder) {
 async function main() {
     const [flag, tree, verb, setting, ...rest] = process.argv.slice(2);
     if (flag !== "--tree" || !path.isAbsolute(tree || "")
-            || !["status", "folder", "tool", "release", "manual", "automatic-worker", "manual-worker", "install-worker"].includes(verb)
+            || !["status", "folder", "tool", "manual", "automatic-worker", "manual-worker", "install-worker"].includes(verb)
             || typeof setting !== "string" || rest.length > 0) fail("arguments");
     require("./Core.js").use(tree);
     let folder = null;
@@ -111,12 +111,6 @@ async function main() {
             process.removeListener("SIGTERM", cancel);
             process.removeListener("SIGINT", cancel);
         }
-    }
-    if (verb === "release") {
-        if (folder === null) fail("home-unchosen");
-        try { Home.release(folder); }
-        catch (error) { fail("release-failed " + error.message); }
-        return 0;
     }
     const tool = folder === null ? null : Home.mailTool(folder);
     if (verb === "status") {

@@ -23,6 +23,7 @@ async function verify(daemon, tree, hello) {
     program("kendex", `const fs=require('node:fs'), cp=require('node:child_process');
 fs.appendFileSync('calls',JSON.stringify(process.argv.slice(2))+'\\n');
 if(fs.existsSync('require-consumed') && fs.readFileSync('${marker}','utf8')!=='{"consumed":true}\\n') process.exit(42);
+if(fs.existsSync('require-released') && (fs.existsSync('.vgs-package.json') || fs.existsSync('.claude/agents/owned.md'))) process.exit(44);
 if(fs.existsSync('fail')) process.exit(43);
 if(fs.existsSync('hold')) {
  const child=cp.spawn(process.execPath,['-e',"const fs=require('node:fs');fs.writeFileSync('descendant',fs.readFileSync('/proc/self/stat','utf8').split(' ')[0]);setInterval(()=>{},1000)"],{detached:true,env:{},stdio:'ignore'});
@@ -65,7 +66,15 @@ function finish(){fs.mkdirSync('${path.dirname(canonical)}',{recursive:true});fs
     assert.equal(fs.existsSync(path.join(ready, marker)), false);
     const old = home();
     fs.writeFileSync(path.join(old, "require-consumed"), "");
+    fs.writeFileSync(path.join(old, "require-released"), "");
+    fs.mkdirSync(path.join(old, ".claude/agents"), { recursive: true });
+    fs.writeFileSync(path.join(old, ".claude/agents/owned.md"), "owned");
+    fs.writeFileSync(path.join(old, ".claude/agents/mine.md"), "mine");
+    fs.writeFileSync(path.join(old, ".vgs-package.json"), JSON.stringify({ files: [".claude/agents/owned.md"] }));
     okay(await install(old, true));
+    assert.equal(fs.readFileSync(path.join(old, ".claude/agents/mine.md"), "utf8"), "mine");
+    assert.equal(fs.existsSync(path.join(old, ".vgs-package.json")), false);
+    assert.equal(fs.existsSync(path.join(old, ".claude/agents/owned.md")), false);
     assert.equal(Home.mailTool(old), path.join(old, canonical));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(old, "calls"), "utf8")), ["add", "vanillagreencom/kendex", "--skill", "orch", "--yes", "--leave"]);
     okay(await install(old, true));

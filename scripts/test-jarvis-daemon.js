@@ -312,6 +312,17 @@ async function inside() {
     }
     const fleet = require("./fixtures/jarvis/fleet.js");
     await fleet.verify(daemon, tree, hello);
+    {
+        const copy = daemonCopy("fleet-release");
+        const module = path.join(path.dirname(copy), "fleet-setup.js");
+        const source = fs.readFileSync(module, "utf8");
+        const needle = "    try { Home.release(folder); }";
+        assert.equal(source.split(needle).length, 2);
+        fs.writeFileSync(module, source.replace(needle, "    try { void Home; }"));
+        await assert.rejects(() => fleet.verify(copy, tree, hello), assert.AssertionError);
+        controls++;
+        console.log("control=fleet-installer-release detected");
+    }
     await control("fleet-first-hello", "                if (first) startFleetCutover();", "                startFleetCutover();", file => fleet.verify(file, tree, hello));
     await control("fleet-selected-home", "            if (Home.resolve(context.settings.home, process.env.HOME) !== target) return;", "", file => fleet.verify(file, tree, hello));
     await homeStatus(daemon);
