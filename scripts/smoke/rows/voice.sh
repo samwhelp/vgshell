@@ -1347,6 +1347,7 @@ cp -- "$sandbox/voice-pending-before" "$voice_pending_file"
 rescan "the shipped Voice correction branch is scanned again"
 expect "enabling Voice after the pending correction control is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the restored service reads the continuing child failure" "failed idle -" voice_state
+: >"$sandbox/voxtype-loading"
 rm -f -- "${sandbox:?}/voxtype-daemon-fail"
 settings_page_open vgs.voice
 settings_setup
@@ -1356,6 +1357,12 @@ expect "Set up after the ended daemon is answered" ok settings_act vgs.voice set
 expect_poll "Set up hands the terminal core/dictation-setup again" "$(core_words core/dictation-setup "Set up dictation" org.vgs.tui dictation setup)" recorded
 expect_run_end "the second dictation setup run ends" core/dictation-setup
 expect_poll "the second setup run's end starts a daemon" started voice_noted
+expect_poll "repaired setup keeps the child starting while its model loads" "starting idle -" voice_state
+voice_setup_pending() { ipc smoke readInstance service vgs.voice dictationState | py_reply 'import json,sys; d=json.load(sys.stdin); s=d["setup"]; print(d["daemon"], s["compiled"], s["installed"])'; }
+expect "the pending child already has completed engine and model readings" 'starting True True' voice_setup_pending
+voice_setup_phase() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps([s["tone"], s["action"], s["lines"]]))'; }
+expect "pending setup publishes information without a failure or action" '["info", "", []]' voice_setup_phase
+rm -f -- "${sandbox:?}/voxtype-loading"
 expect_poll "the Setup section reads Ready again" "$voice_setup_ready" voice_setup_section
 expect_poll "the three dictation shortcuts and the release companion are registered after setup" 4 voice_shortcuts
 expect_poll "the daemon reads idle before the test dictation" "ready idle -" voice_state

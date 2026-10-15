@@ -75,6 +75,7 @@ function setupState(reads, daemon) {
     if (!reads.installed) lines.push("The " + model + " speech model is not installed.");
     if (DAEMON_LINES[daemon] !== "" && (daemon !== "absent" || lines.length === 0)) lines.push(DAEMON_LINES[daemon]);
     if (lines.length > 0) return { tone: "warning", text: "To do", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
+    if (daemon === "starting") return { tone: "info", text: "Checking", lines: [], action: "", engine: engine, model: model };
     var version = versionOf(reads.version || "");
     var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
     return { tone: "ok", text: "Ready", lines: [summary], action: "", engine: engine, model: model };

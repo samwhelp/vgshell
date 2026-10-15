@@ -43,7 +43,8 @@ function verifyStartCorrection(source, manifest) {
     ["ready daemon", "ready", readsReady, "ok", "", ""],
     ["another holder", "ready", readsReady, "refused: dictation=busy holder=acme.dictation", "", ""],
     ["transcribing", "ready", readsReady, "refused: dictation=engine-busy state=transcribing", "", ""],
-    ["starting daemon", "starting", null, "refused: dictation=daemon-starting", "Setup", "", "info"]
+    ["starting daemon", "starting", null, "refused: dictation=daemon-starting", "Setup", "", "info"],
+    ["starting daemon after setup read", "starting", readsReady, "refused: dictation=daemon-starting", "Setup", "", "info"]
   ]) {
     const pages = [], starts = [], stops = [], warnings = [], handlers = {}, values = {};
     const world = { VoiceLogic: logic, registeredWith: null, voxtypePresent: true,
@@ -107,7 +108,7 @@ function verifyRefreshSetup(logic, source) {
   for (const [label, initial, states] of [
     ["cold read failure", { tone: "info", action: "" }, [["starting", null, "info", ""], ["failed", null, "warning", "setup"]]],
     ["restart read failure", ready, [["starting", null, "info", ""], ["failed", null, "warning", "setup"]]],
-    ["restart completes", ready, [["starting", null, "info", ""], ["ready", readsReady, "ok", ""]]]
+    ["restart completes", ready, [["starting", null, "info", ""], ["starting", readsReady, "info", ""], ["ready", readsReady, "ok", ""]]]
   ]) {
     const published = [];
     const world = { VoiceLogic: logic, voxtypePresent: true, dictationState: null, daemon: "", setupValue: initial };
@@ -162,7 +163,8 @@ function verify(logic) {
     ["a failed setup read offers recovery", null, "failed", "warning", "setup", 1, null],
     ["ready reads the version and the model", readsReady, "ready", "ok", "", 1, "1.1.0"],
     ["ready names the configured model", readsReady, "ready", "ok", "", 1, "parakeet-tdt-0.6b-v3"],
-    ["a daemon that is starting adds no line", readsReady, "starting", "ok", "", 1, "1.1.0"],
+    ["completed setup stays pending until the child is ready", readsReady, "starting", "info", "", 0, null],
+    ["real missing prerequisites keep their warning while starting", readsMissing, "starting", "warning", "setup", 2, null],
     ["every missing thing is a line", readsMissing, "failed", "warning", "setup", 3, null],
     ["no daemon is not ready", readsReady, "absent", "warning", "setup", 1, null],
     ["a daemon the shell did not start offers to stop it", readsReady, "elsewhere", "warning", "stop", 1, null],
@@ -190,8 +192,8 @@ function verify(logic) {
   assert.throws(() => logic.setupState(readsReady, "paused"), "a daemon word the capability does not have is refused");
   assert.equal(logic.versionOf("voxtype 1.1.0\n"), "1.1.0", "the version is read from --version");
   assert.equal(logic.versionOf("voxtype\n"), "", "no version reads empty");
-  const configured = logic.setupState(Object.assign({}, readsReady, { model: "configured" }), "starting");
-  same(logic.modelData(lent("starting", "idle", ""), configured), { engine: "parakeet", model: "configured" }, "the Model row reads the configured engine and model before a daemon names its own");
+  const configured = logic.setupState(Object.assign({}, readsReady, { engine: "whisper", model: "configured" }), "starting");
+  same(logic.modelData(lent("starting", "idle", ""), configured), { engine: "whisper", model: "configured" }, "the Model row reads the configured engine and model before a daemon names its own");
   same(logic.modelData(Object.assign(lent("ready", "idle", ""), { engine: "whisper", model: "base.en" }), configured), { engine: "whisper", model: "base.en" }, "the Model row reads the running daemon's engine and model");
 
   // Lines in the shape voxtype-audio-bridge prints (voxtype-shared README, AudioBridge).
@@ -304,6 +306,7 @@ function verify(logic) {
 verify(load(file));
 
 const controls = [
+  ["complete setup reports success before child readiness", '    if (daemon === "starting") return { tone: "info", text: "Checking", lines: [], action: "", engine: engine, model: model };\n', ""],
   ["voxtype missing names the page in plain words", "Install it on the [Voice page](page:vgs.voice/Setup).", "Install it on the Voice Settings page."],
   ["a linked config links to the Details tab", "Use Configure on the [Voice page](page:vgs.voice/Settings).", "Use Configure on the [Voice page](page:vgs.voice/Details)."],
   ["the phase is read whatever the holder", "if (state.holder === HOLDER) return { own: true, phase: state.phase };", "if (state.holder !== \"\") return { own: true, phase: state.phase };"],
