@@ -438,7 +438,7 @@ selftest_overseer() { # HOME
 # session runs: each row no read handed over before, one JSON object a line.
 # The read moves the mailbox's cursor, and a first read makes the mailbox.
 selftest_mailbox() { # TREE HOME
-  env -i PATH="$PATH" "$BASH" "$1/.agents/skills/orch/scripts/lane-mail" inbox --item overseer --root "$2"
+  env -i PATH="$PATH" "$BASH" "$1/.agents/skills/mailbox/scripts/lane-mail" inbox --item overseer --root "$2"
 }
 
 # selftest_daemon WANT_JSON: `applied` once the Jarvis service on stdin, the

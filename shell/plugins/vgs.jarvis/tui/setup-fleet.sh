@@ -18,7 +18,6 @@ tree="${lib%/bin/lib/tui.sh}"
 [[ $tree != "$lib" && -n ${VGS_PLUGIN_ID:-} && -n ${VGS_PLUGIN_DIR:-} ]] ||
   vgs_tui_refuse "$log" 2 "jarvis: fleet-setup=tui=missing" \
     "Open Install mail tool from the Jarvis page in Settings." || exit
-vgs_tui_lock jarvis-fleet-setup
 vgs_tui_header "Set up the agent fleet" "Installs the kendex mail tool in the Jarvis home folder." \
   "Jarvis then hands a request for your agent fleet to your Jarvis session."
 
@@ -45,29 +44,9 @@ fi
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=home-absent" \
     "The home folder is not there. Turn Jarvis on so it makes the folder, then try again." || exit
 
-# lane-mail finds its mailbox in the repository its working folder belongs
-# to, so the home is a repository of its own.
-real="$(cd -- "$folder" && pwd -P)"
-top="$(git -C "$folder" rev-parse --show-toplevel 2>/dev/null || :)"
-if [[ -z $top || "$(cd -- "$top" && pwd -P)" != "$real" ]]; then
-  vgs_tui_confirm "Make the home folder a git repository of its own?" || exit 130
-  vgs_tui_logged "$log" git -C "$folder" init ||
-    vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=git-init-failed" \
-      "VGS could not make the home folder a git repository." || exit
-fi
-vgs_tui_confirm "Install the kendex mail tool in the home folder?" || exit 130
-# kendex installs no file over one it did not write, so the Jarvis package
-# files VGS wrote leave first; Jarvis writes again what kendex does not take.
-helper release ||
-  vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=release-failed" \
-    "VGS could not make room for kendex in the home folder." || exit
-# --yes asks nothing more after the confirm above; --leave keeps the files
-# kendex writes uncommitted, for the user to review.
-(cd -- "$folder" && vgs_tui_logged "$log" kendex add vanillagreencom/kendex --skill orch --yes --leave) ||
+vgs_tui_confirm "Set up this home folder and install the kendex mail tool?" || exit 130
+helper manual ||
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=install-failed" \
-    "kendex could not install its mail tool." "Check your internet connection, then try again." || exit
-helper tool >/dev/null ||
-  vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=still-missing" \
-    "kendex finished, but Jarvis cannot find its mail tool in the home folder." || exit
+    "VGS could not install the mail tool." "Check the setup log, then try again." || exit
 vgs_tui_step "Agent fleet ready"
 vgs_tui_success "Jarvis offers fleet requests once your Jarvis session reads this folder's mail."

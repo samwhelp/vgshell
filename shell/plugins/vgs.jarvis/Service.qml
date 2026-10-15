@@ -825,6 +825,7 @@ Item {
                 }
                 if (message.type === "homes") {
                     publishHomes(message);
+                    fleetRuntime.refresh();
                     continue;
                 }
                 if (message.type === "voices") {
@@ -1124,7 +1125,7 @@ Item {
         onRefreshed: root.hello()
     }
     Jarvis.BrowserRuntime { shell: root.shell }
-    Jarvis.FleetRuntime { shell: root.shell }
+    Jarvis.FleetRuntime { id: fleetRuntime; shell: root.shell }
     // The Setup summary names a session that cannot start.
     Jarvis.SessionStart { id: sessionStart; shell: root.shell; onResultChanged: root.publishShellSetup() }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }

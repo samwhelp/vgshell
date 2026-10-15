@@ -241,7 +241,7 @@ world(async () => {
     // three.
     const jarvis = path.join(home, "work/jarvis");
     const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml",
-        "tmp/lane-mail/overseer/to-lane.jsonl", ".agents/skills/orch/scripts/lane-mail"];
+        "tmp/lane-mail/overseer/to-lane.jsonl", ".agents/skills/mailbox/scripts/lane-mail"];
     const jarvisHome = require(path.join(backend, "Home.js")).guard(jarvis);
     const homeGate = async (Files, judge = Denied) => {
         for (const name of [...knowledge, "state/handoff.md"]) {

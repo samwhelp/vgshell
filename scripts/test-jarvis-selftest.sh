@@ -590,7 +590,7 @@ workflow_get() { (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/
 # lane_send DIR FILE: the text in FILE sent to the Jarvis session's mailbox
 # in DIR by DIR's own lane-mail.
 lane_send() { # DIR FILE
-  (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/lane-mail send --item overseer --directive \
+  (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/mailbox/scripts/lane-mail send --item overseer --directive \
     --file "$2" --root "$1") >"$tmp/out" 2>"$tmp/err"
 }
 home_untouched() {

@@ -281,7 +281,7 @@ const DICTATION = [
 const FLEET = [
     ["no home chosen", null, null, false, false],
     ["a home without the mail tool", "/h/Jarvis", null, true, true],
-    ["a home with the mail tool", "/h/Jarvis", "/h/Jarvis/.agents/skills/orch/scripts/lane-mail", true, false]
+    ["a home with the mail tool", "/h/Jarvis", "/h/Jarvis/.agents/skills/mailbox/scripts/lane-mail", true, false]
 ];
 // The Cloned voice setup row (VGS-1385): [label, setup-local's clone status
 // answer, the voice the daemon runs, the published row's tone and action,
@@ -2191,7 +2191,7 @@ try {
             return [result.status, result.status === 0 ? result.stdout : result.stderr];
         };
         const folder = path.join(scratch, "Jarvis");
-        const tool = path.join(folder, ".agents/skills/orch/scripts/lane-mail");
+        const tool = path.join(folder, ".agents/skills/mailbox/scripts/lane-mail");
         for (const setting of ["", "Jarvis"]) {
             assert.equal(status(setting), "hidden", JSON.stringify(setting) + ": no home, no row");
             assert.deepEqual(answer("folder", setting), [1, "jarvis: fleet-setup=home-unchosen\n"]);

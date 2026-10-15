@@ -310,6 +310,10 @@ async function inside() {
         assert.equal(fs.existsSync("/etc/vgs-jarvis-home"), false);
         cases++;
     }
+    const fleet = require("./fixtures/jarvis/fleet.js");
+    await fleet.verify(daemon, tree, hello);
+    await control("fleet-first-hello", "                if (first) startFleetCutover();", "                startFleetCutover();", file => fleet.verify(file, tree, hello));
+    await control("fleet-selected-home", "            if (Home.resolve(context.settings.home, process.env.HOME) !== target) return;", "", file => fleet.verify(file, tree, hello));
     await homeStatus(daemon);
     await control("home-layout", "            Home.layout(folder);\n", "", homeStatus);
     await control("voices-write", 'write({ v: 1, type: "voices", gen: runner.state.gen, revision: context.revision, voices });', "void voices;", homeStatus);

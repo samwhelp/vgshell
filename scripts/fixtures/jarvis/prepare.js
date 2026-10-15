@@ -64,7 +64,7 @@ function freshSuite(tree, suite, root) {
         "shell/plugins/vgs.jarvis/backend/session-runner.js",
         "shell/plugins/vgs.jarvis/backend/jarvisd.js", "shell/plugins/vgs.jarvis/backend/Tasks.js",
         "shell/plugins/vgs.jarvis/backend/task-event", "shell/plugins/vgs.jarvis/manifest.json",
-        "scripts/fixtures/jarvis/scripted.js", "shell/plugins/vgs.jarvis/backend/Audio.js",
+        "scripts/fixtures/jarvis/scripted.js", "scripts/fixtures/jarvis/fleet.js", "shell/plugins/vgs.jarvis/backend/Audio.js",
         "shell/plugins/vgs.jarvis/backend/audio-child.py", "scripts/fixtures/jarvis/audio.js",
         "scripts/fixtures/jarvis/audio-tool.py", "scripts/fixtures/jarvis/desktop.js", "scripts/fixtures/jarvis/desktop-driver.js", "scripts/fixtures/jarvis/desktop-tool.py",
         "scripts/fixtures/jarvis/vision.js", "scripts/fixtures/jarvis/vision-tool.py",

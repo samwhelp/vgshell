@@ -100,7 +100,7 @@ world(async () => {
     function fleetHome() {
         const fixture = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "fleet-"));
         const folder = fs.mkdtempSync(path.join(fixtures.home, "jarvis-home-"));
-        const tool = path.join(folder, ".agents/skills/orch/scripts/lane-mail");
+        const tool = path.join(folder, ".agents/skills/mailbox/scripts/lane-mail");
         const box = path.join(fixture, "box");
         const script = `#!/bin/bash
 set -eu

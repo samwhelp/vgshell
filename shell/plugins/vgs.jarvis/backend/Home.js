@@ -79,10 +79,10 @@ const HOMES = 10;
 const OFFER_VALUE_MAX = 200;
 const OFFER_LABEL_MAX = 60;
 // The program of the home a brain's action starts: lane-mail, which kendex
-// installs here with its orch skill, writes the Jarvis session's mailbox
-// (D105). It runs the orch skill's own scripts and the home's kendex
+// installs here with its mailbox skill, writes the Jarvis session's mailbox
+// (D105). It runs the mailbox skill's own scripts and the home's kendex
 // settings in turn; Jarvis starts no other path of the home.
-const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";
+const MAIL_TOOL = ".agents/skills/mailbox/scripts/lane-mail";
 // The home's own repository entry: a folder, or a file for a worktree.
 // lane-mail takes the repository its working folder belongs to, so without
 // one it would take a repository the home lies inside, and that one's
@@ -974,6 +974,52 @@ function mailTool(home) {
     });
 }
 
+// Only absence permits cutover. A refused canonical entry must never turn
+// an executable refusal into permission to install over the home.
+function mailCutover(home) {
+    if (mailTool(home) !== null) return "ready";
+    const fd = hold(home, false);
+    try {
+        const entry = name => along(fd, name.split("/").slice(0, -1), false, chain =>
+            chain === null ? "absent" : kindOf(chain[chain.length - 1], path.basename(name)));
+        if (!["absent", "file", "directory"].includes(kindOf(fd, OWN_REPOSITORY))) return "refused";
+        if (entry(MAIL_TOOL) !== "absent") return "refused";
+        const old = [".agents", "skills", "orch", "scripts", "lane-mail"].join("/");
+        return entry(old) === "file" ? "eligible" : "ineligible";
+    } finally { fs.closeSync(fd); }
+}
+
+// The consumed record is outside model-writable state and outside the package
+// release record. A partial record consumes the attempt too, by refusing it.
+function consumeMailCutover(home) {
+    const fd = hold(home, false);
+    const name = ".vgs-mailbox-cutover.json";
+    try {
+        const kind = kindOf(fd, name);
+        if (kind !== "absent") {
+            if (kind !== "file") fail("cutover-record");
+            const record = fs.openSync(Core.anchored().child(fd, name), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+            try {
+                const content = bytes(record, 128);
+                if (content.toString("utf8") !== '{"consumed":true}\n') fail("cutover-record");
+            } finally { fs.closeSync(record); }
+            return false;
+        }
+        const record = fs.openSync(Core.anchored().child(fd, name), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
+        try {
+            fs.writeFileSync(record, '{"consumed":true}\n');
+            fs.fsyncSync(record);
+        } finally { fs.closeSync(record); }
+        fs.fsyncSync(fd);
+        return true;
+    } catch (error) {
+        if (/^jarvis: home=/.test(error.message)) throw error;
+        fail("cutover-record");
+    } finally {
+        try { fs.closeSync(fd); } catch { fail("cutover-record"); }
+    }
+}
+
 /**
  * The absolute path of the home's Jarvis session command, SESSION_COMMAND
  * reached through no link and a regular file with its owner's execute bit;
@@ -994,4 +1040,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, release, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailbox, sessionCommand, directory };
+module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, release, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailCutover, consumeMailCutover, mailbox, sessionCommand, directory };

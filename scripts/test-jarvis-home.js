@@ -154,7 +154,7 @@ function kendexStamps(folder) {
     return stamps(folder, [LOCK, ...names]);
 }
 // The kendex mail tool in a home, where kendex's orch skill installs it.
-const TOOL = ".agents/skills/orch/scripts/lane-mail";
+const TOOL = ".agents/skills/mailbox/scripts/lane-mail";
 // The package's declaration in the two release forms kendex shipped: v1.18,
 // whose front matter names mailbox and seven agents, and PR 4907, whose
 // front matter adds orch and whose catalog bundles the package with hooks.
@@ -813,9 +813,11 @@ world(() => {
                 fs.mkdirSync(path.dirname(path.join(folder, entry)), { recursive: true });
                 fs.writeFileSync(path.join(folder, entry), "#!/bin/sh\n", { mode });
             };
-            assert.equal(Home.mailTool(folder), null, "a home without kendex");
+            fs.rmSync(path.join(folder, TOOL), { force: true });
+            assert.equal(Home.mailTool(folder), null, "a home without the canonical mail tool");
             for (const entry of ["skills/own/lane-mail", ".agents/skills/orch/scripts/workflow-state", ".agents/skills/other/scripts/lane-mail",
-                ".agents/skills/orch/lane-mail", "lane-mail", "state/lane-mail"]) {
+                ".agents/skills/orch/lane-mail", ".agents/skills/mailbox/scripts/other-tool",
+                [".agents", "skills", "orch", "scripts", "lane-mail"].join("/"), "lane-mail", "state/lane-mail"]) {
                 plant(entry);
                 assert.equal(Home.mailTool(folder), null, entry + " is no program of the home");
             }
@@ -834,10 +836,56 @@ world(() => {
             fs.symlinkSync(path.join(outside, "scripts/lane-mail"), path.join(folder, TOOL));
             assert.equal(Home.mailTool(folder), null, "a link in the tool's place");
             fs.rmSync(path.join(folder, TOOL));
-            fs.rmSync(path.join(folder, ".agents/skills/orch/scripts"), { recursive: true });
-            fs.symlinkSync(path.join(outside, "scripts"), path.join(folder, ".agents/skills/orch/scripts"));
+            fs.rmSync(path.join(folder, ".agents/skills/mailbox/scripts"), { recursive: true });
+            fs.symlinkSync(path.join(outside, "scripts"), path.join(folder, ".agents/skills/mailbox/scripts"));
             assert.equal(Home.mailTool(folder), null, "a linked folder on the way");
             assert.equal(Home.mailTool(path.join(folder, "absent")), null, "a home that is not there");
+        },
+        cutover(Home) {
+            const legacy = [".agents", "skills", "orch", "scripts", "lane-mail"].join("/");
+            for (const [name, plant, expected] of [
+                ["old-only", () => {}, "eligible"],
+                ["canonical", at => write(at, TOOL, "#!/bin/sh\n", 0o755), "ready"],
+                ["canonical-no-execute", at => write(at, TOOL, "#!/bin/sh\n", 0o644), "refused"],
+                ["canonical-directory", at => fs.mkdirSync(path.join(at, TOOL), { recursive: true }), "refused"],
+                ["canonical-link", at => { fs.mkdirSync(path.dirname(path.join(at, TOOL)), { recursive: true });
+                    fs.symlinkSync(path.join(at, legacy), path.join(at, TOOL)); }, "refused"]]) {
+                const folder = fresh();
+                write(folder, legacy, "#!/bin/sh\nexit 99\n", 0o755);
+                fs.mkdirSync(path.join(folder, ".git"));
+                plant(folder);
+                assert.equal(Home.mailCutover(folder), expected, name);
+            }
+            const folder = fresh();
+            fs.mkdirSync(folder, { recursive: true });
+            assert.equal(Home.mailCutover(folder), "ineligible");
+            assert.equal(Home.consumeMailCutover(folder), true);
+            assert.equal(Home.consumeMailCutover(folder), false, "a second process cannot restore eligibility");
+            Home.release(folder);
+            assert.equal(Home.consumeMailCutover(folder), false, "package release keeps the record");
+            fsFault("readSync", () => { throw Object.assign(new Error("planted read failure"), { code: "EIO" }); },
+                () => keyed(() => Home.consumeMailCutover(folder), "cutover-record"));
+            for (const content of ["", "{", '{"consumed":false}\n', "x".repeat(129)]) {
+                fs.writeFileSync(path.join(folder, ".vgs-mailbox-cutover.json"), content);
+                keyed(() => Home.consumeMailCutover(folder), "cutover-record");
+            }
+            for (const method of ["writeFileSync", "fsyncSync", "closeSync"]) {
+                const target = fresh();
+                fs.mkdirSync(target, { recursive: true });
+                let cut = false;
+                fsFault(method, (original, ...args) => {
+                    if (!cut && (method !== "closeSync" || fs.readlinkSync("/proc/self/fd/" + args[0]).endsWith("/.vgs-mailbox-cutover.json"))) { cut = true; if (method === "closeSync") original(...args);
+                        throw Object.assign(new Error("planted record fault"), { code: "EIO" }); }
+                    return original(...args);
+                }, () => keyed(() => Home.consumeMailCutover(target), "cutover-record"));
+                assert.equal(cut, true, method + " reached the durable writer");
+                assert.equal(fs.existsSync(path.join(target, ".vgs-mailbox-cutover.json")), true);
+            }
+            fs.rmSync(path.join(folder, ".vgs-mailbox-cutover.json"));
+            const outside = fresh();
+            write(outside, "marker", '{"consumed":true}\n');
+            fs.symlinkSync(path.join(outside, "marker"), path.join(folder, ".vgs-mailbox-cutover.json"));
+            keyed(() => Home.consumeMailCutover(folder), "cutover-record");
         },
         // lane-mail takes the repository its working folder belongs to, so
         // the tool counts only in a home that is its own repository: one
@@ -1306,7 +1354,9 @@ world(() => {
         ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")],
         ["notes-list-kind", 'if (!stat.isFile() || !entry.name.endsWith(".md") || !Tools.memoryNote(id)) continue;', 'if (!stat.isFile()) continue;', "notesList"],
         ["notes-list-bound", 'if (found.length > NOTE_ENTRIES) fail("notes-too-many");', "", "notesList"],
-        ["tool-entry", 'const MAIL_TOOL = ".agents/skills/orch/scripts/lane-mail";', 'const MAIL_TOOL = "skills/own/lane-mail";', "mailTool"],
+        ["cutover-consumed", '            return false;\n        }\n        const record =', '            return true;\n        }\n        const record =', "cutover"],
+        ["cutover-canonical", 'if (entry(MAIL_TOOL) !== "absent") return "refused";', '', "cutover"],
+        ["tool-entry", 'const MAIL_TOOL = ".agents/skills/mailbox/scripts/lane-mail";', 'const MAIL_TOOL = "skills/own/lane-mail";', "mailTool"],
         ["tool-execute", " && (stat.mode & 0o100) !== 0", "", "mailTool"],
         ["tool-file", "stat.isFile() && (stat.mode", "(stat.mode", "mailTool"],
         ["own-repository", "    if (own !== true) return null;\n", "", "ownRepository"],

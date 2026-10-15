@@ -666,6 +666,9 @@ cases=(
   "jarvis-measure|shell/plugins/vgs.jarvis/measure-local|tools|$jarvis_local_tools_plan"
   "jarvis-clip|shell/plugins/vgs.jarvis/fixtures/probe.wav|tools|$jarvis_local_tools_plan"
   "jarvis-daemon-not-local-models|shell/plugins/vgs.jarvis/backend/jarvisd.js|tools|python3 scripts/check-readme-images.py"$'\npython3 scripts/test-jarvis-local.py\nscripts/test-jarvis-selftest.sh\nscripts/test-validate.sh'
+  "jarvis-mailbox-reader|.agents/skills/mailbox/scripts/lane-mail|tools|scripts/test-jarvis-selftest.sh"
+  "jarvis-mailbox-library|.agents/skills/mailbox/scripts/lib/lane-mail-store.py|tools|scripts/test-jarvis-selftest.sh"
+  "jarvis-workflow-state|.agents/skills/orch/scripts/workflow-state|tools|scripts/test-jarvis-selftest.sh"
   "jarvis-browser-daemon-input|shell/plugins/vgs.jarvis/backend/jarvisd.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-browser-suite|scripts/test-jarvis-browser.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"$repo_plan"
   "jarvis-browser-setup-suite|scripts/test-jarvis-browser-setup.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-browser-setup.js"$'\n'"$repo_plan"

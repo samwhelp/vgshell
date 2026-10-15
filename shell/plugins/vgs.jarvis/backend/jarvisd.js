@@ -48,6 +48,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const { Accounts, accountRoots } = require("./Accounts.js");
     const Denied = require("./Denied.js");
     const Home = require("./Home.js");
+    const FleetSetup = require("./fleet-setup.js");
     const Guidance = require("./Guidance.js");
     const { load } = require(path.join(process.argv[3], "bin/lib/qml-library.js"));
     const { commandFile, onPath } = require(path.join(process.argv[3], "bin/lib/judge-files.js"));
@@ -85,6 +86,32 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     // setting names, or null, and state what the engine and help read.
     let homeFolder = { path: null, state: { kind: "none" } };
     let homes = [];
+    let fleetSetup = Promise.resolve();
+    const fleetController = new AbortController();
+
+    function startFleetCutover() {
+        if (homeFolder.state.kind !== "ready") return;
+        const target = homeFolder.state.path;
+        // Only first hello produces an automatic attempt. The lock owner
+        // rechecks eligibility before it consumes the durable record.
+        try { if (Home.mailCutover(target) !== "eligible") return; }
+        catch (error) {
+            process.stderr.write("jarvis: fleet-setup=refused " + error.message + "\n");
+            return;
+        }
+        fleetSetup = FleetSetup.install(process.argv[3], target, true, process.env, fleetController.signal).then(result => {
+            if (ending) return;
+            if (result.kind !== "exited" || result.code !== 0) {
+                const key = result.kind === "exited" ? result.code === 75 ? "busy" : "install-failed" : result.reason;
+                process.stderr.write("jarvis: fleet-setup=" + key + "\n");
+                if (result.stderr) process.stderr.write(result.stderr);
+            }
+            if (Home.resolve(context.settings.home, process.env.HOME) !== target) return;
+            judgeSetup();
+        }).catch(error => {
+            if (!ending) process.stderr.write("jarvis: fleet-setup=refused " + error.message + "\n");
+        });
+    }
 
     // Each judgement names the folder again and creates what it lacks; a
     // refused folder holds the engine with its keyed cause, and the gate
@@ -149,6 +176,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     }
 
     function teardown() {
+        fleetController.abort();
         if (voice !== null) voice.close();
         // The bridge ends its connections while the router can still drop their results.
         if (bridge !== null) bridge.close();
@@ -686,6 +714,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 }
                 if (first && readMute()) runner.dispatch({ type: "mute" });
                 judgeSetup();
+                if (first) startFleetCutover();
                 if (memory !== null) writeMemoryInbox();
                 if (first) void audio.discover().catch(error => {
                     if (!ending) audio.fault(error.message);
@@ -705,7 +734,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         refuse(74, "jarvis: " + channel + "=" + error.code);
         // Node's standard output can retain a blocked write after destroy.
         // Audio exits first; a failed pipe cannot keep the daemon alive.
-        void released.then(() => process.exit(74));
+        void Promise.all([released, fleetSetup]).then(() => process.exit(74));
     }
     process.stdout.on("error", error => ioFailed("stdout", error));
     process.stdin.on("error", error => ioFailed("stdin", error));
@@ -714,7 +743,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (ending) return;
         ending = true;
         teardown();
-        void audio.close("lease").then(() => process.exit(process.exitCode ?? 0));
+        void Promise.all([audio.close("lease"), fleetSetup]).then(() => process.exit(process.exitCode ?? 0));
     }
     process.once("SIGTERM", terminate);
     process.once("SIGINT", terminate);

@@ -30,6 +30,9 @@
 # while the voice resolves Local, and offers nothing with Realtime chosen.
 # A successful Remove recording run turns the Cloned voice setting off, so
 # the setting and attached state agree.
+# The fleet reader checks again when the daemon publishes homes after setup,
+# without a settings write, requirement scan or terminal completion. A copy
+# that drops that refresh retains its earlier optional reading.
 # inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
@@ -829,6 +832,72 @@ expect "Check microphone can check a silent source" ok ipc vgs.jarvis invoke che
 expect_poll "an all-zero stand-in source is silent" silent setup_check_result
 expect_poll "Voice gives the default microphone's Settings path in full" '["warning", "Muted or silent", "The default microphone is muted or sends silence: [check it in System > Sound](page:vgs.sound)", "check-microphone"]' setup_check_row
 rm -f -- "${setup_check_home:?}/capture-silent"
+
+# The daemon's installer and its completion publication have their backend
+# controls. Replay its accepted homes message here to isolate the shell's
+# refresh consumer, using the real read-only fleet status command.
+setup_fleet_home="$home/Setup Fleet"
+setup_fleet_tool="$setup_fleet_home/.agents/skills/mailbox/scripts/lane-mail"
+setup_fleet_before="$(python3 - "$setup_config" <<'PYHOME'
+import json,sys
+row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id")=="vgs.jarvis"),{})
+print(json.dumps({"id":"vgs.jarvis","key":"home","value":row.get("home","")}))
+PYHOME
+)" || { fail "the fleet refresh case cannot read the previous home setting"; return 1; }
+mkdir -p -- "$setup_fleet_home/.git" "${setup_fleet_tool%/*}"
+cp -- "$setup_service" "$sandbox/setup-fleet-service-original"
+setup_fleet_value() {
+  status_row vgs.jarvis setupFleet | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["value"]))'
+}
+setup_fleet_current() {
+  ipc smoke readInstance service vgs.jarvis homeMessage | py_reply 'import json,sys; print(json.load(sys.stdin).get("current","pending"))'
+}
+setup_fleet_publish() {
+  local message
+  message="$(ipc smoke readInstance service vgs.jarvis homeMessage)" || return 1
+  ipc smoke invokeInstance service vgs.jarvis receive "$message"$'\n'
+}
+setup_fleet_optional='{"tone": "info", "text": "Optional", "action": true}'
+setup_fleet_done='{"tone": "ok", "text": "Done", "action": false}'
+expect "select the fleet refresh fixture home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":"~/Setup Fleet"}'
+expect_poll "the daemon accepts the fleet refresh fixture home" '~/Setup Fleet' setup_fleet_current
+expect_poll "without the canonical reader fleet setup is optional" "$setup_fleet_optional" setup_fleet_value
+expect_poll "the fleet reader is idle before its completion message" idle jarvis_setup_reader_idle FleetRuntime
+printf '#!/bin/sh\nexit 99\n' >"$setup_fleet_tool"
+chmod 700 -- "$setup_fleet_tool"
+expect "the accepted homes completion message reaches the service" '' setup_fleet_publish
+expect_poll "homes publication refreshes fleet setup to done" "$setup_fleet_done" setup_fleet_value
+
+rm -- "$setup_fleet_tool"
+python3 - "$setup_service" <<'PYHOME'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='                    fleetRuntime.refresh();'
+assert s.count(needle)==1
+changed=s.replace(needle,'                    if (false) fleetRuntime.refresh();')
+assert changed != s
+p.write_text(changed)
+PYHOME
+jarvis_rescan
+expect_poll "the refresh control accepts its fixture home" '~/Setup Fleet' setup_fleet_current
+expect_poll "the refresh control first reads optional" "$setup_fleet_optional" setup_fleet_value
+expect_poll "the control fleet reader is idle before its completion message" idle jarvis_setup_reader_idle FleetRuntime
+printf '#!/bin/sh\nexit 99\n' >"$setup_fleet_tool"
+chmod 700 -- "$setup_fleet_tool"
+expect "the refresh control receives the same homes publication" '' setup_fleet_publish
+setup_fleet_refresh_control() {
+  (failures=0 behaviour_failures=0
+   expect_poll "homes publication must replace the previous fleet reading" "$setup_fleet_done" setup_fleet_value
+   echo "$failures")
+}
+expect "dropping the homes refresh breaks the fleet consumer read" 1 local_control_count setup_fleet_refresh_control
+cp -- "$sandbox/setup-fleet-service-original" "$setup_service"
+jarvis_rescan
+expect "restore the previous home after the fleet refresh case" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
+rm -rf -- "${setup_fleet_home:?}"
 settings_page_close vgs.jarvis
 jarvis_disable
 rm -f -- "${setup_marker:?}"

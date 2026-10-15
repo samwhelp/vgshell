@@ -294,9 +294,9 @@ world(() => {
     // delete, and only state/ stays the model's. Two levels below HOME, so
     // the account name rule names none of its entries.
     const jarvis = path.join(home, "work/jarvis");
-    for (const name of ["skills/own", "memory/inbox", "state", ".claude", ".codex", "tmp/lane-mail/overseer", ".agents/skills/orch/scripts"]) fs.mkdirSync(path.join(jarvis, name), { recursive: true });
+    for (const name of ["skills/own", "memory/inbox", "state", ".claude", ".codex", "tmp/lane-mail/overseer", ".agents/skills/mailbox/scripts"]) fs.mkdirSync(path.join(jarvis, name), { recursive: true });
     for (const name of ["AGENTS.md", "CLAUDE.md", "README.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml", "state/handoff.md", "tmp/lane-mail/overseer/to-lane.jsonl",
-        ".agents/skills/orch/scripts/lane-mail"])
+        ".agents/skills/mailbox/scripts/lane-mail"])
         fs.writeFileSync(path.join(jarvis, name), "synthetic\n");
     const jarvisHome = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js")).guard(jarvis);
     const homeOptions = { ...options, jarvisHome };
@@ -310,7 +310,7 @@ world(() => {
             ".claude", ".claude/settings.json", ".codex", ".codex/config.toml",
             ".mcp.json", "AGENTS.override.md", "README.md", "notes/plan.md", "state.md", "state-2/log.md",
             "tmp", "tmp/lane-mail/overseer", "tmp/lane-mail/overseer/to-lane.jsonl", "tmp/lane-mail/overseer/new.jsonl",
-            ".agents", ".agents/skills/orch/scripts/lane-mail"])
+            ".agents", ".agents/skills/mailbox/scripts/lane-mail"])
             for (const role of roles) refused(judge, path.join(jarvis, name), role, "protected-path");
         for (const role of roles) refused(judge, jarvis, role, "protected-path");
         for (const role of roles.filter(role => role !== "read")) refused(judge, path.dirname(jarvis), role, "protected-path");
