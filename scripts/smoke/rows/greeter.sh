@@ -55,13 +55,13 @@ if devices_ready greeter; then
   expect_poll "the greeter service is built" True record_exists vgs.greeter
   expect_poll "vgs.greeter holds the system capability" '["vgs.greeter"]' greeter_holders
   expect_poll "the capability lends the greeter step alone" '{"greeter": {"reason": "greetd-missing", "state": "absent"}}' greeter_lent
-  expect_poll "the service publishes the step's reading" '["info", "Unavailable", false, "Needs greetd. Choose Review all missing or outdated tools on the Tools step to use the login screen."]' greeter_status
+  expect_poll "the service publishes the step's reading" '["info", "Unavailable", false, "Choose Review all missing or outdated tools on the Tools step to install what the login screen needs"]' greeter_status
   expect_poll "the lending record holds the plugin's status keys" '["greeter", "theme"]' greeter_record
   # Control: the status follows the step's reading.
   device_reply systemctl 0 masked show --property=LoadState --value greetd.service
   rescan "a rescan with greetd masked answers ok"
   expect_poll "a masked greetd reads denied in the lending record" '{"greeter": {"reason": "unit-masked", "state": "denied"}}' greeter_lent
-  expect_poll "the service publishes the masked reading" '["info", "Unavailable", false, "The system turned greetd off, and VGS leaves it off. This is for information only."]' greeter_status
+  expect_poll "the service publishes the masked reading" '["info", "Unavailable", false, "The system turned the login screen off, and VGS leaves it off"]' greeter_status
   expect "disabling the greeter plugin is allowed" ok ipc shell setPluginEnabled vgs.greeter false
   expect_poll "no plugin holds system once the greeter is disabled" '[]' greeter_holders
   expect_poll "disable dropped the greeter's status record" null greeter_record

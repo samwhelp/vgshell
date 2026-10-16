@@ -444,14 +444,14 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 // information only.
 var STEP_STATES = ["ready", "needed", "nixos", "absent", "denied", "unknown"];
 var REASON_HINTS = {
-    "greetd-missing": "Needs greetd. Choose Review all missing or outdated tools on the Tools step to use the login screen.",
+    "greetd-missing": "Choose Review all missing or outdated tools on the Tools step to install what the login screen needs",
     "hyprland-missing": "Needs Hyprland, which the login screen runs in. Install Hyprland to use it.",
-    "greeter-user-missing": "Needs the greeter account that greetd's package makes. This is for information only.",
+    "greeter-user-missing": "You cannot set up the login screen on this computer",
     "other-display-manager": "Another login screen is turned on. VGS does not turn it off, so it stays your login screen.",
     "install-untrusted": "The login screen runs only a VGS that a package installed. Install VGS from a package to use it.",
     "install-path-unsupported": "VGS is installed in a folder the login screen cannot use. Install VGS from a package to use it.",
     "other-account": "Another account set up the login screen. Only that account can change it.",
-    "unit-masked": "The system turned greetd off, and VGS leaves it off. This is for information only."
+    "unit-masked": "The system turned the login screen off, and VGS leaves it off"
 };
 function stepState(step) {
     var state = step === null || step === undefined ? "unknown" : step.state;
